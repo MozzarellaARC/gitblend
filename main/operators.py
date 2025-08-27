@@ -71,12 +71,17 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 class GITBLEND_OT_initialize(bpy.types.Operator):
     bl_idname = "gitblend.initialize"
     bl_label = "Initialize Git Blend"
-    bl_description = "Create .gitblend collection, rename existing top collection to 'main', and copy it into .gitblend"
+    bl_description = "Create .gitblend collection, optionally rename existing top collection to preferred name, and copy it into .gitblend"
     bl_options = {'INTERNAL'}  # exclude from undo/redo and search
 
     def execute(self, context):
-        # Access addon properties for logging
+        # Access addon properties for logging and preferred root name
         props = getattr(context.scene, "gitblend_props", None)
+        preferred_root = None
+        if props:
+            preferred_root = (props.root_collection_name or "").strip()
+        if not preferred_root:
+            preferred_root = "main"
 
         scene = context.scene
         root = scene.collection
@@ -87,10 +92,10 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
                 self.report({'ERROR'}, "'.gitblend' collection already exists; initialization aborted.")
                 return {'CANCELLED'}
 
-        # Prefer a top-level collection named 'main' if present; otherwise first non-.gitblend
+        # Prefer a top-level collection named per preference if present; otherwise first non-.gitblend
         existing = None
         for c in list(root.children):
-            if c.name == "main":
+            if c.name == preferred_root:
                 existing = c
                 break
         if not existing:
@@ -106,11 +111,11 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
         # Create .gitblend and exclude it in all view layers
         dot_coll = ensure_gitblend_collection(scene)
 
-        # Rename existing collection to 'main' if needed
-        if existing.name != "main":
-            # Only rename to 'main' if the name is free, otherwise keep existing name
-            if bpy.data.collections.get("main") is None:
-                existing.name = "main"
+        # Rename existing collection to preferred name if needed and available
+        if existing.name != preferred_root:
+            # Only rename if the preferred name is free, otherwise keep existing name
+            if bpy.data.collections.get(preferred_root) is None:
+                existing.name = preferred_root
 
         # Unique id for initialization copies: use constant 'init'
         uid = "init"
@@ -135,7 +140,7 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
         # Request UI redraw so the panel updates immediately
         _gitblend_request_redraw()
 
-        self.report({'INFO'}, "Initialized .gitblend and copied 'main' collection")
+        self.report({'INFO'}, f"Initialized .gitblend and copied '{existing.name}' collection")
         return {'FINISHED'}
 
 def register_operators():

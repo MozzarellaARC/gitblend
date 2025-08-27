@@ -24,6 +24,11 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
         description="Describe the changes to record in the log",
     default=""
     )
+    root_collection_name: bpy.props.StringProperty(
+        name="Root Collection Name",
+        description="Preferred top-level collection name to use during initialization",
+        default="main",
+    )
 
 
 def register_properties():
