@@ -14,6 +14,7 @@ from .utils import (
     find_preferred_or_first_non_dot,
     log_change,
     set_dropdown_selection,
+    ensure_enum_contains,
     sanitize_save_path,
 )
 from .index import (
@@ -68,8 +69,15 @@ class GITBLEND_OT_commit(bpy.types.Operator):
                 except Exception:
                     pass
 
-        # Ensure .gitblend exists (first commit initializes automatically)
-        dot_coll = ensure_gitblend_collection(scene)
+        # Require existing .gitblend created via Initialize
+        dot_coll = None
+        for c in scene.collection.children:
+            if c.name == ".gitblend":
+                dot_coll = c
+                break
+        if not dot_coll:
+            self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
+            return {'CANCELLED'}
 
         # Snapshot-based validation for early skip (keeps logic consistent with validator)
         skip, reason = should_skip_commit(scene, source, sel)
@@ -116,6 +124,18 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
         props = get_props(context)
         if props and not (props.commit_message or "").strip():
             props.commit_message = "Initialize"
+        # Ensure the default/selected branch exists in the enum and is selected
+        if props:
+            branch = (getattr(props, "gitblend_branch", "") or "main").strip() or "main"
+            ensure_enum_contains(props, branch)
+            # Select the branch we just ensured exists
+            try:
+                idx = next((i for i, it in enumerate(props.string_items) if (it.name or "").strip().lower() == branch.lower()), -1)
+            except Exception:
+                idx = -1
+            if idx >= 0:
+                set_dropdown_selection(props, idx)
+            request_redraw()
         # Ensure .gitblend exists up-front for user feedback in UI
         ensure_gitblend_collection(context.scene)
         # Delegate to the Commit operator; first commit will initialize automatically

@@ -15,6 +15,9 @@ class GITBLEND_Panel(bpy.types.Panel):
             layout.label(text="GITBLEND properties not registered.")
             return
 
+        # Detect .gitblend presence for UI state
+        has_gitblend = any(c.name == ".gitblend" for c in scene.collection.children)
+
         # Initialize controls
         row = layout.row(align=True)
         row.operator("gitblend.initialize", text="Initialize", icon='FILE_NEW')
@@ -25,7 +28,10 @@ class GITBLEND_Panel(bpy.types.Panel):
         col.label(text="Commit Message:")
         col.prop(gitblend_props, "commit_message", text="")
         row = col.row(align=True)
+        row.enabled = has_gitblend
         row.operator("gitblend.commit", text="Commit", icon='CHECKMARK')
+        if not has_gitblend:
+            col.label(text="Initialize first to enable committing.", icon='INFO')
 
         # Change log section
         col = layout.column(align=True)
