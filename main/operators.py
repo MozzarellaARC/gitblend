@@ -14,6 +14,7 @@ from .utils import (
     find_preferred_or_first_non_dot,
     log_change,
     set_dropdown_selection,
+    sanitize_save_path,
 )
 from .index import (
     load_index,
@@ -41,6 +42,12 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             return {'CANCELLED'}
 
         scene = context.scene
+
+        # Require a valid saved file path (not drive root)
+        ok, _proj, err = sanitize_save_path()
+        if not ok:
+            self.report({'ERROR'}, err)
+            return {'CANCELLED'}
 
         sel = get_selected_branch(props) or "main"
         msg_slug = slugify(msg)
@@ -99,13 +106,10 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
     bl_options = {'INTERNAL'}  # exclude from undo/redo and search
 
     def execute(self, context):
-        # Require the .blend file to be saved to avoid writing index into an arbitrary working directory
-        try:
-            blend_path = getattr(bpy.data, "filepath", "") or ""
-        except Exception:
-            blend_path = ""
-        if not blend_path:
-            self.report({'ERROR'}, "Please save the .blend file before initializing Git Blend.")
+        # Require the .blend file to be saved and not at drive root
+        ok, _proj, err = sanitize_save_path()
+        if not ok:
+            self.report({'ERROR'}, err)
             return {'CANCELLED'}
 
         # Ensure a sensible default commit message on first run

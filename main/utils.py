@@ -1,4 +1,5 @@
 import bpy
+import os
 from datetime import datetime
 
 
@@ -101,3 +102,25 @@ def set_dropdown_selection(props, index: int) -> None:
         props.selected_string = str(props.string_items_index)
     else:
         props.selected_string = "-1"
+
+
+def sanitize_save_path() -> tuple[bool, str, str]:
+    """Validate that the .blend is saved and not at a drive root.
+
+    Returns (ok, project_dir, error_msg). If ok is True, project_dir is the folder
+    containing the .blend. If False, error_msg contains the reason for failure.
+    """
+    try:
+        blend_path = getattr(bpy.data, "filepath", "") or ""
+    except Exception:
+        blend_path = ""
+    if not blend_path:
+        return False, "", "Please save the .blend file first."
+    try:
+        project_dir = os.path.dirname(os.path.abspath(blend_path))
+        drive, _ = os.path.splitdrive(project_dir)
+        if drive and os.path.normpath(project_dir) == (drive + os.sep):
+            return False, project_dir, "Please save the .blend into a project folder, not the drive root (e.g., C:\\)."
+        return True, project_dir, ""
+    except Exception:
+        return False, "", "Unable to determine project folder from the saved .blend path."
