@@ -4,9 +4,9 @@ from bpy.app.handlers import persistent
 
 
 @persistent
-def _yant_on_save(dummy):
+def _gitblend_on_save(dummy):
 	scene = bpy.context.scene
-	props = getattr(scene, "yant_props", None)
+	props = getattr(scene, "gitblend_props", None)
 	if not props:
 		return
 	ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -14,10 +14,10 @@ def _yant_on_save(dummy):
 	item = props.save_events.add()
 	item.timestamp = ts
 	item.filepath = path
-	_yant_request_redraw()
+	_gitblend_request_redraw()
 
 
-def _yant_request_redraw():
+def _gitblend_request_redraw():
 	"""Tag UI areas for redraw so the panel updates immediately."""
 	wm = getattr(bpy.context, "window_manager", None)
 	if wm:
@@ -36,9 +36,9 @@ def _yant_request_redraw():
 		pass
 	
 def register_draw():
-	if _yant_on_save not in bpy.app.handlers.save_post:
-		bpy.app.handlers.save_post.append(_yant_on_save)
+	if _gitblend_on_save not in bpy.app.handlers.save_post:
+		bpy.app.handlers.save_post.append(_gitblend_on_save)
 		
 def unregister_draw():
-	if _yant_on_save in bpy.app.handlers.save_post:
-		bpy.app.handlers.save_post.remove(_yant_on_save)
+	if _gitblend_on_save in bpy.app.handlers.save_post:
+		bpy.app.handlers.save_post.remove(_gitblend_on_save)

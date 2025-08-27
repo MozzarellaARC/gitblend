@@ -1,0 +1,1 @@
+remove the filepath on the panel and add initialize operator, this initialize operator will creates .gitblend collection and rename the existing collection to main and copy the existing collection into .gitblend
