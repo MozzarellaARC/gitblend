@@ -49,6 +49,36 @@ class GITBLEND_Panel(bpy.types.Panel):
                 row = log_box.row()
                 row.label(text=f"{i+1}. {entry.timestamp} - {entry.message}")
 
+        # Dynamic string list section
+        col = layout.column(align=True)
+        col.label(text="String List:")
+        list_box = col.box()
+        # Show each item as editable row
+        if len(gitblend_props.string_items) == 0:
+            list_box.label(text="No items.", icon='INFO')
+        else:
+            for i, item in enumerate(gitblend_props.string_items):
+                row = list_box.row(align=True)
+                row.prop(item, "name", text=f"{i+1}")
+                op = row.operator("gitblend.string_remove", text="", icon='X')
+                op.index = i
+        # Controls
+        row = col.row(align=True)
+        row.operator("gitblend.string_add", text="Add", icon='ADD')
+
+        # Dropdown showing the dynamic list
+        col = layout.column(align=True)
+        col.label(text="Dropdown:")
+        col.prop(gitblend_props, "selected_string", text="")
+        # Optional: show the chosen value
+        if gitblend_props.selected_string not in {"", "-1"}:
+            try:
+                idx = int(gitblend_props.selected_string)
+                if 0 <= idx < len(gitblend_props.string_items):
+                    col.label(text=f"Selected: {gitblend_props.string_items[idx].name}")
+            except Exception:
+                pass
+
     # No clear actions per request
 
 

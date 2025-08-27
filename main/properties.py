@@ -11,6 +11,28 @@ class GITBLEND_ChangeLogEntry(bpy.types.PropertyGroup):
     timestamp: bpy.props.StringProperty(name="Timestamp")
     message: bpy.props.StringProperty(name="Message")
 
+class GITBLEND_StringItem(bpy.types.PropertyGroup):
+    """Simple string item for dynamic lists."""
+    # Use 'name' so default UI list shows it; editable in panel
+    name: bpy.props.StringProperty(name="Value", default="")
+
+def _string_enum_items(self, context):
+    """Items callback for the dropdown showing current string_items.
+    Returns list of (identifier, name, description) tuples.
+    Identifier uses the index to guarantee uniqueness.
+    """
+    items = []
+    try:
+        for i, it in enumerate(self.string_items):
+            name = it.name or f"Item {i+1}"
+            items.append((str(i), name, name))
+    except Exception:
+        pass
+    if not items:
+        # Provide a dummy option when empty so the UI still draws a dropdown
+        items = [("-1", "<no items>", "No items available")]
+    return items
+
 
 class GITBLEND_Properties(bpy.types.PropertyGroup):
     """Root properties for GITBLEND add-on."""
@@ -29,9 +51,18 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
         description="Preferred top-level collection name to use during initialization",
         default="main",
     )
+    # Dynamic list of strings
+    string_items: bpy.props.CollectionProperty(type=GITBLEND_StringItem)
+    string_items_index: bpy.props.IntProperty(default=0)
+    selected_string: bpy.props.EnumProperty(
+        name="Select",
+        description="Choose one of the string items",
+        items=_string_enum_items,
+    )
 
 
 def register_properties():
+    bpy.utils.register_class(GITBLEND_StringItem)
     bpy.utils.register_class(GITBLEND_SaveEvent)
     bpy.utils.register_class(GITBLEND_ChangeLogEntry)
     bpy.utils.register_class(GITBLEND_Properties)
@@ -42,7 +73,7 @@ def unregister_properties():
     if hasattr(bpy.types.Scene, "gitblend_props"):
         del bpy.types.Scene.gitblend_props
     # Unregister in reverse order of registration to honor dependencies
-    for cls in (GITBLEND_Properties, GITBLEND_ChangeLogEntry, GITBLEND_SaveEvent):
+    for cls in (GITBLEND_Properties, GITBLEND_ChangeLogEntry, GITBLEND_SaveEvent, GITBLEND_StringItem):
         try:
             bpy.utils.unregister_class(cls)
         except RuntimeError:

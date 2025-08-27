@@ -143,11 +143,63 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
         self.report({'INFO'}, f"Initialized .gitblend and copied '{existing.name}' collection")
         return {'FINISHED'}
 
+
+class GITBLEND_OT_string_add(bpy.types.Operator):
+    bl_idname = "gitblend.string_add"
+    bl_label = "Add String Item"
+    bl_description = "Add a new item to the string list"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        props = getattr(context.scene, "gitblend_props", None)
+        if not props:
+            self.report({'ERROR'}, "GITBLEND properties not found")
+            return {'CANCELLED'}
+        item = props.string_items.add()
+        item.name = ""
+        props.string_items_index = len(props.string_items) - 1
+        props.selected_string = str(props.string_items_index)
+        _gitblend_request_redraw()
+        return {'FINISHED'}
+
+
+class GITBLEND_OT_string_remove(bpy.types.Operator):
+    bl_idname = "gitblend.string_remove"
+    bl_label = "Remove String Item"
+    bl_description = "Remove the selected item from the string list"
+    bl_options = {'INTERNAL'}
+    index: bpy.props.IntProperty(default=-1)
+
+    def execute(self, context):
+        props = getattr(context.scene, "gitblend_props", None)
+        if not props:
+            self.report({'ERROR'}, "GITBLEND properties not found")
+            return {'CANCELLED'}
+        idx = self.index if self.index >= 0 else props.string_items_index
+        if 0 <= idx < len(props.string_items):
+            props.string_items.remove(idx)
+            # Adjust index
+            props.string_items_index = max(0, min(idx, len(props.string_items) - 1))
+            # Update dropdown selection
+            if len(props.string_items) > 0:
+                props.selected_string = str(props.string_items_index)
+            else:
+                props.selected_string = "-1"
+            _gitblend_request_redraw()
+            return {'FINISHED'}
+        else:
+            self.report({'WARNING'}, "No item selected")
+            return {'CANCELLED'}
+
 def register_operators():
     bpy.utils.register_class(GITBLEND_OT_commit)
     bpy.utils.register_class(GITBLEND_OT_initialize)
+    bpy.utils.register_class(GITBLEND_OT_string_add)
+    bpy.utils.register_class(GITBLEND_OT_string_remove)
 
 
 def unregister_operators():
+    bpy.utils.unregister_class(GITBLEND_OT_string_remove)
+    bpy.utils.unregister_class(GITBLEND_OT_string_add)
     bpy.utils.unregister_class(GITBLEND_OT_initialize)
     bpy.utils.unregister_class(GITBLEND_OT_commit)
