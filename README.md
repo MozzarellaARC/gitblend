@@ -1,4 +1,6 @@
-# Git Blend Add-on
+# Git Blend / .gitblend
+## Blender Git like version control
+Made for Blender 4.2 to 4.5
 
 Change validation is performed before creating a new snapshot under `.gitblend`:
 
