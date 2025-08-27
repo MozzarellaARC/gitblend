@@ -35,7 +35,10 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             return {'CANCELLED'}
 
         scene = context.scene
-        dot_coll = ensure_gitblend_collection(scene)
+        # Require existing .gitblend collection for commit
+        if ensure_gitblend_collection is None:
+            self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
+            return {'CANCELLED'}
 
         sel = get_selected_branch(props)
         msg_slug = slugify(msg)
@@ -59,7 +62,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         uid = now_str("%Y%m%d%H%M%S")
 
         obj_map: dict[bpy.types.Object, bpy.types.Object] = {}
-        duplicate_collection_hierarchy(source, dot_coll, uid, obj_map)
+        duplicate_collection_hierarchy(source, ensure_gitblend_collection(scene), uid, obj_map)
         remap_parenting(obj_map)
 
         log_change(props, msg)
@@ -138,6 +141,10 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
         props = get_props(context)
         if not props:
             self.report({'ERROR'}, "GITBLEND properties not found")
+            return {'CANCELLED'}
+        # Require existing .gitblend collection
+        if ensure_gitblend_collection:
+            self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
             return {'CANCELLED'}
         item = props.string_items.add()
         item.name = ""
