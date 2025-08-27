@@ -2,33 +2,10 @@ import bpy
 import re
 
 
-def ensure_gitblend_collection(scene: bpy.types.Scene) -> bpy.types.Collection:
-	"""Find or create the hidden .gitblend collection under the scene root."""
-	root = scene.collection
-	for c in root.children:
-		if c.name == ".gitblend":
-			return c
-	coll = bpy.data.collections.new(".gitblend")
-	root.children.link(coll)
-	exclude_collection_in_all_view_layers(scene, coll)
-	return coll
 
 
-def exclude_collection_in_all_view_layers(scene: bpy.types.Scene, coll: bpy.types.Collection) -> None:
-	"""Exclude the given collection in all scene view layers."""
-	def find_layer_collection(layer_coll, target_coll):
-		if layer_coll.collection == target_coll:
-			return layer_coll
-		for child in layer_coll.children:
-			found = find_layer_collection(child, target_coll)
-			if found:
-				return found
-		return None
 
-	for vl in scene.view_layers:
-		lc = find_layer_collection(vl.layer_collection, coll)
-		if lc:
-			lc.exclude = True
+
 
 
 def slugify(text: str, max_len: int = 50) -> str:
