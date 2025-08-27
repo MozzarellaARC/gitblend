@@ -168,6 +168,12 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
         scene = context.scene
         root = scene.collection  # "Scene Collection"
 
+        # If .gitblend already exists, abort with an error but keep the button enabled
+        for c in root.children:
+            if c.name == ".gitblend":
+                self.report({'ERROR'}, "'.gitblend' collection already exists; initialization aborted.")
+                return {'CANCELLED'}
+
         # Prefer a top-level collection named 'main' if present; otherwise first non-.gitblend
         existing = None
         for c in list(root.children):
@@ -184,15 +190,9 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
             self.report({'WARNING'}, "No top-level collection to initialize")
             return {'CANCELLED'}
 
-        # Ensure .gitblend collection exists under root
-        dot_coll = None
-        for c in root.children:
-            if c.name == ".gitblend":
-                dot_coll = c
-                break
-        if not dot_coll:
-            dot_coll = bpy.data.collections.new(".gitblend")
-            root.children.link(dot_coll)
+        # Create .gitblend collection under root (we already ensured it doesn't exist)
+        dot_coll = bpy.data.collections.new(".gitblend")
+        root.children.link(dot_coll)
 
         # Exclude .gitblend from all view layers by default
         def find_layer_collection(layer_coll, target_coll):
