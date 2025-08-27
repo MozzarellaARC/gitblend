@@ -6,7 +6,6 @@ class GITBLEND_Panel(bpy.types.Panel):
     bl_category = "Git Blend"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "Git Blend"
 
     def draw(self, context):
         layout = self.layout

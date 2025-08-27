@@ -1,7 +1,12 @@
 import bpy
 from datetime import datetime
-import uuid
-import re
+from .validate import (
+    ensure_gitblend_collection,
+    slugify,
+    duplicate_collection_hierarchy,
+    remap_parenting,
+)
+from .draw import _gitblend_request_redraw
 
 
 class GITBLEND_OT_commit(bpy.types.Operator):
@@ -21,106 +26,30 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         if not msg:
             self.report({'ERROR'}, "Please enter a commit message before committing.")
             return {'CANCELLED'}
-
+        
         scene = context.scene
-        root = scene.collection  # Scene Collection
-
-        # Ensure .gitblend collection exists under root
-        dot_coll = None
-        for c in root.children:
-            if c.name == ".gitblend":
-                dot_coll = c
-                break
-        if not dot_coll:
-            dot_coll = bpy.data.collections.new(".gitblend")
-            root.children.link(dot_coll)
-
-        # Exclude .gitblend from all view layers by default
-        def find_layer_collection(layer_coll, target_coll):
-            if layer_coll.collection == target_coll:
-                return layer_coll
-            for child in layer_coll.children:
-                found = find_layer_collection(child, target_coll)
-                if found:
-                    return found
-            return None
-
-        for vl in scene.view_layers:
-            lc = find_layer_collection(vl.layer_collection, dot_coll)
-            if lc:
-                lc.exclude = True
+        root = scene.collection
+        dot_coll = ensure_gitblend_collection(scene)
 
         # Unique id for this commit: use commit message slug; fallback to timestamp if empty
-        def slugify(text: str) -> str:
-            s = text.strip().lower()
-            # replace non-alphanumeric with '-'
-            s = ''.join(ch if ch.isalnum() else '-' for ch in s)
-            s = re.sub(r'-+', '-', s).strip('-')
-            return s[:50] if s else ""
-
         uid = slugify(msg)
         if not uid:
             # If slug is empty due to symbols-only message, fallback to timestamp
             uid = datetime.now().strftime("%Y%m%d%H%M%S")
 
-        def unique_coll_name(base: str) -> str:
-            candidate = f"{base}_{uid}"
-            if bpy.data.collections.get(candidate) is None:
-                return candidate
-            i = 1
-            while bpy.data.collections.get(f"{candidate}-{i}") is not None:
-                i += 1
-            return f"{candidate}-{i}"
-
         # Keep a map of original->duplicate to later remap parenting
         obj_map: dict[bpy.types.Object, bpy.types.Object] = {}
-
-        def unique_obj_name(base: str) -> str:
-            base_uid = f"{base}_{uid}"
-            if bpy.data.objects.get(base_uid) is None:
-                return base_uid
-            i = 1
-            while bpy.data.objects.get(f"{base_uid}-{i}") is not None:
-                i += 1
-            return f"{base_uid}-{i}"
-
-        # Copy the collection hierarchy creating unique object and data copies
-        def copy_collection(src: bpy.types.Collection, parent: bpy.types.Collection):
-            new_name = unique_coll_name(src.name)
-            new_coll = bpy.data.collections.new(new_name)
-            parent.children.link(new_coll)
-            # Duplicate objects with unique data
-            for obj in src.objects:
-                dup = obj.copy()
-                # Make object data single-user copy when applicable (e.g., mesh, curve, camera, etc.)
-                if getattr(obj, "data", None) is not None:
-                    try:
-                        dup.data = obj.data.copy()
-                    except Exception:
-                        pass
-                dup.name = unique_obj_name(obj.name)
-                new_coll.objects.link(dup)
-                obj_map[obj] = dup
-            # Recurse for child collections
-            for child in src.children:
-                copy_collection(child, new_coll)
-            return new_coll
 
         # Copy all top-level collections except .gitblend
         copied_any = False
         for top in list(root.children):
             if top.name == ".gitblend":
                 continue
-            copy_collection(top, dot_coll)
+            duplicate_collection_hierarchy(top, dot_coll, uid, obj_map)
             copied_any = True
 
         # Remap parenting to use duplicated parents when available
-        for orig, dup in list(obj_map.items()):
-            if orig.parent and orig.parent in obj_map:
-                try:
-                    dup.parent = obj_map[orig.parent]
-                except Exception:
-                    pass
+        remap_parenting(obj_map)
 
         # Log commit entry
         item = props.changes_log.add()
@@ -129,10 +58,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         props.commit_message = ""
 
         # Redraw UI
-        try:
-            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-        except Exception:
-            pass
+        _gitblend_request_redraw()
 
         if copied_any:
             self.report({'INFO'}, "Commit snapshot created in .gitblend")
@@ -141,19 +67,6 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             self.report({'WARNING'}, "No top-level collections to copy")
             return {'CANCELLED'}
 
-
-class GITBLEND_OT_clear_change_log(bpy.types.Operator):
-    bl_idname = "gitblend.clear_change_log"
-    bl_label = "Clear Change Log"
-    bl_description = "Clear all entries in the change log"
-    bl_options = {'INTERNAL'}
-
-    def execute(self, context):
-        props = getattr(context.scene, "gitblend_props", None)
-        if props:
-            props.changes_log.clear()
-        self.report({'INFO'}, "GITBLEND change log cleared")
-        return {'FINISHED'}
 
 class GITBLEND_OT_initialize(bpy.types.Operator):
     bl_idname = "gitblend.initialize"
@@ -166,7 +79,7 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
         props = getattr(context.scene, "gitblend_props", None)
 
         scene = context.scene
-        root = scene.collection  # "Scene Collection"
+        root = scene.collection
 
         # If .gitblend already exists, abort with an error but keep the button enabled
         for c in root.children:
@@ -190,24 +103,8 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
             self.report({'WARNING'}, "No top-level collection to initialize")
             return {'CANCELLED'}
 
-        # Create .gitblend collection under root (we already ensured it doesn't exist)
-        dot_coll = bpy.data.collections.new(".gitblend")
-        root.children.link(dot_coll)
-
-        # Exclude .gitblend from all view layers by default
-        def find_layer_collection(layer_coll, target_coll):
-            if layer_coll.collection == target_coll:
-                return layer_coll
-            for child in layer_coll.children:
-                found = find_layer_collection(child, target_coll)
-                if found:
-                    return found
-            return None
-
-        for vl in scene.view_layers:
-            lc = find_layer_collection(vl.layer_collection, dot_coll)
-            if lc:
-                lc.exclude = True
+        # Create .gitblend and exclude it in all view layers
+        dot_coll = ensure_gitblend_collection(scene)
 
         # Rename existing collection to 'main' if needed
         if existing.name != "main":
@@ -218,58 +115,12 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
         # Unique id for initialization copies: use constant 'init'
         uid = "init"
 
-        def unique_coll_name(base: str) -> str:
-            candidate = f"{base}_{uid}"
-            if bpy.data.collections.get(candidate) is None:
-                return candidate
-            # Extremely unlikely due to uid, but fall back to numbered suffix
-            i = 1
-            while bpy.data.collections.get(f"{candidate}-{i}") is not None:
-                i += 1
-            return f"{candidate}-{i}"
-
         # Keep a map of original->duplicate to later remap parenting
         obj_map: dict[bpy.types.Object, bpy.types.Object] = {}
-
-        def unique_obj_name(base: str) -> str:
-            base_uid = f"{base}_{uid}"
-            if bpy.data.objects.get(base_uid) is None:
-                return base_uid
-            i = 1
-            while bpy.data.objects.get(f"{base_uid}-{i}") is not None:
-                i += 1
-            return f"{base_uid}-{i}"
-
-        # Copy the collection hierarchy into .gitblend creating unique object and data copies
-        def copy_collection(src: bpy.types.Collection, parent: bpy.types.Collection):
-            new_name = unique_coll_name(src.name)
-            new_coll = bpy.data.collections.new(new_name)
-            parent.children.link(new_coll)
-            # Duplicate objects with unique data
-            for obj in src.objects:
-                dup = obj.copy()
-                if getattr(obj, "data", None) is not None:
-                    try:
-                        dup.data = obj.data.copy()
-                    except Exception:
-                        pass
-                dup.name = unique_obj_name(obj.name)
-                new_coll.objects.link(dup)
-                obj_map[obj] = dup
-            # Recurse for child collections
-            for child in src.children:
-                copy_collection(child, new_coll)
-            return new_coll
-
-        copy_collection(existing, dot_coll)
+        duplicate_collection_hierarchy(existing, dot_coll, uid, obj_map)
 
         # Remap parenting to use duplicated parents when available
-        for orig, dup in list(obj_map.items()):
-            if orig.parent and orig.parent in obj_map:
-                try:
-                    dup.parent = obj_map[orig.parent]
-                except Exception:
-                    pass
+        remap_parenting(obj_map)
 
         # Log initialize entry so it shows in the panel change log
         try:
@@ -282,10 +133,7 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
             pass
 
         # Request UI redraw so the panel updates immediately
-        try:
-            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-        except Exception:
-            pass
+        _gitblend_request_redraw()
 
         self.report({'INFO'}, "Initialized .gitblend and copied 'main' collection")
         return {'FINISHED'}
