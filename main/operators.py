@@ -2,8 +2,6 @@ import bpy
 from .validate import (
     ensure_gitblend_collection,
     slugify,
-    duplicate_collection_hierarchy,
-    remap_parenting,
     get_latest_snapshot,
     create_diff_snapshot_with_changes,
 )
@@ -14,7 +12,6 @@ from .utils import (
     get_selected_branch,
     find_preferred_or_first_non_dot,
     log_change,
-    ensure_enum_contains,
     set_dropdown_selection,
 )
 from .index import (
@@ -45,13 +42,8 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             return {'CANCELLED'}
 
         scene = context.scene
-        # Require existing .gitblend collection for commit
-        has_gitblend = any(c.name == ".gitblend" for c in scene.collection.children)
-        if not has_gitblend:
-            self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
-            return {'CANCELLED'}
 
-        sel = get_selected_branch(props)
+        sel = get_selected_branch(props) or "main"
         msg_slug = slugify(msg)
         base_name = f"{sel}-{msg_slug}" if msg_slug else sel
 
@@ -70,6 +62,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
                 except Exception:
                     pass
 
+        # Ensure .gitblend exists (first commit initializes automatically)
         dot_coll = ensure_gitblend_collection(scene)
 
         # Compute signatures and compare with TOML index for early decision
@@ -90,7 +83,6 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         # Differential snapshot: provide changed names from TOML to avoid recomputing and ensure parity
         changed_set = set(changed_names)
         new_coll, obj_map = create_diff_snapshot_with_changes(source, dot_coll, uid, prev, changed_set)
-        # remap_parenting only needed for newly copied objects; handled inside create_diff_snapshot
 
         # Update TOML index
         snapshot_name = new_coll.name
@@ -112,55 +104,8 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
     bl_options = {'INTERNAL'}  # exclude from undo/redo and search
 
     def execute(self, context):
-        props = get_props(context)
-        root_branch = None
-        if props:
-            ensure_enum_contains(props, "main")
-            if len(props.string_items) > 0:
-                nm = (props.string_items[0].name or "").strip()
-                if nm:
-                    root_branch = nm
-            if not root_branch:
-                root_branch = (props.gitblend_branch or "").strip()
-        if not root_branch:
-            root_branch = "main"
-
-        scene = context.scene
-        for c in scene.collection.children:
-            if c.name == ".gitblend":
-                self.report({'ERROR'}, "'.gitblend' collection already exists; initialization aborted.")
-                return {'CANCELLED'}
-
-        existing = find_preferred_or_first_non_dot(scene, root_branch)
-        if not existing:
-            self.report({'WARNING'}, "No top-level collection to initialize")
-            return {'CANCELLED'}
-
-        dot_coll = ensure_gitblend_collection(scene)
-
-        if existing.name != root_branch:
-            same = bpy.data.collections.get(root_branch)
-            if same and same is not existing:
-                existing = same
-            else:
-                try:
-                    existing.name = root_branch
-                except Exception:
-                    pass
-
-        uid = now_str("%Y%m%d%H%M%S")
-
-        obj_map: dict[bpy.types.Object, bpy.types.Object] = {}
-        duplicate_collection_hierarchy(existing, dot_coll, uid, obj_map)
-        remap_parenting(obj_map)
-
-        if props:
-            log_change(props, f"Initialize: copied '{existing.name}' into .gitblend")
-
-        request_redraw()
-
-        self.report({'INFO'}, f"Initialized .gitblend and copied '{existing.name}' collection")
-        return {'FINISHED'}
+        # Delegate to the Commit operator; first commit will initialize automatically
+        return bpy.ops.gitblend.commit()
 
 
 class GITBLEND_OT_string_add(bpy.types.Operator):
