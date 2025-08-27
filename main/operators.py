@@ -4,6 +4,7 @@ from .validate import (
     slugify,
     get_latest_snapshot,
     create_diff_snapshot_with_changes,
+    should_skip_commit,
 )
 from .utils import (
     now_str,
@@ -18,8 +19,6 @@ from .index import (
     load_index,
     save_index,
     compute_collection_signature,
-    get_latest_commit,
-    derive_changed_set,
     update_index_with_commit,
 )
 
@@ -65,27 +64,23 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         # Ensure .gitblend exists (first commit initializes automatically)
         dot_coll = ensure_gitblend_collection(scene)
 
-        # Compute signatures and compare with TOML index for early decision
-        obj_sigs, coll_hash = compute_collection_signature(source)
-        index = load_index()
-        last = get_latest_commit(index, sel)
-        prev_objs = {}
-        if last:
-            prev_objs = {o.get("name", ""): o for o in last.get("objects", []) if (o.get("name", ""))}
-        has_changes, changed_names = derive_changed_set(obj_sigs, prev_objs)
-        if not has_changes:
-            self.report({'INFO'}, "No changes detected; skipping snapshot")
+        # Snapshot-based validation for early skip (keeps logic consistent with validator)
+        skip, reason = should_skip_commit(scene, source, sel)
+        if skip:
+            self.report({'INFO'}, f"No changes detected; skipping snapshot ({reason})")
             return {'CANCELLED'}
 
         uid = now_str("%Y%m%d%H%M%S")
 
         prev = get_latest_snapshot(scene, sel)
-        # Differential snapshot: provide changed names from TOML to avoid recomputing and ensure parity
-        changed_set = set(changed_names)
-        new_coll, obj_map = create_diff_snapshot_with_changes(source, dot_coll, uid, prev, changed_set)
+        # Differential snapshot: let validator compute changes against previous snapshot
+        new_coll, obj_map = create_diff_snapshot_with_changes(source, dot_coll, uid, prev, changed_names=None)
 
         # Update TOML index
         snapshot_name = new_coll.name
+        # Compute signatures after snapshot to record exact state
+        obj_sigs, coll_hash = compute_collection_signature(source)
+        index = load_index()
         index = update_index_with_commit(index, sel, uid, now_str(), msg, snapshot_name, obj_sigs, coll_hash)
         save_index(index)
 
@@ -104,6 +99,12 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
     bl_options = {'INTERNAL'}  # exclude from undo/redo and search
 
     def execute(self, context):
+        # Ensure a sensible default commit message on first run
+        props = get_props(context)
+        if props and not (props.commit_message or "").strip():
+            props.commit_message = "Initialize"
+        # Ensure .gitblend exists up-front for user feedback in UI
+        ensure_gitblend_collection(context.scene)
         # Delegate to the Commit operator; first commit will initialize automatically
         return bpy.ops.gitblend.commit()
 
