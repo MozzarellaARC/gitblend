@@ -19,12 +19,6 @@ class GITBLEND_Panel(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("gitblend.initialize", text="Initialize", icon='FILE_NEW')
 
-        # Settings
-        box = layout.box()
-        col = box.column(align=True)
-        col.label(text="Settings:")
-        col.prop(gitblend_props, "root_collection_name", text="Root Name")
-
         # Commit input and action
         box = layout.box()
         col = box.column(align=True)
