@@ -1,5 +1,6 @@
 import bpy
 from .validate import (
+    ensure_gitblend_collection,
     slugify,
     duplicate_collection_hierarchy,
     remap_parenting,
@@ -15,32 +16,6 @@ from .utils import (
     set_dropdown_selection,
 )
 
-def exclude_collection_in_all_view_layers(scene: bpy.types.Scene, coll: bpy.types.Collection) -> None:
-	"""Exclude the given collection in all scene view layers."""
-	def find_layer_collection(layer_coll, target_coll):
-		if layer_coll.collection == target_coll:
-			return layer_coll
-		for child in layer_coll.children:
-			found = find_layer_collection(child, target_coll)
-			if found:
-				return found
-		return None
-
-	for vl in scene.view_layers:
-		lc = find_layer_collection(vl.layer_collection, coll)
-		if lc:
-			lc.exclude = True
-
-def ensure_gitblend_collection(scene: bpy.types.Scene) -> bpy.types.Collection:
-	"""Find or create the hidden .gitblend collection under the scene root."""
-	root = scene.collection
-	for c in root.children:
-		if c.name == ".gitblend":
-			return c
-	coll = bpy.data.collections.new(".gitblend")
-	root.children.link(coll)
-	exclude_collection_in_all_view_layers(scene, coll)
-	return coll
 
 class GITBLEND_OT_commit(bpy.types.Operator):
     bl_idname = "gitblend.commit"
@@ -61,7 +36,8 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 
         scene = context.scene
         # Require existing .gitblend collection for commit
-        if ensure_gitblend_collection:
+        has_gitblend = any(c.name == ".gitblend" for c in scene.collection.children)
+        if not has_gitblend:
             self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
             return {'CANCELLED'}
 
@@ -171,7 +147,8 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
             return {'CANCELLED'}
         # Require existing .gitblend collection
         scene = context.scene
-        if ensure_gitblend_collection:
+        has_gitblend = any(c.name == ".gitblend" for c in scene.collection.children)
+        if not has_gitblend:
             self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
             return {'CANCELLED'}
         item = props.string_items.add()
