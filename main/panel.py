@@ -12,6 +12,7 @@ class YANT_Panel(bpy.types.Panel):
         layout = self.layout
         scene = context.scene
         yant_props = getattr(scene, "yant_props", None)
+        box = layout.box()
 
         if not yant_props:
             layout.label(text="YANT properties not registered.")
