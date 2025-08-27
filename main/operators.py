@@ -86,7 +86,7 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
         props = get_props(context)
         root_branch = None
         if props:
-            ensure_enum_contains(props, "init")
+            ensure_enum_contains(props, "main")
             if len(props.string_items) > 0:
                 nm = (props.string_items[0].name or "").strip()
                 if nm:
