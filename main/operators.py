@@ -301,6 +301,24 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
             b["head"] = {}
 
         save_index(index)
+
+        # Pop from UI change log if available (remove most recent entry)
+        props = get_props(context)
+        if props:
+            try:
+                if len(props.changes_log) > 0:
+                    props.changes_log.remove(len(props.changes_log) - 1)
+            except Exception:
+                pass
+
+        # Optionally restore working collection to the new HEAD commit state
+        try:
+            remaining_commits = (b.get("commits", []) if b else [])
+            if remaining_commits:
+                # Reconstruct scene to match the latest commit after undo
+                bpy.ops.gitblend.discard_changes()
+        except Exception:
+            pass
         request_redraw()
         self.report({'INFO'}, f"Undid last commit on '{branch}'.")
         return {'FINISHED'}
@@ -340,6 +358,30 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator):
                 out[nm] = o
         return out
 
+    def _list_branch_snapshots(self, scene, branch):
+        # Mirror logic from validate._list_branch_snapshots but locally
+        dot = None
+        for c in scene.collection.children:
+            if c.name == ".gitblend":
+                dot = c
+                break
+        if not dot:
+            return []
+        import re
+        uid_re = re.compile(r"_(\d{10,20})(?:-\d+)?$")
+        items = []
+        for c in dot.children:
+            nm = c.name or ""
+            if not nm.startswith(branch):
+                continue
+            m = uid_re.search(nm)
+            uid = m.group(1) if m else ""
+            if not uid:
+                continue
+            items.append((uid, c))
+        items.sort(key=lambda t: t[0], reverse=True)
+        return [c for _, c in items]
+
     def execute(self, context):
         # Ensure project is saved in a valid path
         ok, _proj, err = sanitize_save_path()
@@ -367,35 +409,57 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator):
             self.report({'WARNING'}, "No top-level collection to restore into.")
             return {'CANCELLED'}
 
-        # Find latest snapshot for this branch
-        snapshot = get_latest_snapshot(scene, branch)
-        if not snapshot:
-            self.report({'INFO'}, f"No snapshot found for branch '{branch}'.")
+        # Load index and resolve last commit full object set
+        index = load_index()
+        last = get_latest_commit(index, branch)
+        if not last:
+            self.report({'INFO'}, f"No commit history for branch '{branch}'.")
             return {'CANCELLED'}
+        commit_objs = last.get("objects", []) or []
+        desired_names = [o.get("name", "") for o in commit_objs if o.get("name")]
+        desired_parent = {o.get("name", ""): o.get("parent", "") for o in commit_objs if o.get("name")}
 
-        # Build maps
-        snap_map = self._build_name_map(snapshot, snapshot=True)
+        # Prepare source maps
         src_map = self._build_name_map(source, snapshot=False)
 
-        if not snap_map:
-            self.report({'INFO'}, "Latest snapshot has no objects to restore.")
-            return {'CANCELLED'}
+        # Build snapshot search list newest->oldest
+        snapshots = self._list_branch_snapshots(scene, branch)
+        snap_maps = [self._build_name_map(s, snapshot=True) for s in snapshots]
 
-        # Limit restore set to objects that exist in both snapshot and working set
-        names_to_restore = sorted(set(snap_map.keys()) & set(src_map.keys()))
-        skipped = len(set(snap_map.keys()) - set(names_to_restore))
+        def find_snapshot_obj(nm: str):
+            for mp in snap_maps:
+                o = mp.get(nm)
+                if o is not None:
+                    return o
+            return None
 
-        # First pass: create duplicates and link to same collections, keep mapping
+        # Remove any objects not part of the committed set
+        removed_extras = 0
+        for nm, obj in list(src_map.items()):
+            if nm not in desired_names:
+                try:
+                    # Unlink from all collections and remove
+                    for col in list(obj.users_collection):
+                        try:
+                            col.objects.unlink(obj)
+                        except Exception:
+                            pass
+                    bpy.data.objects.remove(obj, do_unlink=True)
+                    removed_extras += 1
+                except Exception:
+                    pass
+
+        # Rebuild map after removals
+        src_map = self._build_name_map(source, snapshot=False)
+
+        # First pass: create or replace all desired objects from snapshots
         new_dups = {}
         old_objs = {}
-        parent_names = {}
-        for name in names_to_restore:
-            snap_obj = snap_map[name]
-            curr = src_map.get(name)
-            if not curr:
+        for nm in desired_names:
+            snap_obj = find_snapshot_obj(nm)
+            if not snap_obj:
+                # If we can't find snapshot source, keep current if exists
                 continue
-            old_objs[name] = curr
-            parent_names[name] = curr.parent.name if curr.parent else None
             try:
                 dup = snap_obj.copy()
                 if getattr(snap_obj, "data", None) is not None:
@@ -405,17 +469,19 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator):
                         pass
             except Exception:
                 continue
-            # Temporary unique-ish name to avoid clashes
-            tmp_name = f"{name}_restored"
             try:
-                dup.name = tmp_name
+                dup.name = f"{nm}_restored"
             except Exception:
                 pass
-            # Link to all collections where the current object exists
-            try:
-                colls = list(curr.users_collection)
-            except Exception:
-                colls = []
+            curr = src_map.get(nm)
+            # Link duplicate to same collections as current (if exists), else to source
+            colls = []
+            if curr:
+                old_objs[nm] = curr
+                try:
+                    colls = list(curr.users_collection)
+                except Exception:
+                    colls = []
             linked_any = False
             for col in colls:
                 try:
@@ -428,63 +494,60 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator):
                     source.objects.link(dup)
                 except Exception:
                     pass
-            new_dups[name] = dup
+            new_dups[nm] = dup
 
-        # Second pass: set parenting to corresponding restored parents where possible
-        for name, dup in list(new_dups.items()):
-            pnm = parent_names.get(name)
+        # Second pass: ensure parents according to commit metadata
+        for nm, dup in list(new_dups.items()):
+            pnm = (desired_parent.get(nm) or "")
             if not pnm:
-                # Ensure no parent
                 try:
                     dup.parent = None
                 except Exception:
                     pass
                 continue
-            new_parent = new_dups.get(pnm)
-            if new_parent is not None:
+            # Prefer parent among new_dups; fall back to existing object if present
+            target_parent = new_dups.get(pnm) or src_map.get(pnm)
+            if target_parent is not None:
                 try:
-                    dup.parent = new_parent
+                    dup.parent = target_parent
                 except Exception:
                     pass
             else:
-                # Keep existing parent (still the current object) until we remove; then it will become None
                 try:
-                    dup.parent = old_objs.get(name).parent
+                    dup.parent = None
                 except Exception:
                     pass
 
-        # Third pass: remove old objects
-        for name in names_to_restore:
-            curr = old_objs.get(name)
-            if not curr:
-                continue
-            try:
-                colls = list(curr.users_collection)
-            except Exception:
-                colls = []
-            for col in colls:
+        # Third pass: remove or unlink old objects and fill in missing ones
+        for nm in desired_names:
+            curr = old_objs.get(nm)
+            if curr:
                 try:
-                    col.objects.unlink(curr)
+                    for col in list(curr.users_collection):
+                        try:
+                            col.objects.unlink(curr)
+                        except Exception:
+                            pass
+                    bpy.data.objects.remove(curr, do_unlink=True)
                 except Exception:
                     pass
-            try:
-                bpy.data.objects.remove(curr, do_unlink=True)
-            except Exception:
-                pass
 
-        # Final pass: rename dups to original names
-        for name, dup in list(new_dups.items()):
+        # Final: rename dups to original names
+        for nm, dup in list(new_dups.items()):
             try:
-                dup.name = name
+                dup.name = nm
             except Exception:
                 pass
 
         restored = len(new_dups)
+        skipped = max(0, len(desired_names) - restored)
 
         request_redraw()
         msg = f"Restored {restored} object(s) from snapshot"
         if skipped:
             msg += f", skipped {skipped}"
+        if removed_extras:
+            msg += f", removed {removed_extras} extra"
         self.report({'INFO'}, msg)
         return {'FINISHED'}
 
