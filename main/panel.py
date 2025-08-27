@@ -11,7 +11,27 @@ class YANT_Panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        yant_props = scene.yant_props
+        yant_props = getattr(scene, "yant_props", None)
+
+        if not yant_props:
+            layout.label(text="YANT properties not registered.")
+            return
+
+        col = layout.column(align=True)
+        col.label(text="Save Events:")
+        if len(yant_props.save_events) == 0:
+            col.label(text="No saves recorded yet.", icon='INFO')
+        else:
+            box = col.box()
+            for i, ev in enumerate(yant_props.save_events[-50:]):  # show last 50
+                row = box.row()
+                row.label(text=f"{i+1}. {ev.timestamp}")
+                if ev.filepath:
+                    row.label(text=ev.filepath, icon='FILE_BLEND')
+
+        row = layout.row(align=True)
+        row.operator("yant.clear_save_log", text="Clear Log", icon='TRASH')
+        row.operator("yant.add_dummy_event", text="Add Test", icon='PLUS')
 
 
 def register_panel():
