@@ -156,7 +156,10 @@ def _build_name_map_for_collection(coll: bpy.types.Collection, snapshot: bool) -
 
 
 def _list_branch_snapshots(scene: bpy.types.Scene, branch: str) -> List[bpy.types.Collection]:
-	"""All snapshot collections in .gitblend for a given branch (prefix match 'branch-'). Sorted by UID descending."""
+	"""All snapshot collections in .gitblend for a given branch.
+	Matches names starting with 'branch' (with or without '-<slug>') and ending with '_<uid>'.
+	Sorted by UID descending.
+	"""
 	root = scene.collection
 	dot = None
 	for c in root.children:
@@ -166,14 +169,15 @@ def _list_branch_snapshots(scene: bpy.types.Scene, branch: str) -> List[bpy.type
 	if not dot:
 		return []
 
-	pref = f"{branch}-"
 	items: List[Tuple[str, bpy.types.Collection]] = []
 	for c in dot.children:
 		nm = c.name or ""
-		if not nm.startswith(pref):
+		if not nm.startswith(branch):
 			continue
 		m = _UID_RE.search(nm)
 		uid = m.group(1) if m else ""
+		if not uid:
+			continue
 		items.append((uid, c))
 
 	# Sort newest first (string uid is sortable as datetime-like yyyymmdd...)
@@ -450,3 +454,184 @@ def should_skip_commit(scene: bpy.types.Scene, curr: bpy.types.Collection, branc
 	# Full comparison (ordered with early exit)
 	same, reason = collections_identical(curr, prev)
 	return (same, reason)
+
+
+##############################################
+# Differential snapshot creation
+##############################################
+
+def objects_identical(a: bpy.types.Object, b: bpy.types.Object) -> Tuple[bool, str]:
+	for check in (
+		_compare_transforms,
+		_compare_dimensions,
+		_compare_vertex_count,
+		_compare_modifiers,
+		_compare_vertex_groups,
+		_compare_uv_layers_meta,
+		_compare_shapekeys_meta,
+		_compare_uv_data,
+		_compare_shapekeys_data,
+		_compare_vertex_weights,
+		_compare_vertex_world_positions,
+		_compare_shapekey_points,
+	):
+		reason = check(a, b)
+		if reason:
+			return False, reason
+	return True, "identical"
+
+
+def _new_snapshot_collection_for(src: bpy.types.Collection, parent: bpy.types.Collection, uid: str) -> bpy.types.Collection:
+	new_name = unique_coll_name(src.name, uid)
+	new_coll = bpy.data.collections.new(new_name)
+	parent.children.link(new_coll)
+	try:
+		new_coll["gitblend_uid"] = uid
+		new_coll["gitblend_orig_name"] = src.name
+	except Exception:
+		pass
+	return new_coll
+
+
+def _duplicate_collection_hierarchy_diff_recursive(
+	src: bpy.types.Collection,
+	new_parent: bpy.types.Collection,
+	uid: str,
+	prev_map: Dict[str, bpy.types.Object],
+	name_to_new_obj: Dict[str, bpy.types.Object],
+	copied_names: Set[str],
+	changed: Set[str],
+) -> Optional[bpy.types.Collection]:
+	"""Create a new snapshot collection mirroring src under new_parent, but only copy objects that differ.
+	Unchanged objects are linked from prev_map. Populates name_to_new_obj with the new/linked objects by original name.
+	copied_names records which original names were duplicated (to fix parenting later).
+	"""
+	# Skip creating a collection if its subtree has no changed objects
+	def _subtree_has_changes(coll: bpy.types.Collection) -> bool:
+		for o in _iter_objects_recursive(coll):
+			if (o.name or "") in changed:
+				return True
+		return False
+
+	if not _subtree_has_changes(src):
+		return None
+
+	new_coll = _new_snapshot_collection_for(src, new_parent, uid)
+
+	# Place only changed objects for this collection
+	for obj in src.objects:
+		name = obj.name
+		if not name:
+			continue
+		if name not in changed:
+			continue
+		dup = obj.copy()
+		if getattr(obj, "data", None) is not None:
+			try:
+				dup.data = obj.data.copy()
+			except Exception:
+				pass
+		dup.name = unique_obj_name(obj.name, uid)
+		new_coll.objects.link(dup)
+		try:
+			dup["gitblend_orig_name"] = obj.name
+		except Exception:
+			pass
+		name_to_new_obj[name] = dup
+		copied_names.add(name)
+
+	# Recurse into children collections (only those with changes will create nodes)
+	for child in src.children:
+		_duplicate_collection_hierarchy_diff_recursive(child, new_coll, uid, prev_map, name_to_new_obj, copied_names, changed)
+
+	return new_coll
+
+
+def create_diff_snapshot(
+	src: bpy.types.Collection,
+	parent_dot: bpy.types.Collection,
+	uid: str,
+	prev_snapshot: Optional[bpy.types.Collection],
+) -> Tuple[bpy.types.Collection, Dict[str, bpy.types.Object]]:
+	"""Create a new snapshot collection that contains only differences from prev_snapshot.
+	Unchanged objects are linked from the previous snapshot; changed/new are copied.
+	Returns the new collection and a map of original-name -> object in new snapshot (linked or copied).
+	"""
+	prev_map: Dict[str, bpy.types.Object] = {}
+	if prev_snapshot is not None:
+		prev_map = _build_name_map_for_collection(prev_snapshot, snapshot=True)
+
+	# Build current object map and parent map
+	curr_objs: Dict[str, bpy.types.Object] = {}
+	parent_of: Dict[str, Optional[str]] = {}
+	for o in _iter_objects_recursive(src):
+		nm = o.name or ""
+		if not nm:
+			continue
+		curr_objs[nm] = o
+		parent_of[nm] = o.parent.name if o.parent else None
+
+	# Initial changed set by object-wise comparison
+	changed: Set[str] = set()
+	for nm, o in curr_objs.items():
+		prev_o = prev_map.get(nm)
+		if prev_o is None:
+			changed.add(nm)
+			continue
+		same, _ = objects_identical(o, prev_o)
+		if not same:
+			changed.add(nm)
+
+	# Propagate change to descendants: if a parent is changed, all its children change
+	changed_stable = False
+	while not changed_stable:
+		before = len(changed)
+		for nm, parent_nm in list(parent_of.items()):
+			if parent_nm and parent_nm in changed and nm not in changed:
+				changed.add(nm)
+		changed_stable = len(changed) == before
+
+	name_to_new_obj: Dict[str, bpy.types.Object] = {}
+	copied_names: Set[str] = set()
+	new_coll = _new_snapshot_collection_for(src, parent_dot, uid)
+
+	# Copy only changed objects at root level
+	for obj in src.objects:
+		name = obj.name or ""
+		if not name or name not in changed:
+			continue
+		dup = obj.copy()
+		if getattr(obj, "data", None) is not None:
+			try:
+				dup.data = obj.data.copy()
+			except Exception:
+				pass
+		dup.name = unique_obj_name(obj.name, uid)
+		new_coll.objects.link(dup)
+		try:
+			dup["gitblend_orig_name"] = obj.name
+		except Exception:
+			pass
+		name_to_new_obj[name] = dup
+		copied_names.add(name)
+
+	# Recurse into children collections; only create for subtrees with changes
+	for child in src.children:
+		_duplicate_collection_hierarchy_diff_recursive(child, new_coll, uid, prev_map, name_to_new_obj, copied_names, changed)
+
+	# Fix parenting for newly copied objects only; linked ones already refer to linked parents (unchanged case)
+	for nm in copied_names:
+		dup = name_to_new_obj.get(nm)
+		if not dup:
+			continue
+		src_obj = curr_objs.get(nm)
+		if src_obj and src_obj.parent:
+			p_name = src_obj.parent.name
+			target_parent = name_to_new_obj.get(p_name)
+			if target_parent:
+				try:
+					dup.parent = target_parent
+				except Exception:
+					pass
+
+	return new_coll, name_to_new_obj

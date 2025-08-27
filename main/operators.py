@@ -5,6 +5,8 @@ from .validate import (
     duplicate_collection_hierarchy,
     remap_parenting,
     should_skip_commit,
+    get_latest_snapshot,
+    create_diff_snapshot,
 )
 from .utils import (
     now_str,
@@ -71,9 +73,10 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 
         uid = now_str("%Y%m%d%H%M%S")
 
-        obj_map: dict[bpy.types.Object, bpy.types.Object] = {}
-        duplicate_collection_hierarchy(source, dot_coll, uid, obj_map)
-        remap_parenting(obj_map)
+        prev = get_latest_snapshot(scene, sel)
+        # Differential snapshot: link unchanged from prev, copy changed/new
+        _, obj_map = create_diff_snapshot(source, dot_coll, uid, prev)
+        # remap_parenting only needed for newly copied objects; handled inside create_diff_snapshot
 
         log_change(props, msg)
         props.commit_message = ""
