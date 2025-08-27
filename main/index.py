@@ -59,6 +59,11 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
     sig["name"] = obj.name or ""
     sig["parent"] = obj.parent.name if obj.parent else ""
     sig["type"] = obj.type
+    # Data block name (helps distinguish reused data)
+    try:
+        sig["data_name"] = getattr(obj, "data", None).name if getattr(obj, "data", None) else ""
+    except Exception:
+        sig["data_name"] = ""
     # Transforms and dimensions
     sig["transform"] = _matrix_hash(obj.matrix_world)
     try:
@@ -84,6 +89,70 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         kb = getattr(getattr(me, "shape_keys", None), "key_blocks", None)
         sk = [k.name for k in kb] if kb else []
         sig["shapekeys_meta"] = _list_hash(sk)
+    elif getattr(obj, "type", None) == "LIGHT" and getattr(obj, "data", None) is not None:
+        # Light-specific meta
+        li = obj.data  # bpy.types.Light
+        vals = []
+        try:
+            vals.append(str(getattr(li, "type", "")))
+            col = getattr(li, "color", None)
+            if col is not None:
+                vals.append(_fmt_floats(col))
+            vals.append(f"{float(getattr(li, 'energy', 0.0)):.6f}")
+            # Common shadow/soft size
+            if hasattr(li, "shadow_soft_size"):
+                vals.append(f"{float(getattr(li, 'shadow_soft_size', 0.0)):.6f}")
+            # Sun angle or Spot specifics
+            if hasattr(li, "angle"):
+                vals.append(f"{float(getattr(li, 'angle', 0.0)):.6f}")
+            if getattr(li, "type", "") == "SPOT":
+                vals.append(f"{float(getattr(li, 'spot_size', 0.0)):.6f}")
+                vals.append(f"{float(getattr(li, 'spot_blend', 0.0)):.6f}")
+            if getattr(li, "type", "") == "AREA":
+                vals.append(str(getattr(li, "shape", "")))
+                vals.append(f"{float(getattr(li, 'size', 0.0)):.6f}")
+                if hasattr(li, "size_y"):
+                    vals.append(f"{float(getattr(li, 'size_y', 0.0)):.6f}")
+        except Exception:
+            pass
+        sig["light_meta"] = _sha256("|".join(vals))
+        # Fill non-mesh placeholders
+        sig["verts"] = 0
+        sig["modifiers"] = ""
+        sig["vgroups"] = ""
+        sig["uv_meta"] = ""
+        sig["shapekeys_meta"] = ""
+    elif getattr(obj, "type", None) == "CAMERA" and getattr(obj, "data", None) is not None:
+        # Camera-specific meta
+        cam = obj.data  # bpy.types.Camera
+        vals = []
+        try:
+            vals.append(str(getattr(cam, "type", "")))
+            # Core intrinsics
+            for attr in ("lens", "ortho_scale", "sensor_width", "sensor_height",
+                         "shift_x", "shift_y", "clip_start", "clip_end"):
+                if hasattr(cam, attr):
+                    vals.append(f"{float(getattr(cam, attr)):.6f}")
+            # Depth of Field
+            dof = getattr(cam, "dof", None)
+            if dof is not None:
+                use_dof = bool(getattr(dof, "use_dof", getattr(dof, "use_dof", False)))
+                vals.append("DOF:1" if use_dof else "DOF:0")
+                for attr in ("focus_distance", "aperture_fstop", "aperture_size"):
+                    if hasattr(dof, attr):
+                        try:
+                            vals.append(f"{float(getattr(dof, attr)):.6f}")
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+        sig["camera_meta"] = _sha256("|".join(vals))
+        # Fill non-mesh placeholders
+        sig["verts"] = 0
+        sig["modifiers"] = ""
+        sig["vgroups"] = ""
+        sig["uv_meta"] = ""
+        sig["shapekeys_meta"] = ""
     else:
         sig["verts"] = 0
         sig["modifiers"] = ""
@@ -108,6 +177,7 @@ def compute_collection_signature(coll: bpy.types.Collection) -> Tuple[Dict[str, 
         parts.append("|".join([
             nm,
             s.get("type", ""),
+            s.get("data_name", ""),
             s.get("transform", ""),
             s.get("dims", ""),
             str(s.get("verts", 0)),
@@ -115,6 +185,8 @@ def compute_collection_signature(coll: bpy.types.Collection) -> Tuple[Dict[str, 
             s.get("vgroups", ""),
             s.get("uv_meta", ""),
             s.get("shapekeys_meta", ""),
+            s.get("light_meta", ""),
+            s.get("camera_meta", ""),
         ]))
     collection_hash = _sha256("\n".join(parts))
     return obj_sigs, collection_hash
@@ -170,6 +242,7 @@ def save_index(data: Dict) -> None:
                 lines.append(f"name = \"{_toml_escape(o.get('name', ''))}\"")
                 lines.append(f"parent = \"{_toml_escape(o.get('parent', ''))}\"")
                 lines.append(f"type = \"{_toml_escape(o.get('type', ''))}\"")
+                lines.append(f"data_name = \"{_toml_escape(o.get('data_name', ''))}\"")
                 lines.append(f"transform = \"{_toml_escape(o.get('transform', ''))}\"")
                 lines.append(f"dims = \"{_toml_escape(o.get('dims', ''))}\"")
                 lines.append(f"verts = {int(o.get('verts', 0))}")
@@ -177,6 +250,10 @@ def save_index(data: Dict) -> None:
                 lines.append(f"vgroups = \"{_toml_escape(o.get('vgroups', ''))}\"")
                 lines.append(f"uv_meta = \"{_toml_escape(o.get('uv_meta', ''))}\"")
                 lines.append(f"shapekeys_meta = \"{_toml_escape(o.get('shapekeys_meta', ''))}\"")
+                if o.get('light_meta') is not None:
+                    lines.append(f"light_meta = \"{_toml_escape(o.get('light_meta', ''))}\"")
+                if o.get('camera_meta') is not None:
+                    lines.append(f"camera_meta = \"{_toml_escape(o.get('camera_meta', ''))}\"")
             lines.append("")
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
@@ -203,7 +280,11 @@ def derive_changed_set(curr_objs: Dict[str, Dict], prev_objs: Dict[str, Dict]) -
     for nm in curr_names:
         a = curr_objs[nm]
         b = prev_objs.get(nm, {})
-        keys = ("type", "transform", "dims", "verts", "modifiers", "vgroups", "uv_meta", "shapekeys_meta")
+        keys = (
+            "type", "data_name", "transform", "dims", "verts",
+            "modifiers", "vgroups", "uv_meta", "shapekeys_meta",
+            "light_meta", "camera_meta",
+        )
         for k in keys:
             if (str(a.get(k)) != str(b.get(k))):
                 changed_list.append(nm)

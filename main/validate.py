@@ -551,12 +551,33 @@ def create_diff_snapshot(
 	src: bpy.types.Collection,
 	parent_dot: bpy.types.Collection,
 	uid: str,
+) -> Tuple[bpy.types.Collection, Dict[str, bpy.types.Object]]:
+	"""Backward-compatible wrapper: no previous snapshot or changed set provided."""
+	return _create_diff_snapshot_internal(src, parent_dot, uid, prev_snapshot=None, changed_names=None)
+
+
+def create_diff_snapshot_with_changes(
+	src: bpy.types.Collection,
+	parent_dot: bpy.types.Collection,
+	uid: str,
 	prev_snapshot: Optional[bpy.types.Collection],
+	changed_names: Optional[Set[str]] = None,
 ) -> Tuple[bpy.types.Collection, Dict[str, bpy.types.Object]]:
 	"""Create a new snapshot collection that contains only differences from prev_snapshot.
-	Unchanged objects are linked from the previous snapshot; changed/new are copied.
-	Returns the new collection and a map of original-name -> object in new snapshot (linked or copied).
+	If changed_names is provided, use it directly (plus descendant propagation) instead of recomputing.
+	Returns the new collection and a map of original-name -> object in new snapshot.
 	"""
+	return _create_diff_snapshot_internal(src, parent_dot, uid, prev_snapshot=prev_snapshot, changed_names=changed_names)
+
+
+def _create_diff_snapshot_internal(
+	src: bpy.types.Collection,
+	parent_dot: bpy.types.Collection,
+	uid: str,
+	prev_snapshot: Optional[bpy.types.Collection],
+	changed_names: Optional[Set[str]] = None,
+) -> Tuple[bpy.types.Collection, Dict[str, bpy.types.Object]]:
+	"""Internal helper to support both legacy and explicit-changes flows."""
 	prev_map: Dict[str, bpy.types.Object] = {}
 	if prev_snapshot is not None:
 		prev_map = _build_name_map_for_collection(prev_snapshot, snapshot=True)
@@ -571,16 +592,17 @@ def create_diff_snapshot(
 		curr_objs[nm] = o
 		parent_of[nm] = o.parent.name if o.parent else None
 
-	# Initial changed set by object-wise comparison
-	changed: Set[str] = set()
-	for nm, o in curr_objs.items():
-		prev_o = prev_map.get(nm)
-		if prev_o is None:
-			changed.add(nm)
-			continue
-		same, _ = objects_identical(o, prev_o)
-		if not same:
-			changed.add(nm)
+	# Initial changed set: use provided names if any; otherwise compute by object-wise comparison
+	changed: Set[str] = set(changed_names or [])
+	if not changed:
+		for nm, o in curr_objs.items():
+			prev_o = prev_map.get(nm)
+			if prev_o is None:
+				changed.add(nm)
+				continue
+			same, _ = objects_identical(o, prev_o)
+			if not same:
+				changed.add(nm)
 
 	# Propagate change to descendants: if a parent is changed, all its children change
 	changed_stable = False

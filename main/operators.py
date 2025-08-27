@@ -5,7 +5,7 @@ from .validate import (
     duplicate_collection_hierarchy,
     remap_parenting,
     get_latest_snapshot,
-    create_diff_snapshot,
+    create_diff_snapshot_with_changes,
 )
 from .utils import (
     now_str,
@@ -87,8 +87,9 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         uid = now_str("%Y%m%d%H%M%S")
 
         prev = get_latest_snapshot(scene, sel)
-        # Differential snapshot: link unchanged from prev, copy changed/new (validate.py computes changed set internally)
-        new_coll, obj_map = create_diff_snapshot(source, dot_coll, uid, prev)
+        # Differential snapshot: provide changed names from TOML to avoid recomputing and ensure parity
+        changed_set = set(changed_names)
+        new_coll, obj_map = create_diff_snapshot_with_changes(source, dot_coll, uid, prev, changed_set)
         # remap_parenting only needed for newly copied objects; handled inside create_diff_snapshot
 
         # Update TOML index
