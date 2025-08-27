@@ -426,10 +426,7 @@ def collections_identical(curr: bpy.types.Collection, prev: bpy.types.Collection
 			_compare_vertex_world_positions,
 			_compare_shapekey_points,
 		):
-			reason = check(a, b) if check in {_compare_vertex_count, _compare_modifiers, _compare_vertex_groups,
-											 _compare_uv_layers_meta, _compare_shapekeys_meta,
-											 _compare_uv_data, _compare_shapekeys_data,
-											 _compare_vertex_weights, _compare_vertex_world_positions} else check(a, b)
+			reason = check(a, b)
 			if reason:
 				return False, f"{name}: {reason}"
 
@@ -497,13 +494,12 @@ def _duplicate_collection_hierarchy_diff_recursive(
 	src: bpy.types.Collection,
 	new_parent: bpy.types.Collection,
 	uid: str,
-	prev_map: Dict[str, bpy.types.Object],
 	name_to_new_obj: Dict[str, bpy.types.Object],
 	copied_names: Set[str],
 	changed: Set[str],
 ) -> Optional[bpy.types.Collection]:
-	"""Create a new snapshot collection mirroring src under new_parent, but only copy objects that differ.
-	Unchanged objects are linked from prev_map. Populates name_to_new_obj with the new/linked objects by original name.
+	"""Create a new snapshot collection node for src under new_parent, copying only changed objects.
+	Pure-delta: unchanged objects are omitted. Populates name_to_new_obj with newly copied objects by original name.
 	copied_names records which original names were duplicated (to fix parenting later).
 	"""
 	# Skip creating a collection if its subtree has no changed objects
@@ -542,7 +538,7 @@ def _duplicate_collection_hierarchy_diff_recursive(
 
 	# Recurse into children collections (only those with changes will create nodes)
 	for child in src.children:
-		_duplicate_collection_hierarchy_diff_recursive(child, new_coll, uid, prev_map, name_to_new_obj, copied_names, changed)
+		_duplicate_collection_hierarchy_diff_recursive(child, new_coll, uid, name_to_new_obj, copied_names, changed)
 
 	return new_coll
 
@@ -579,8 +575,6 @@ def _create_diff_snapshot_internal(
 ) -> Tuple[bpy.types.Collection, Dict[str, bpy.types.Object]]:
 	"""Internal helper to support both legacy and explicit-changes flows."""
 	prev_map: Dict[str, bpy.types.Object] = {}
-	if prev_snapshot is not None:
-		prev_map = _build_name_map_for_collection(prev_snapshot, snapshot=True)
 
 	# Build current object map and parent map
 	curr_objs: Dict[str, bpy.types.Object] = {}
@@ -595,6 +589,9 @@ def _create_diff_snapshot_internal(
 	# Initial changed set: use provided names if any; otherwise compute by object-wise comparison
 	changed: Set[str] = set(changed_names or [])
 	if not changed:
+		# Only build previous map if we need to compute diffs
+		if prev_snapshot is not None:
+			prev_map = _build_name_map_for_collection(prev_snapshot, snapshot=True)
 		for nm, o in curr_objs.items():
 			prev_o = prev_map.get(nm)
 			if prev_o is None:
@@ -639,7 +636,7 @@ def _create_diff_snapshot_internal(
 
 	# Recurse into children collections; only create for subtrees with changes
 	for child in src.children:
-		_duplicate_collection_hierarchy_diff_recursive(child, new_coll, uid, prev_map, name_to_new_obj, copied_names, changed)
+		_duplicate_collection_hierarchy_diff_recursive(child, new_coll, uid, name_to_new_obj, copied_names, changed)
 
 	# Fix parenting for newly copied objects only; linked ones already refer to linked parents (unchanged case)
 	for nm in copied_names:

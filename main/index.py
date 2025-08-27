@@ -136,7 +136,7 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
             # Depth of Field
             dof = getattr(cam, "dof", None)
             if dof is not None:
-                use_dof = bool(getattr(dof, "use_dof", getattr(dof, "use_dof", False)))
+                use_dof = bool(getattr(dof, "use_dof", False))
                 vals.append("DOF:1" if use_dof else "DOF:0")
                 for attr in ("focus_distance", "aperture_fstop", "aperture_size"):
                     if hasattr(dof, attr):
