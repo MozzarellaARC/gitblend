@@ -1,6 +1,7 @@
 import bpy
 from datetime import datetime
 import uuid
+import re
 
 
 class GITBLEND_OT_commit(bpy.types.Operator):
@@ -16,9 +17,10 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             return {'CANCELLED'}
 
         msg = (props.commit_message or "").strip()
-        # Allow empty message but warn; proceed with copy regardless
+        # Require a non-empty commit message but keep button enabled; show error and cancel
         if not msg:
-            self.report({'INFO'}, "Commit message empty; proceeding with snapshot copy")
+            self.report({'ERROR'}, "Please enter a commit message before committing.")
+            return {'CANCELLED'}
 
         scene = context.scene
         root = scene.collection  # Scene Collection
@@ -48,8 +50,18 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             if lc:
                 lc.exclude = True
 
-        # Unique id for this commit to avoid .001 suffixes and group copies
-        uid = datetime.now().strftime("%Y%m%d%H%M%S") + "_" + uuid.uuid4().hex[:6]
+        # Unique id for this commit: use commit message slug; fallback to timestamp if empty
+        def slugify(text: str) -> str:
+            s = text.strip().lower()
+            # replace non-alphanumeric with '-'
+            s = ''.join(ch if ch.isalnum() else '-' for ch in s)
+            s = re.sub(r'-+', '-', s).strip('-')
+            return s[:50] if s else ""
+
+        uid = slugify(msg)
+        if not uid:
+            # If slug is empty due to symbols-only message, fallback to timestamp
+            uid = datetime.now().strftime("%Y%m%d%H%M%S")
 
         def unique_coll_name(base: str) -> str:
             candidate = f"{base}_{uid}"
@@ -87,7 +99,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         # Log commit entry
         item = props.changes_log.add()
         item.timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        item.message = msg if msg else f"Snapshot {uid}"
+        item.message = msg
         props.commit_message = ""
 
         # Redraw UI
@@ -177,8 +189,8 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
             if bpy.data.collections.get("main") is None:
                 existing.name = "main"
 
-        # Unique id for this copy operation to avoid .001 suffixes
-        uid = datetime.now().strftime("%Y%m%d%H%M%S") + "_" + uuid.uuid4().hex[:6]
+        # Unique id for initialization copies: use constant 'init'
+        uid = "init"
 
         def unique_coll_name(base: str) -> str:
             candidate = f"{base}_{uid}"
