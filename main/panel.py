@@ -35,7 +35,6 @@ class GITBLEND_Panel(bpy.types.Panel):
 
         row = layout.row(align=True)
         row.operator("gitblend.clear_save_log", text="Clear Log", icon='TRASH')
-        row.operator("gitblend.add_dummy_event", text="Add Test", icon='PLUS')
 
 
 def register_panel():

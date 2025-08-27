@@ -109,32 +109,11 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
         self.report({'INFO'}, "Initialized .gitblend and copied 'main' collection")
         return {'FINISHED'}
 
-class GITBLEND_OT_add_dummy_event(bpy.types.Operator):
-    bl_idname = "gitblend.add_dummy_event"
-    bl_label = "Add Test Save Entry"
-    bl_description = "Add a dummy save event to test the panel UI"
-    bl_options = {'INTERNAL'}
-
-    def execute(self, context):
-        from datetime import datetime
-        props = getattr(context.scene, "gitblend_props", None)
-        if not props:
-            self.report({'WARNING'}, "GITBLEND properties missing")
-            return {'CANCELLED'}
-        item = props.save_events.add()
-        item.timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        item.filepath = bpy.data.filepath or "(unsaved file)"
-        self.report({'INFO'}, "Dummy save event added")
-        return {'FINISHED'}
-
-
 def register_operators():
     bpy.utils.register_class(GITBLEND_OT_clear_save_log)
-    bpy.utils.register_class(GITBLEND_OT_add_dummy_event)
     bpy.utils.register_class(GITBLEND_OT_initialize)
 
 
 def unregister_operators():
     bpy.utils.unregister_class(GITBLEND_OT_initialize)
-    bpy.utils.unregister_class(GITBLEND_OT_add_dummy_event)
     bpy.utils.unregister_class(GITBLEND_OT_clear_save_log)
