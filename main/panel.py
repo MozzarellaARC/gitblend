@@ -60,7 +60,9 @@ class GITBLEND_Panel(bpy.types.Panel):
             try:
                 idx = int(gitblend_props.selected_string)
                 if 0 <= idx < len(gitblend_props.string_items):
-                    col.label(text=f"Selected: {gitblend_props.string_items[idx].name}")
+                    # Fallback to a friendly label if the item name is empty so selection is visible
+                    _nm = gitblend_props.string_items[idx].name or f"Item {idx+1}"
+                    col.label(text=f"Selected: {_nm}")
             except Exception:
                 pass
 
