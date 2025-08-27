@@ -31,10 +31,21 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         root = scene.collection
         dot_coll = ensure_gitblend_collection(scene)
 
-        # Unique id for this commit: use commit message slug; fallback to timestamp if empty
-        uid = slugify(msg)
+        # Unique id for this commit: message slug + selected enum (if any); fallback to timestamp
+        uid_parts = []
+        # First, selected enum (acts as a prefix)
+        idx = getattr(props, "string_items_index", -1)
+        if 0 <= idx < len(props.string_items):
+            sel = (props.string_items[idx].name or "").strip()
+            sel_slug = slugify(sel)
+            if sel_slug:
+                uid_parts.append(sel_slug)
+        # Then, the commit message slug
+        msg_slug = slugify(msg)
+        if msg_slug:
+            uid_parts.append(msg_slug)
+        uid = "-".join(uid_parts) if uid_parts else ""
         if not uid:
-            # If slug is empty due to symbols-only message, fallback to timestamp
             uid = datetime.now().strftime("%Y%m%d%H%M%S")
 
         # Keep a map of original->duplicate to later remap parenting
@@ -79,7 +90,15 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
         props = getattr(context.scene, "gitblend_props", None)
         root_branch = None
         if props:
-            root_branch = (props.gitblend_branch or "").strip()
+            # Prefer currently selected enum
+            idx = getattr(props, "string_items_index", -1)
+            if 0 <= idx < len(props.string_items):
+                nm = (props.string_items[idx].name or "").strip()
+                if nm:
+                    root_branch = nm
+            # Fallback to stored branch name
+            if not root_branch:
+                root_branch = (props.gitblend_branch or "").strip()
         if not root_branch:
             root_branch = "main"
 

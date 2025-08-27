@@ -33,6 +33,16 @@ def _string_enum_items(self, context):
         items = [("-1", "<no items>", "No items available")]
     return items
 
+def _on_selected_string_update(self, context):
+    """Keep the index in sync with the dropdown selection."""
+    try:
+        sel = getattr(self, "selected_string", "")
+        idx = int(sel) if sel not in {"", None, "-1"} else -1
+    except Exception:
+        idx = -1
+    if 0 <= idx < len(self.string_items):
+        self.string_items_index = idx
+
 
 class GITBLEND_Properties(bpy.types.PropertyGroup):
     """Root properties for GITBLEND add-on."""
@@ -57,7 +67,8 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
     selected_string: bpy.props.EnumProperty(
         name="Select",
         description="Choose one of the string items",
-        items=_string_enum_items,
+    items=_string_enum_items,
+    update=_on_selected_string_update,
     )
 
 
