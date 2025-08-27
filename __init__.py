@@ -15,18 +15,15 @@
 from .main.properties import register_properties, unregister_properties
 from .main.operators import register_operators, unregister_operators
 from .main.panel import register_panel, unregister_panel
-from .main.draw import register_draw, unregister_draw
 
 def register():
 	register_properties()
 	register_operators()
 	register_panel()
-	register_draw()
 	
 
 
 def unregister():
-	unregister_draw()
 	unregister_panel()
 	unregister_operators()
 	unregister_properties()

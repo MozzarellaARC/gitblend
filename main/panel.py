@@ -27,17 +27,6 @@ class GITBLEND_Panel(bpy.types.Panel):
         row = col.row(align=True)
         row.operator("gitblend.commit", text="Commit", icon='CHECKMARK')
 
-        # Save events section
-        col = layout.column(align=True)
-        col.label(text="Save Events (recent):")
-        if len(gitblend_props.save_events) == 0:
-            col.label(text="No saves recorded yet.", icon='INFO')
-        else:
-            ev_box = col.box()
-            for i, ev in enumerate(gitblend_props.save_events[-50:]):  # show last 50
-                row = ev_box.row()
-                row.label(text=f"{i+1}. {ev.timestamp}")
-
         # Change log section
         col = layout.column(align=True)
         col.label(text="Change Log (recent):")

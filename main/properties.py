@@ -1,11 +1,6 @@
 import bpy
 
 
-class GITBLEND_SaveEvent(bpy.types.PropertyGroup):
-    """Single save event entry."""
-    timestamp: bpy.props.StringProperty(name="Timestamp")
-    filepath: bpy.props.StringProperty(name="Filepath")
-
 class GITBLEND_ChangeLogEntry(bpy.types.PropertyGroup):
     """Single commit/change-log entry."""
     timestamp: bpy.props.StringProperty(name="Timestamp")
@@ -46,8 +41,6 @@ def _on_selected_string_update(self, context):
 
 class GITBLEND_Properties(bpy.types.PropertyGroup):
     """Root properties for GITBLEND add-on."""
-    save_events: bpy.props.CollectionProperty(type=GITBLEND_SaveEvent)
-    save_events_index: bpy.props.IntProperty(default=0)
     # Change log
     changes_log: bpy.props.CollectionProperty(type=GITBLEND_ChangeLogEntry)
     changes_log_index: bpy.props.IntProperty(default=0)
@@ -74,7 +67,6 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
 
 def register_properties():
     bpy.utils.register_class(GITBLEND_StringItem)
-    bpy.utils.register_class(GITBLEND_SaveEvent)
     bpy.utils.register_class(GITBLEND_ChangeLogEntry)
     bpy.utils.register_class(GITBLEND_Properties)
     bpy.types.Scene.gitblend_props = bpy.props.PointerProperty(type=GITBLEND_Properties)
@@ -84,7 +76,7 @@ def unregister_properties():
     if hasattr(bpy.types.Scene, "gitblend_props"):
         del bpy.types.Scene.gitblend_props
     # Unregister in reverse order of registration to honor dependencies
-    for cls in (GITBLEND_Properties, GITBLEND_ChangeLogEntry, GITBLEND_SaveEvent, GITBLEND_StringItem):
+    for cls in (GITBLEND_Properties, GITBLEND_ChangeLogEntry, GITBLEND_StringItem):
         try:
             bpy.utils.unregister_class(cls)
         except RuntimeError:
