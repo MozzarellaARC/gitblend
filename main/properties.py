@@ -47,7 +47,7 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
         default=""
     )
     gitblend_branch: bpy.props.StringProperty(
-        name="Gitblend Suffix Name",
+        name="Gitblend Branch Name",
         description="Preferred top-level collection name to use during initialization",
         default="main",
     )
