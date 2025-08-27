@@ -90,10 +90,21 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
         props = getattr(context.scene, "gitblend_props", None)
         root_branch = None
         if props:
-            # Prefer currently selected enum
-            idx = getattr(props, "string_items_index", -1)
-            if 0 <= idx < len(props.string_items):
-                nm = (props.string_items[idx].name or "").strip()
+            # Ensure enum contains 'init'
+            try:
+                has_init = any((it.name or "").strip() == "init" for it in props.string_items)
+            except Exception:
+                has_init = True
+            if not has_init:
+                try:
+                    it = props.string_items.add()
+                    it.name = "init"
+                except Exception:
+                    pass
+
+            # Use the first element of the enum as root branch if available
+            if len(props.string_items) > 0:
+                nm = (props.string_items[0].name or "").strip()
                 if nm:
                     root_branch = nm
             # Fallback to stored branch name
