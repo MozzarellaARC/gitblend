@@ -1,4 +1,6 @@
 import bpy
+from datetime import datetime
+import uuid
 
 
 class GITBLEND_OT_clear_save_log(bpy.types.Operator):
@@ -19,17 +21,23 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
     bl_idname = "gitblend.initialize"
     bl_label = "Initialize Git Blend"
     bl_description = "Create .gitblend collection, rename existing top collection to 'main', and copy it into .gitblend"
+    bl_options = {'INTERNAL'}  # exclude from undo/redo and search
 
     def execute(self, context):
         scene = context.scene
         root = scene.collection  # "Scene Collection"
 
-        # Ensure a top-level collection exists (other than .gitblend)
+        # Prefer a top-level collection named 'main' if present; otherwise first non-.gitblend
         existing = None
         for c in list(root.children):
-            if c.name != ".gitblend":
+            if c.name == "main":
                 existing = c
                 break
+        if not existing:
+            for c in list(root.children):
+                if c.name != ".gitblend":
+                    existing = c
+                    break
 
         if not existing:
             self.report({'WARNING'}, "No top-level collection to initialize")
@@ -45,13 +53,44 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
             dot_coll = bpy.data.collections.new(".gitblend")
             root.children.link(dot_coll)
 
+        # Exclude .gitblend from all view layers by default
+        def find_layer_collection(layer_coll, target_coll):
+            if layer_coll.collection == target_coll:
+                return layer_coll
+            for child in layer_coll.children:
+                found = find_layer_collection(child, target_coll)
+                if found:
+                    return found
+            return None
+
+        for vl in scene.view_layers:
+            lc = find_layer_collection(vl.layer_collection, dot_coll)
+            if lc:
+                lc.exclude = True
+
         # Rename existing collection to 'main' if needed
         if existing.name != "main":
-            existing.name = "main"
+            # Only rename to 'main' if the name is free, otherwise keep existing name
+            if bpy.data.collections.get("main") is None:
+                existing.name = "main"
+
+        # Unique id for this copy operation to avoid .001 suffixes
+        uid = datetime.now().strftime("%Y%m%d%H%M%S") + "_" + uuid.uuid4().hex[:6]
+
+        def unique_coll_name(base: str) -> str:
+            candidate = f"{base}_{uid}"
+            if bpy.data.collections.get(candidate) is None:
+                return candidate
+            # Extremely unlikely due to uid, but fall back to numbered suffix
+            i = 1
+            while bpy.data.collections.get(f"{candidate}-{i}") is not None:
+                i += 1
+            return f"{candidate}-{i}"
 
         # Copy the collection hierarchy into .gitblend (linking same objects, not duplicating)
         def copy_collection(src: bpy.types.Collection, parent: bpy.types.Collection):
-            new_coll = bpy.data.collections.new(src.name)
+            new_name = unique_coll_name(src.name)
+            new_coll = bpy.data.collections.new(new_name)
             parent.children.link(new_coll)
             # Link objects
             for obj in src.objects:
