@@ -72,17 +72,35 @@ class GITBLEND_OT_commit(bpy.types.Operator):
                 i += 1
             return f"{candidate}-{i}"
 
-        # Copy the collection hierarchy (linking same objects)
+        # Keep a map of original->duplicate to later remap parenting
+        obj_map: dict[bpy.types.Object, bpy.types.Object] = {}
+
+        def unique_obj_name(base: str) -> str:
+            base_uid = f"{base}_{uid}"
+            if bpy.data.objects.get(base_uid) is None:
+                return base_uid
+            i = 1
+            while bpy.data.objects.get(f"{base_uid}-{i}") is not None:
+                i += 1
+            return f"{base_uid}-{i}"
+
+        # Copy the collection hierarchy creating unique object and data copies
         def copy_collection(src: bpy.types.Collection, parent: bpy.types.Collection):
             new_name = unique_coll_name(src.name)
             new_coll = bpy.data.collections.new(new_name)
             parent.children.link(new_coll)
-            # Link objects
+            # Duplicate objects with unique data
             for obj in src.objects:
-                try:
-                    new_coll.objects.link(obj)
-                except RuntimeError:
-                    pass
+                dup = obj.copy()
+                # Make object data single-user copy when applicable (e.g., mesh, curve, camera, etc.)
+                if getattr(obj, "data", None) is not None:
+                    try:
+                        dup.data = obj.data.copy()
+                    except Exception:
+                        pass
+                dup.name = unique_obj_name(obj.name)
+                new_coll.objects.link(dup)
+                obj_map[obj] = dup
             # Recurse for child collections
             for child in src.children:
                 copy_collection(child, new_coll)
@@ -95,6 +113,14 @@ class GITBLEND_OT_commit(bpy.types.Operator):
                 continue
             copy_collection(top, dot_coll)
             copied_any = True
+
+        # Remap parenting to use duplicated parents when available
+        for orig, dup in list(obj_map.items()):
+            if orig.parent and orig.parent in obj_map:
+                try:
+                    dup.parent = obj_map[orig.parent]
+                except Exception:
+                    pass
 
         # Log commit entry
         item = props.changes_log.add()
@@ -202,24 +228,48 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
                 i += 1
             return f"{candidate}-{i}"
 
-        # Copy the collection hierarchy into .gitblend (linking same objects, not duplicating)
+        # Keep a map of original->duplicate to later remap parenting
+        obj_map: dict[bpy.types.Object, bpy.types.Object] = {}
+
+        def unique_obj_name(base: str) -> str:
+            base_uid = f"{base}_{uid}"
+            if bpy.data.objects.get(base_uid) is None:
+                return base_uid
+            i = 1
+            while bpy.data.objects.get(f"{base_uid}-{i}") is not None:
+                i += 1
+            return f"{base_uid}-{i}"
+
+        # Copy the collection hierarchy into .gitblend creating unique object and data copies
         def copy_collection(src: bpy.types.Collection, parent: bpy.types.Collection):
             new_name = unique_coll_name(src.name)
             new_coll = bpy.data.collections.new(new_name)
             parent.children.link(new_coll)
-            # Link objects
+            # Duplicate objects with unique data
             for obj in src.objects:
-                try:
-                    new_coll.objects.link(obj)
-                except RuntimeError:
-                    # Object may already be linked to this collection
-                    pass
+                dup = obj.copy()
+                if getattr(obj, "data", None) is not None:
+                    try:
+                        dup.data = obj.data.copy()
+                    except Exception:
+                        pass
+                dup.name = unique_obj_name(obj.name)
+                new_coll.objects.link(dup)
+                obj_map[obj] = dup
             # Recurse for child collections
             for child in src.children:
                 copy_collection(child, new_coll)
             return new_coll
 
         copy_collection(existing, dot_coll)
+
+        # Remap parenting to use duplicated parents when available
+        for orig, dup in list(obj_map.items()):
+            if orig.parent and orig.parent in obj_map:
+                try:
+                    dup.parent = obj_map[orig.parent]
+                except Exception:
+                    pass
 
         # Log initialize entry so it shows in the panel change log
         try:
