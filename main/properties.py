@@ -64,6 +64,23 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
     update=_on_selected_string_update,
     )
 
+    # UI toggles for collapsible sections
+    ui_show_commit: bpy.props.BoolProperty(
+        name="Show Commit",
+        default=True,
+        description="Expand or collapse the Commit section",
+    )
+    ui_show_branches: bpy.props.BoolProperty(
+        name="Show Branches",
+        default=True,
+        description="Expand or collapse the Branches section",
+    )
+    ui_show_log: bpy.props.BoolProperty(
+        name="Show Change Log",
+        default=True,
+        description="Expand or collapse the Change Log section",
+    )
+
 
 def register_properties():
     bpy.utils.register_class(GITBLEND_StringItem)

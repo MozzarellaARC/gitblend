@@ -1,4 +1,5 @@
 import bpy
+from .utils import get_selected_branch
 
 class GITBLEND_UL_ChangeLog(bpy.types.UIList):
     bl_idname = "GITBLEND_UL_ChangeLog"
@@ -20,6 +21,13 @@ class GITBLEND_Panel(bpy.types.Panel):
     bl_category = "Git Blend"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        layout = self.layout
+        scene = context.scene
+        has_gitblend = any(c.name == ".gitblend" for c in scene.collection.children)
+        layout.label(icon='CHECKMARK' if has_gitblend else 'ERROR')
 
     def draw(self, context):
         layout = self.layout
@@ -32,43 +40,61 @@ class GITBLEND_Panel(bpy.types.Panel):
         # Detect .gitblend presence for UI state
         has_gitblend = any(c.name == ".gitblend" for c in scene.collection.children)
 
-        # Initialize controls
+        # Top row: Initialize left, current branch right
         row = layout.row(align=True)
         row.operator("gitblend.initialize", text="Initialize", icon='FILE_NEW')
-
-        # Commit input and action
-        box = layout.box()
-        col = box.column(align=False)
-        col.label(text="Commit Message:")
-        col.prop(gitblend_props, "commit_message", text="")
-        row = col.row(align=False)
-        row.enabled = has_gitblend
-        row.operator("gitblend.commit", text="Commit", icon='CHECKMARK')
+        row = layout.row(align=True)
+        row.alignment = 'RIGHT'
+        row.label(text=f"Branch: {get_selected_branch(gitblend_props)}")
         if not has_gitblend:
-            col.label(text="Initialize first to enable committing.", icon='INFO')
+            layout.label(text="'.gitblend' not found. Click Initialize.", icon='INFO')
 
-        # Branch selection and quick add
-        col = layout.column(align=True)
-        col.label(text="Branch:")
-        row = col.row(align=False)
-        row.prop(gitblend_props, "selected_string", text="")
-        row.operator("gitblend.string_add", text="Branch", icon='ADD')
+        # Commit (collapsible)
+        box = layout.box()
+        header = box.row()
+        header.prop(gitblend_props, "ui_show_commit", icon='TRIA_DOWN' if gitblend_props.ui_show_commit else 'TRIA_RIGHT', icon_only=True, emboss=False)
+        header.label(text="Commit")
+        if gitblend_props.ui_show_commit:
+            col = box.column(align=False)
+            col.prop(gitblend_props, "commit_message", text="Message", icon='TEXT')
+            col.separator()
+            row = col.row(align=True)
+            row.enabled = has_gitblend
+            row.operator("gitblend.commit", text="Commit", icon='CHECKMARK')
+            if not has_gitblend:
+                col.label(text="Initialize first to enable committing.", icon='INFO')
 
-        # Change log section (scrollable)
-        col = layout.column(align=True)
-        col.label(text="Change Log:")
-        if len(gitblend_props.changes_log) == 0:
-            col.label(text="No commits yet.", icon='INFO')
-        else:
-            col.template_list(
-                "GITBLEND_UL_ChangeLog",
-                "",
-                gitblend_props,
-                "changes_log",
-                gitblend_props,
-                "changes_log_index",
-                rows=7,
-            )
+        # Branches (collapsible)
+        box = layout.box()
+        header = box.row()
+        header.prop(gitblend_props, "ui_show_branches", icon='TRIA_DOWN' if gitblend_props.ui_show_branches else 'TRIA_RIGHT', icon_only=True, emboss=False)
+        header.label(text="Branches")
+        if gitblend_props.ui_show_branches:
+            row = box.row(align=True)
+            row.prop(gitblend_props, "selected_string", text="")
+            sub = row.row(align=True)
+            sub.enabled = has_gitblend
+            sub.operator("gitblend.string_add", text="", icon='ADD')
+            sub.operator("gitblend.string_remove", text="", icon='REMOVE')
+
+        # Change Log (collapsible + scrollable)
+        box = layout.box()
+        header = box.row()
+        header.prop(gitblend_props, "ui_show_log", icon='TRIA_DOWN' if gitblend_props.ui_show_log else 'TRIA_RIGHT', icon_only=True, emboss=False)
+        header.label(text="Change Log")
+        if gitblend_props.ui_show_log:
+            if len(gitblend_props.changes_log) == 0:
+                box.label(text="No commits yet.", icon='INFO')
+            else:
+                box.template_list(
+                    "GITBLEND_UL_ChangeLog",
+                    "",
+                    gitblend_props,
+                    "changes_log",
+                    gitblend_props,
+                    "changes_log_index",
+                    rows=7,
+                )
 
 def register_panel():
     bpy.utils.register_class(GITBLEND_UL_ChangeLog)
