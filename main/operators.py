@@ -2,7 +2,6 @@ import bpy
 from datetime import datetime
 from .validate import (
     ensure_gitblend_collection,
-    slugify,
     duplicate_collection_hierarchy,
     remap_parenting,
 )
@@ -12,7 +11,7 @@ from .draw import _gitblend_request_redraw
 class GITBLEND_OT_commit(bpy.types.Operator):
     bl_idname = "gitblend.commit"
     bl_label = "Commit Changes"
-    bl_description = "Copy current top-level collections (except .gitblend) into .gitblend with unique names and add an entry to the change log"
+    bl_description = "Rename the source collection to the selected prefix and copy it into .gitblend with a UID suffix; log the message"
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
@@ -26,38 +25,53 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         if not msg:
             self.report({'ERROR'}, "Please enter a commit message before committing.")
             return {'CANCELLED'}
-        
+
         scene = context.scene
         root = scene.collection
         dot_coll = ensure_gitblend_collection(scene)
 
-        # Unique id for this commit: message slug + selected enum (if any); fallback to timestamp
-        uid_parts = []
-        # First, selected enum (acts as a prefix)
+        # Determine desired prefix from selected enum (fallback to stored branch or 'main')
+        sel = ""
         idx = getattr(props, "string_items_index", -1)
         if 0 <= idx < len(props.string_items):
             sel = (props.string_items[idx].name or "").strip()
-            sel_slug = slugify(sel)
-            if sel_slug:
-                uid_parts.append(sel_slug)
-        # Then, the commit message slug
-        msg_slug = slugify(msg)
-        if msg_slug:
-            uid_parts.append(msg_slug)
-        uid = "-".join(uid_parts) if uid_parts else ""
-        if not uid:
-            uid = datetime.now().strftime("%Y%m%d%H%M%S")
+        if not sel:
+            sel = (getattr(props, "gitblend_branch", "") or "").strip() or "main"
 
-        # Keep a map of original->duplicate to later remap parenting
+        # Choose source collection: prefer one named exactly as prefix; otherwise first non-.gitblend
+        source = None
+        for c in list(root.children):
+            if c.name == sel:
+                source = c
+                break
+        if not source:
+            for c in list(root.children):
+                if c.name != ".gitblend":
+                    source = c
+                    break
+
+        if not source:
+            self.report({'WARNING'}, "No top-level collection to commit")
+            return {'CANCELLED'}
+
+        # Rename source to match prefix (if not already)
+        if source.name != sel:
+            # Extra safety: if another collection already has this name, use that as source instead of renaming
+            other = bpy.data.collections.get(sel)
+            if other and other is not source:
+                source = other
+            else:
+                try:
+                    source.name = sel
+                except Exception:
+                    pass
+
+        # Unique id for this commit (timestamp only for .gitblend duplicate name)
+        uid = datetime.now().strftime("%Y%m%d%H%M%S")
+
+        # Duplicate only the source into .gitblend, with names suffixed by UID
         obj_map: dict[bpy.types.Object, bpy.types.Object] = {}
-
-        # Copy all top-level collections except .gitblend
-        copied_any = False
-        for top in list(root.children):
-            if top.name == ".gitblend":
-                continue
-            duplicate_collection_hierarchy(top, dot_coll, uid, obj_map)
-            copied_any = True
+        duplicate_collection_hierarchy(source, dot_coll, uid, obj_map)
 
         # Remap parenting to use duplicated parents when available
         remap_parenting(obj_map)
@@ -71,18 +85,14 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         # Redraw UI
         _gitblend_request_redraw()
 
-        if copied_any:
-            self.report({'INFO'}, "Commit snapshot created in .gitblend")
-            return {'FINISHED'}
-        else:
-            self.report({'WARNING'}, "No top-level collections to copy")
-            return {'CANCELLED'}
+        self.report({'INFO'}, "Commit snapshot created in .gitblend")
+        return {'FINISHED'}
 
 
 class GITBLEND_OT_initialize(bpy.types.Operator):
     bl_idname = "gitblend.initialize"
     bl_label = "Initialize Git Blend"
-    bl_description = "Create .gitblend collection, optionally rename existing top collection to preferred name, and copy it into .gitblend"
+    bl_description = "Create .gitblend; rename source to preferred root name; copy it into .gitblend with a UID suffix"
     bl_options = {'INTERNAL'}  # exclude from undo/redo and search
 
     def execute(self, context):
@@ -141,14 +151,20 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
         # Create .gitblend and exclude it in all view layers
         dot_coll = ensure_gitblend_collection(scene)
 
-        # Rename existing collection to preferred name if needed and available
+        # Rename the original collection to the preferred root name so source matches prefix
         if existing.name != root_branch:
-            # Only rename if the preferred name is free, otherwise keep existing name
-            if bpy.data.collections.get(root_branch) is None:
-                existing.name = root_branch
+            # If another collection already has the desired name, switch to it to avoid duplicates
+            same = bpy.data.collections.get(root_branch)
+            if same and same is not existing:
+                existing = same
+            else:
+                try:
+                    existing.name = root_branch
+                except Exception:
+                    pass
 
-        # Unique id for initialization copies: use constant 'init'
-        uid = "init"
+        # Unique id for initialization copies: use timestamp
+        uid = datetime.now().strftime("%Y%m%d%H%M%S")
 
         # Keep a map of original->duplicate to later remap parenting
         obj_map: dict[bpy.types.Object, bpy.types.Object] = {}
