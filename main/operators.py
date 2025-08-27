@@ -4,7 +4,6 @@ from .validate import (
     slugify,
     duplicate_collection_hierarchy,
     remap_parenting,
-    should_skip_commit,
     get_latest_snapshot,
     create_diff_snapshot,
 )
@@ -17,6 +16,14 @@ from .utils import (
     log_change,
     ensure_enum_contains,
     set_dropdown_selection,
+)
+from .index import (
+    load_index,
+    save_index,
+    compute_collection_signature,
+    get_latest_commit,
+    derive_changed_set,
+    update_index_with_commit,
 )
 
 
@@ -65,18 +72,29 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 
         dot_coll = ensure_gitblend_collection(scene)
 
-        # Early exit: compare with last snapshot for this branch
-        skip, reason = should_skip_commit(scene, source, sel)
-        if skip:
-            self.report({'INFO'}, f"No changes detected ({reason}); skipping snapshot")
+        # Compute signatures and compare with TOML index for early decision
+        obj_sigs, coll_hash = compute_collection_signature(source)
+        index = load_index()
+        last = get_latest_commit(index, sel)
+        prev_objs = {}
+        if last:
+            prev_objs = {o.get("name", ""): o for o in last.get("objects", []) if (o.get("name", ""))}
+        has_changes, changed_names = derive_changed_set(obj_sigs, prev_objs)
+        if not has_changes:
+            self.report({'INFO'}, "No changes detected; skipping snapshot")
             return {'CANCELLED'}
 
         uid = now_str("%Y%m%d%H%M%S")
 
         prev = get_latest_snapshot(scene, sel)
-        # Differential snapshot: link unchanged from prev, copy changed/new
-        _, obj_map = create_diff_snapshot(source, dot_coll, uid, prev)
+        # Differential snapshot: link unchanged from prev, copy changed/new (validate.py computes changed set internally)
+        new_coll, obj_map = create_diff_snapshot(source, dot_coll, uid, prev)
         # remap_parenting only needed for newly copied objects; handled inside create_diff_snapshot
+
+        # Update TOML index
+        snapshot_name = new_coll.name
+        index = update_index_with_commit(index, sel, uid, now_str(), msg, snapshot_name, obj_sigs, coll_hash)
+        save_index(index)
 
         log_change(props, msg)
         props.commit_message = ""
