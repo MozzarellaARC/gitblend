@@ -6,7 +6,7 @@ class YANT_Panel(bpy.types.Panel):
     bl_category = "YANT"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_context = "objectmode"
+    bl_category = "YANT"
 
     def draw(self, context):
         layout = self.layout
