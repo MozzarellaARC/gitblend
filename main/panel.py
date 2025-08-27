@@ -29,7 +29,7 @@ class GITBLEND_Panel(bpy.types.Panel):
 
         # Save events section
         col = layout.column(align=True)
-        col.label(text="Save Events:")
+        col.label(text="Save Events (recent):")
         if len(gitblend_props.save_events) == 0:
             col.label(text="No saves recorded yet.", icon='INFO')
         else:
@@ -40,7 +40,7 @@ class GITBLEND_Panel(bpy.types.Panel):
 
         # Change log section
         col = layout.column(align=True)
-        col.label(text="Change Log:")
+        col.label(text="Change Log (recent):")
         if len(gitblend_props.changes_log) == 0:
             col.label(text="No commits yet.", icon='INFO')
         else:
@@ -56,4 +56,7 @@ def register_panel():
     bpy.utils.register_class(GITBLEND_Panel)
 
 def unregister_panel():
-    bpy.utils.unregister_class(GITBLEND_Panel)
+    try:
+        bpy.utils.unregister_class(GITBLEND_Panel)
+    except RuntimeError:
+        pass

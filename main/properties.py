@@ -39,7 +39,11 @@ def register_properties():
 
 
 def unregister_properties():
-    del bpy.types.Scene.gitblend_props
-    bpy.utils.unregister_class(GITBLEND_Properties)
-    bpy.utils.unregister_class(GITBLEND_ChangeLogEntry)
-    bpy.utils.unregister_class(GITBLEND_SaveEvent)
+    if hasattr(bpy.types.Scene, "gitblend_props"):
+        del bpy.types.Scene.gitblend_props
+    # Unregister in reverse order of registration to honor dependencies
+    for cls in (GITBLEND_Properties, GITBLEND_ChangeLogEntry, GITBLEND_SaveEvent):
+        try:
+            bpy.utils.unregister_class(cls)
+        except RuntimeError:
+            pass
