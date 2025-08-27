@@ -1,1 +1,59 @@
 remove the filepath on the panel and add initialize operator, this initialize operator will creates .gitblend collection and rename the existing collection to main and copy the existing collection into .gitblend
+
+i need a system to check for changes made when committing,
+
+this change validation should be like this:
+check if the commit contains the name of the previous commit
+check if each matching name data has the same transform data
+check if each matching name has the same origin position
+check if each matching name object has the same bounding box height and weight
+check if each matching name object has the same vertex count
+check if each matching name object the same vertex groups
+check if each matching name object the same uv data
+check if each matching name object the same shapekeys data
+check if each matching name contains identical modifiers
+check if each matching name object vertices has matching index and their vertices has identical world position
+
+
+make sure to create early exits, don't duplicate the data into .gitblend if the match is the same. The check should be ordered from the least requiring processing resources. I might miss some important validation concept, propose to me if you have ideas
+
+results
+
+Checklist of your requirements
+Check if the commit contains the name of the previous commit: Done (current must contain all previous names).
+Check same transform data: Done (matrix_world).
+Check same origin position: Done (world translation).
+Check same bounding box height/width: Done (dimensions vector).
+Check same vertex count: Done (mesh vertex count).
+Check same vertex groups: Done (names + per-vertex weights).
+Check same UV data: Done (layer count/names + per-loop UV coords).
+Check same shapekeys data: Done (count/names + values + per-point coords).
+Check identical modifiers: Done (type/name/stack order).
+Check vertices index + identical world position: Done (per-vertex world coords).
+Early exits and skip duplicate snapshot in .gitblend: Done (ordered checks, skip when identical).
+Actions taken
+Implemented a validation system in validate.py:
+Snapshot metadata: store gitblend_orig_name on duplicated objects/collections.
+Matching: compare objects by original names (not the suffixed snapshot names).
+Ordered, early-exit checks:
+Name set equality
+Transform (matrix_world) and origin translation
+Bounding-box dimensions
+Vertex count
+Modifiers (type/name/stack)
+Vertex group names
+UV layer meta (count/names)
+Shapekey meta (count/names)
+UV per-loop coords
+Shapekey values and point counts
+Vertex weights per group
+Vertex world positions
+Shapekey per-point coordinates (non-Basis; most expensive)
+Cheap pre-check: ensure current contains all previous names.
+API added:
+get_latest_snapshot(scene, branch)
+collections_identical(curr, prev) -> (bool, reason)
+should_skip_commit(scene, curr, branch) -> (skip, reason)
+Wired validation into GITBLEND_OT_commit:
+If identical to last snapshot for the selected branch, don’t duplicate into .gitblend and report: “No changes detected (…); skipping snapshot”.
+Stored original names during duplication to enable robust matching across commits.

@@ -4,6 +4,7 @@ from .validate import (
     slugify,
     duplicate_collection_hierarchy,
     remap_parenting,
+    should_skip_commit,
 )
 from .utils import (
     now_str,
@@ -61,6 +62,12 @@ class GITBLEND_OT_commit(bpy.types.Operator):
                     pass
 
         dot_coll = ensure_gitblend_collection(scene)
+
+        # Early exit: compare with last snapshot for this branch
+        skip, reason = should_skip_commit(scene, source, sel)
+        if skip:
+            self.report({'INFO'}, f"No changes detected ({reason}); skipping snapshot")
+            return {'CANCELLED'}
 
         uid = now_str("%Y%m%d%H%M%S")
 
