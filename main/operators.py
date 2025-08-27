@@ -140,6 +140,28 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
     bl_description = "Add a new item to the string list"
     bl_options = {'INTERNAL'}
 
+    name: bpy.props.StringProperty(name="Branch name", description="Name of the new branch", default="")
+
+    def invoke(self, context, event):
+        # Ensure environment is valid before showing prompt
+        scene = context.scene
+        has_gitblend = any(c.name == ".gitblend" for c in scene.collection.children)
+        if not has_gitblend:
+            self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
+            return {'CANCELLED'}
+
+        # Pre-fill a reasonable default
+        props = get_props(context)
+        if props and not (self.name or "").strip():
+            base = (props.gitblend_branch or "branch").strip() or "branch"
+            # Make it look unique-ish for convenience
+            self.name = f"{base}-{len(props.string_items)+1}"
+        return context.window_manager.invoke_props_dialog(self, width=320)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "name", text="Branch name")
+
     def execute(self, context):
         props = get_props(context)
         if not props:
@@ -151,8 +173,18 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
         if not has_gitblend:
             self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
             return {'CANCELLED'}
+
+        nm = (self.name or "").strip()
+        if not nm:
+            self.report({'ERROR'}, "Please enter a branch name.")
+            return {'CANCELLED'}
+        # Avoid duplicates (case-insensitive)
+        if any((it.name or "").strip().lower() == nm.lower() for it in props.string_items):
+            self.report({'ERROR'}, f"Branch '{nm}' already exists.")
+            return {'CANCELLED'}
+
         item = props.string_items.add()
-        item.name = ""
+        item.name = nm
         set_dropdown_selection(props, len(props.string_items) - 1)
         request_redraw()
         return {'FINISHED'}
