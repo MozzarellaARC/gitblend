@@ -2,10 +2,11 @@ import bpy
 import re
 from math import isclose
 from typing import Dict, Iterable, List, Optional, Set, Tuple
+from .index import load_index, get_latest_commit, compute_collection_signature, derive_changed_set
 
-# Tolerances for float comparisons
-EPS = 1e-6
-EPS_POS = 1e-5  # slightly looser for world positions
+# Tolerances for float comparisons (relaxed slightly to avoid noise-based false positives)
+EPS = 1e-5
+EPS_POS = 5e-4  # looser for world positions
 
 def exclude_collection_in_all_view_layers(scene: bpy.types.Scene, coll: bpy.types.Collection) -> None:
 	"""Exclude the given collection in all scene view layers."""
@@ -386,9 +387,10 @@ def _compare_vertex_world_positions(a: bpy.types.Object, b: bpy.types.Object) ->
 	return None
 
 
-def collections_identical(curr: bpy.types.Collection, prev: bpy.types.Collection) -> Tuple[bool, str]:
+def collections_identical(curr: bpy.types.Collection, prev: bpy.types.Collection, subset_mode: bool = False) -> Tuple[bool, str]:
 	"""Compare two collections (current working vs previous snapshot) with early exits.
 	Returns (is_identical, reason). On difference, reason describes the first detected mismatch.
+	If subset_mode=True, only compare objects that exist in 'prev' (useful when 'prev' is a differential snapshot).
 	Order of checks: names -> transforms -> dimensions -> vert count -> modifiers -> vgroup names -> UV meta -> shapekey meta -> UV data -> weights -> vertex world positions.
 	"""
 	curr_map = _build_name_map_for_collection(curr, snapshot=False)
@@ -397,19 +399,28 @@ def collections_identical(curr: bpy.types.Collection, prev: bpy.types.Collection
 	if not curr_map and not prev_map:
 		return True, "both empty"
 
-	# Quick name set comparison
 	names_curr: Set[str] = set(curr_map.keys())
 	names_prev: Set[str] = set(prev_map.keys())
-	if names_curr != names_prev:
-		missing = names_prev - names_curr
-		added = names_curr - names_prev
-		if missing:
-			return False, f"names missing in current: {sorted(list(missing))[:3]}"
-		else:
-			return False, f"new names in current: {sorted(list(added))[:3]}"
+
+	if not subset_mode:
+		# Strict equality of name sets
+		if names_curr != names_prev:
+			missing = names_prev - names_curr
+			added = names_curr - names_prev
+			if missing:
+				return False, f"names missing in current: {sorted(list(missing))[:3]}"
+			else:
+				return False, f"new names in current: {sorted(list(added))[:3]}"
+		names_to_check = sorted(names_curr)
+	else:
+		# Only ensure all prev names still exist; extra current names are ignored
+		if not names_prev.issubset(names_curr):
+			missing = names_prev - names_curr
+			return False, f"names missing in current (subset): {sorted(list(missing))[:3]}"
+		names_to_check = sorted(names_prev)
 
 	# For each matching name, run ordered checks with early exit
-	for name in sorted(names_curr):
+	for name in names_to_check:
 		a = curr_map[name]
 		b = prev_map[name]
 		for check in (
@@ -441,16 +452,43 @@ def commit_contains_previous_names(curr: bpy.types.Collection, prev: bpy.types.C
 
 
 def should_skip_commit(scene: bpy.types.Scene, curr: bpy.types.Collection, branch: str) -> Tuple[bool, str]:
-	"""Return (skip, reason). Skip when there is a previous snapshot for the branch and collections are identical."""
+	"""Return (skip, reason).
+	Preferred fast path: compare current collection hash with the last commit's stored hash.
+	Fallback: compare against the latest on-disk snapshot in .gitblend.
+	"""
+	# Index-based detection (preferred): compare against last commit object set.
+	index_reports_unchanged = False
+	try:
+		index = load_index()
+		last = get_latest_commit(index, branch)
+		if last:
+			curr_sigs, curr_hash = compute_collection_signature(curr)
+			prev_objs = {o.get("name", ""): o for o in (last.get("objects", []) or []) if o.get("name")}
+			# Quick win: if hashes match and objects identical, mark unchanged
+			if str(last.get("collection_hash", "")) == str(curr_hash):
+				index_reports_unchanged = True
+			else:
+				# Authoritative per-object diff using the index
+				changed, _names = derive_changed_set(curr_sigs, prev_objs)
+				index_reports_unchanged = not changed
+	except Exception:
+		# If index isn't available or hashing fails, continue with snapshot comparison
+		index_reports_unchanged = False
+
+	# Fallback to snapshot-based comparison
 	prev = get_latest_snapshot(scene, branch)
 	if not prev:
-		return False, "no previous snapshot"
+		# Without a snapshot to compare, only rely on index; skip only if index says unchanged
+		return (index_reports_unchanged, "index unchanged (no previous snapshot)" if index_reports_unchanged else "no previous snapshot")
 	# Cheapest: ensure current still contains previous names
 	if not commit_contains_previous_names(curr, prev):
 		return False, "name sets differ"
 	# Full comparison (ordered with early exit)
-	same, reason = collections_identical(curr, prev)
-	return (same, reason)
+	same, reason = collections_identical(curr, prev, subset_mode=True)
+	# Be conservative: require both index and snapshot to report unchanged to skip
+	if index_reports_unchanged and same:
+		return True, f"index+snapshot unchanged ({reason})"
+	return False, "changes detected"
 
 
 ##############################################

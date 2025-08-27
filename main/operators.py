@@ -22,6 +22,8 @@ from .index import (
     save_index,
     compute_collection_signature,
     update_index_with_commit,
+    derive_changed_set,
+    get_latest_commit,
 )
 
 
@@ -88,8 +90,19 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         uid = now_str("%Y%m%d%H%M%S")
 
         prev = get_latest_snapshot(scene, sel)
-        # Differential snapshot: let validator compute changes against previous snapshot
-        new_coll, obj_map = create_diff_snapshot_with_changes(source, dot_coll, uid, prev, changed_names=None)
+
+        # Differential snapshot: compute changed set via index signatures to be robust to previous diff snapshots
+        index = load_index()
+        last = get_latest_commit(index, sel)
+        changed_names = None
+        if last:
+            # Build prev objs dict from last commit entries
+            prev_objs = {o.get("name", ""): o for o in (last.get("objects", []) or []) if o.get("name")}
+            curr_sigs, _coll_hash = compute_collection_signature(source)
+            changed, names = derive_changed_set(curr_sigs, prev_objs)
+            changed_names = set(names) if changed else set()
+        # Create diff snapshot using computed changed set (or let it compute if None)
+        new_coll, obj_map = create_diff_snapshot_with_changes(source, dot_coll, uid, prev, changed_names=changed_names)
 
         # Update TOML index
         snapshot_name = new_coll.name

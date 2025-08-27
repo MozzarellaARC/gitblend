@@ -71,10 +71,28 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
     except Exception:
         sig["dims"] = ""
 
-    # Mesh-specific meta
-    if getattr(obj, "type", None) == "MESH" and getattr(obj, "data", None) is not None:
+    # Materials (all objects that have material_slots)
+    try:
+        mats = [slot.material.name if slot.material else "" for slot in getattr(obj, "material_slots", [])]
+    except Exception:
+        mats = []
+    sig["materials"] = _list_hash(mats)
+
+    obj_type = getattr(obj, "type", None)
+    has_data = getattr(obj, "data", None) is not None
+
+    if obj_type == "MESH" and has_data:
         me = obj.data
         sig["verts"] = int(len(me.vertices))
+        # Topology counts
+        try:
+            sig["edges"] = int(len(me.edges))
+        except Exception:
+            sig["edges"] = 0
+        try:
+            sig["polygons"] = int(len(me.polygons))
+        except Exception:
+            sig["polygons"] = 0
         # Modifiers (type+name order)
         mods = [(m.type, m.name) for m in getattr(obj, "modifiers", [])]
         sig["modifiers"] = _list_hash([f"{t}:{n}" for t, n in mods])
@@ -89,7 +107,25 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         kb = getattr(getattr(me, "shape_keys", None), "key_blocks", None)
         sk = [k.name for k in kb] if kb else []
         sig["shapekeys_meta"] = _list_hash(sk)
-    elif getattr(obj, "type", None) == "LIGHT" and getattr(obj, "data", None) is not None:
+        # Shapekey values snapshot (name:value)
+        try:
+            if kb:
+                vals = [f"{k.name}:{float(getattr(k, 'value', 0.0)):.6f}" for k in kb]
+            else:
+                vals = []
+        except Exception:
+            vals = []
+        sig["shapekeys_values"] = _list_hash(vals)
+        # Geometry hash (object-space vertex coordinates)
+        try:
+            coords = []
+            for v in me.vertices:
+                co = v.co
+                coords.extend((f"{float(co.x):.6f}", f"{float(co.y):.6f}", f"{float(co.z):.6f}"))
+            sig["geo_hash"] = _sha256("|".join(coords))
+        except Exception:
+            sig["geo_hash"] = ""
+    elif obj_type == "LIGHT" and has_data:
         # Light-specific meta
         li = obj.data  # bpy.types.Light
         vals = []
@@ -118,11 +154,15 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         sig["light_meta"] = _sha256("|".join(vals))
         # Fill non-mesh placeholders
         sig["verts"] = 0
+        sig["edges"] = 0
+        sig["polygons"] = 0
         sig["modifiers"] = ""
         sig["vgroups"] = ""
         sig["uv_meta"] = ""
         sig["shapekeys_meta"] = ""
-    elif getattr(obj, "type", None) == "CAMERA" and getattr(obj, "data", None) is not None:
+        sig["shapekeys_values"] = ""
+        sig["geo_hash"] = ""
+    elif obj_type == "CAMERA" and has_data:
         # Camera-specific meta
         cam = obj.data  # bpy.types.Camera
         vals = []
@@ -149,16 +189,25 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         sig["camera_meta"] = _sha256("|".join(vals))
         # Fill non-mesh placeholders
         sig["verts"] = 0
+        sig["edges"] = 0
+        sig["polygons"] = 0
         sig["modifiers"] = ""
         sig["vgroups"] = ""
         sig["uv_meta"] = ""
         sig["shapekeys_meta"] = ""
+        sig["shapekeys_values"] = ""
+        sig["geo_hash"] = ""
     else:
+        # Other types
         sig["verts"] = 0
+        sig["edges"] = 0
+        sig["polygons"] = 0
         sig["modifiers"] = ""
         sig["vgroups"] = ""
         sig["uv_meta"] = ""
         sig["shapekeys_meta"] = ""
+        sig["shapekeys_values"] = ""
+        sig["geo_hash"] = ""
 
     return sig
 
@@ -176,6 +225,7 @@ def compute_collection_signature(coll: bpy.types.Collection) -> Tuple[Dict[str, 
         s = obj_sigs[nm]
         parts.append("|".join([
             nm,
+            s.get("parent", ""),
             s.get("type", ""),
             s.get("data_name", ""),
             s.get("transform", ""),
@@ -185,6 +235,11 @@ def compute_collection_signature(coll: bpy.types.Collection) -> Tuple[Dict[str, 
             s.get("vgroups", ""),
             s.get("uv_meta", ""),
             s.get("shapekeys_meta", ""),
+            s.get("shapekeys_values", ""),
+            s.get("materials", ""),
+            str(s.get("edges", 0)),
+            str(s.get("polygons", 0)),
+            s.get("geo_hash", ""),
             s.get("light_meta", ""),
             s.get("camera_meta", ""),
         ]))
@@ -246,10 +301,18 @@ def save_index(data: Dict) -> None:
                 lines.append(f"transform = \"{_toml_escape(o.get('transform', ''))}\"")
                 lines.append(f"dims = \"{_toml_escape(o.get('dims', ''))}\"")
                 lines.append(f"verts = {int(o.get('verts', 0))}")
+                lines.append(f"edges = {int(o.get('edges', 0))}")
+                lines.append(f"polygons = {int(o.get('polygons', 0))}")
                 lines.append(f"modifiers = \"{_toml_escape(o.get('modifiers', ''))}\"")
                 lines.append(f"vgroups = \"{_toml_escape(o.get('vgroups', ''))}\"")
                 lines.append(f"uv_meta = \"{_toml_escape(o.get('uv_meta', ''))}\"")
                 lines.append(f"shapekeys_meta = \"{_toml_escape(o.get('shapekeys_meta', ''))}\"")
+                if o.get('shapekeys_values') is not None:
+                    lines.append(f"shapekeys_values = \"{_toml_escape(o.get('shapekeys_values', ''))}\"")
+                if o.get('materials') is not None:
+                    lines.append(f"materials = \"{_toml_escape(o.get('materials', ''))}\"")
+                if o.get('geo_hash') is not None:
+                    lines.append(f"geo_hash = \"{_toml_escape(o.get('geo_hash', ''))}\"")
                 if o.get('light_meta') is not None:
                     lines.append(f"light_meta = \"{_toml_escape(o.get('light_meta', ''))}\"")
                 if o.get('camera_meta') is not None:
@@ -281,8 +344,11 @@ def derive_changed_set(curr_objs: Dict[str, Dict], prev_objs: Dict[str, Dict]) -
         a = curr_objs[nm]
         b = prev_objs.get(nm, {})
         keys = (
+            "parent",
             "type", "data_name", "transform", "dims", "verts",
-            "modifiers", "vgroups", "uv_meta", "shapekeys_meta",
+            "edges", "polygons",
+            "modifiers", "vgroups", "uv_meta", "shapekeys_meta", "shapekeys_values", "materials",
+            "geo_hash",
             "light_meta", "camera_meta",
         )
         for k in keys:
