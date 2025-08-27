@@ -44,9 +44,9 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
     commit_message: bpy.props.StringProperty(
         name="Commit Message",
         description="Describe the changes to record in the log",
-    default=""
+        default=""
     )
-    gitblend_suffix: bpy.props.StringProperty(
+    gitblend_branch: bpy.props.StringProperty(
         name="Gitblend Suffix Name",
         description="Preferred top-level collection name to use during initialization",
         default="main",

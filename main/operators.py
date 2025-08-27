@@ -77,11 +77,11 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
     def execute(self, context):
         # Access addon properties for logging and preferred root name
         props = getattr(context.scene, "gitblend_props", None)
-        root_suffix = None
+        root_branch = None
         if props:
-            root_suffix = (props.gitblend_suffix or "").strip()
-        if not root_suffix:
-            root_suffix = "main"
+            root_branch = (props.gitblend_branch or "").strip()
+        if not root_branch:
+            root_branch = "main"
 
         scene = context.scene
         root = scene.collection
@@ -95,7 +95,7 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
         # Prefer a top-level collection named per preference if present; otherwise first non-.gitblend
         existing = None
         for c in list(root.children):
-            if c.name == root_suffix:
+            if c.name == root_branch:
                 existing = c
                 break
         if not existing:
@@ -112,10 +112,10 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
         dot_coll = ensure_gitblend_collection(scene)
 
         # Rename existing collection to preferred name if needed and available
-        if existing.name != root_suffix:
+        if existing.name != root_branch:
             # Only rename if the preferred name is free, otherwise keep existing name
-            if bpy.data.collections.get(root_suffix) is None:
-                existing.name = root_suffix
+            if bpy.data.collections.get(root_branch) is None:
+                existing.name = root_branch
 
         # Unique id for initialization copies: use constant 'init'
         uid = "init"
