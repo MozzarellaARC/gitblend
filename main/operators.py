@@ -2,6 +2,7 @@ import bpy
 from datetime import datetime
 from .validate import (
     ensure_gitblend_collection,
+    slugify,
     duplicate_collection_hierarchy,
     remap_parenting,
 )
@@ -38,10 +39,14 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         if not sel:
             sel = (getattr(props, "gitblend_branch", "") or "").strip() or "main"
 
-        # Choose source collection: prefer one named exactly as prefix; otherwise first non-.gitblend
+        # Append sanitized commit message after the enum for naming
+        msg_slug = slugify(msg)
+        base_name = f"{sel}-{msg_slug}" if msg_slug else sel
+
+        # Choose source collection: prefer one named exactly as base_name; otherwise first non-.gitblend
         source = None
         for c in list(root.children):
-            if c.name == sel:
+            if c.name == base_name:
                 source = c
                 break
         if not source:
@@ -54,15 +59,15 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             self.report({'WARNING'}, "No top-level collection to commit")
             return {'CANCELLED'}
 
-        # Rename source to match prefix (if not already)
-        if source.name != sel:
+        # Rename source to match base_name (if not already)
+        if source.name != base_name:
             # Extra safety: if another collection already has this name, use that as source instead of renaming
-            other = bpy.data.collections.get(sel)
+            other = bpy.data.collections.get(base_name)
             if other and other is not source:
                 source = other
             else:
                 try:
-                    source.name = sel
+                    source.name = base_name
                 except Exception:
                     pass
 
