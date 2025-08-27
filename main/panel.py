@@ -63,6 +63,10 @@ class GITBLEND_Panel(bpy.types.Panel):
             row.operator("gitblend.commit", text="Commit", icon='CHECKMARK')
             if not has_gitblend:
                 col.label(text="Initialize first to enable committing.", icon='INFO')
+            col.separator()
+            row = col.row(align=False)
+            row.operator("gitblend.undo_commit", text="Undo", icon='LOOP_BACK')
+            row.operator("gitblend.discard_changes", text="Discard", icon='X')
 
         # Branches (collapsible)
         box = layout.box()

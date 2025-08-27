@@ -233,14 +233,273 @@ class GITBLEND_OT_string_remove(bpy.types.Operator):
             self.report({'WARNING'}, "No item selected")
             return {'CANCELLED'}
 
+class GITBLEND_OT_undo_commit(bpy.types.Operator):
+    bl_idname = "gitblend.undo_commit"
+    bl_label = "Undo Last Commit"
+    bl_description = "Remove the latest commit for the selected branch and delete its snapshot"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        # Ensure project is saved in a valid path
+        ok, _proj, err = sanitize_save_path()
+        if not ok:
+            self.report({'ERROR'}, err)
+            return {'CANCELLED'}
+
+        scene = context.scene
+        # Ensure .gitblend exists
+        dot_coll = None
+        for c in scene.collection.children:
+            if c.name == ".gitblend":
+                dot_coll = c
+                break
+        if not dot_coll:
+            self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
+            return {'CANCELLED'}
+
+        props = get_props(context)
+        branch = get_selected_branch(props) if props else "main"
+
+        index = load_index()
+        b = (index.get("branches", {})).get(branch)
+        if not b or not b.get("commits"):
+            self.report({'INFO'}, f"No commits found for branch '{branch}'.")
+            return {'CANCELLED'}
+
+        commits = b.get("commits", [])
+        last = commits[-1]
+        snap_name = last.get("snapshot", "")
+
+        # Delete snapshot collection if present
+        snap_coll = None
+        for c in list(dot_coll.children):
+            if c.name == snap_name:
+                snap_coll = c
+                break
+        if snap_coll is not None:
+            try:
+                # Unlink from parent first
+                dot_coll.children.unlink(snap_coll)
+            except Exception:
+                pass
+            try:
+                bpy.data.collections.remove(snap_coll, do_unlink=True)
+            except Exception:
+                # If removal fails, keep going but notify
+                self.report({'WARNING'}, f"Snapshot collection '{snap_name}' could not be fully removed.")
+
+        # Pop the commit and rewind head
+        commits.pop()
+        if commits:
+            prev = commits[-1]
+            b["head"] = {
+                "uid": prev.get("uid", ""),
+                "snapshot": prev.get("snapshot", ""),
+                "timestamp": prev.get("timestamp", ""),
+            }
+        else:
+            b["head"] = {}
+
+        save_index(index)
+        request_redraw()
+        self.report({'INFO'}, f"Undid last commit on '{branch}'.")
+        return {'FINISHED'}
+
+
+class GITBLEND_OT_discard_changes(bpy.types.Operator):
+    bl_idname = "gitblend.discard_changes"
+    bl_label = "Discard Changes"
+    bl_description = "Restore objects from the latest snapshot back into the working collection (for that branch)"
+    bl_options = {'INTERNAL'}
+
+    def _iter_objects_recursive(self, coll):
+        for o in coll.objects:
+            yield o
+        for c in coll.children:
+            yield from self._iter_objects_recursive(c)
+
+    def _orig_name(self, id_block):
+        # Prefer stored original name, else strip trailing _<uid>[-i]
+        try:
+            v = id_block.get("gitblend_orig_name", None)
+            if isinstance(v, str) and v:
+                return v
+        except Exception:
+            pass
+        name = getattr(id_block, "name", "") or ""
+        # Strip _<digits> or _<digits>-<digits> suffix
+        import re
+        m = re.search(r"_(\d{10,20})(?:-\d+)?$", name)
+        return name[: m.start()] if m else name
+
+    def _build_name_map(self, coll, snapshot=False):
+        out = {}
+        for o in self._iter_objects_recursive(coll):
+            nm = self._orig_name(o) if snapshot else (o.name or "")
+            if nm and nm not in out:
+                out[nm] = o
+        return out
+
+    def execute(self, context):
+        # Ensure project is saved in a valid path
+        ok, _proj, err = sanitize_save_path()
+        if not ok:
+            self.report({'ERROR'}, err)
+            return {'CANCELLED'}
+
+        scene = context.scene
+        # Ensure .gitblend exists
+        dot_coll = None
+        for c in scene.collection.children:
+            if c.name == ".gitblend":
+                dot_coll = c
+                break
+        if not dot_coll:
+            self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
+            return {'CANCELLED'}
+
+        props = get_props(context)
+        branch = get_selected_branch(props) if props else "main"
+
+        # Find source working collection (prefer branch name)
+        source = find_preferred_or_first_non_dot(scene, branch)
+        if not source:
+            self.report({'WARNING'}, "No top-level collection to restore into.")
+            return {'CANCELLED'}
+
+        # Find latest snapshot for this branch
+        snapshot = get_latest_snapshot(scene, branch)
+        if not snapshot:
+            self.report({'INFO'}, f"No snapshot found for branch '{branch}'.")
+            return {'CANCELLED'}
+
+        # Build maps
+        snap_map = self._build_name_map(snapshot, snapshot=True)
+        src_map = self._build_name_map(source, snapshot=False)
+
+        if not snap_map:
+            self.report({'INFO'}, "Latest snapshot has no objects to restore.")
+            return {'CANCELLED'}
+
+        # Limit restore set to objects that exist in both snapshot and working set
+        names_to_restore = sorted(set(snap_map.keys()) & set(src_map.keys()))
+        skipped = len(set(snap_map.keys()) - set(names_to_restore))
+
+        # First pass: create duplicates and link to same collections, keep mapping
+        new_dups = {}
+        old_objs = {}
+        parent_names = {}
+        for name in names_to_restore:
+            snap_obj = snap_map[name]
+            curr = src_map.get(name)
+            if not curr:
+                continue
+            old_objs[name] = curr
+            parent_names[name] = curr.parent.name if curr.parent else None
+            try:
+                dup = snap_obj.copy()
+                if getattr(snap_obj, "data", None) is not None:
+                    try:
+                        dup.data = snap_obj.data.copy()
+                    except Exception:
+                        pass
+            except Exception:
+                continue
+            # Temporary unique-ish name to avoid clashes
+            tmp_name = f"{name}_restored"
+            try:
+                dup.name = tmp_name
+            except Exception:
+                pass
+            # Link to all collections where the current object exists
+            try:
+                colls = list(curr.users_collection)
+            except Exception:
+                colls = []
+            linked_any = False
+            for col in colls:
+                try:
+                    col.objects.link(dup)
+                    linked_any = True
+                except Exception:
+                    pass
+            if not linked_any:
+                try:
+                    source.objects.link(dup)
+                except Exception:
+                    pass
+            new_dups[name] = dup
+
+        # Second pass: set parenting to corresponding restored parents where possible
+        for name, dup in list(new_dups.items()):
+            pnm = parent_names.get(name)
+            if not pnm:
+                # Ensure no parent
+                try:
+                    dup.parent = None
+                except Exception:
+                    pass
+                continue
+            new_parent = new_dups.get(pnm)
+            if new_parent is not None:
+                try:
+                    dup.parent = new_parent
+                except Exception:
+                    pass
+            else:
+                # Keep existing parent (still the current object) until we remove; then it will become None
+                try:
+                    dup.parent = old_objs.get(name).parent
+                except Exception:
+                    pass
+
+        # Third pass: remove old objects
+        for name in names_to_restore:
+            curr = old_objs.get(name)
+            if not curr:
+                continue
+            try:
+                colls = list(curr.users_collection)
+            except Exception:
+                colls = []
+            for col in colls:
+                try:
+                    col.objects.unlink(curr)
+                except Exception:
+                    pass
+            try:
+                bpy.data.objects.remove(curr, do_unlink=True)
+            except Exception:
+                pass
+
+        # Final pass: rename dups to original names
+        for name, dup in list(new_dups.items()):
+            try:
+                dup.name = name
+            except Exception:
+                pass
+
+        restored = len(new_dups)
+
+        request_redraw()
+        msg = f"Restored {restored} object(s) from snapshot"
+        if skipped:
+            msg += f", skipped {skipped}"
+        self.report({'INFO'}, msg)
+        return {'FINISHED'}
+
 def register_operators():
     bpy.utils.register_class(GITBLEND_OT_commit)
     bpy.utils.register_class(GITBLEND_OT_initialize)
     bpy.utils.register_class(GITBLEND_OT_string_add)
     bpy.utils.register_class(GITBLEND_OT_string_remove)
+    bpy.utils.register_class(GITBLEND_OT_undo_commit)
+    bpy.utils.register_class(GITBLEND_OT_discard_changes)
 
 
 def unregister_operators():
+    bpy.utils.unregister_class(GITBLEND_OT_discard_changes)
+    bpy.utils.unregister_class(GITBLEND_OT_undo_commit)
     bpy.utils.unregister_class(GITBLEND_OT_string_remove)
     bpy.utils.unregister_class(GITBLEND_OT_string_add)
     bpy.utils.unregister_class(GITBLEND_OT_initialize)
