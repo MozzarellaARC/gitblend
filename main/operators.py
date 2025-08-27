@@ -99,6 +99,15 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
     bl_options = {'INTERNAL'}  # exclude from undo/redo and search
 
     def execute(self, context):
+        # Require the .blend file to be saved to avoid writing index into an arbitrary working directory
+        try:
+            blend_path = getattr(bpy.data, "filepath", "") or ""
+        except Exception:
+            blend_path = ""
+        if not blend_path:
+            self.report({'ERROR'}, "Please save the .blend file before initializing Git Blend.")
+            return {'CANCELLED'}
+
         # Ensure a sensible default commit message on first run
         props = get_props(context)
         if props and not (props.commit_message or "").strip():
