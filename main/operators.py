@@ -1,12 +1,20 @@
 import bpy
-from datetime import datetime
 from .validate import (
     ensure_gitblend_collection,
     slugify,
     duplicate_collection_hierarchy,
     remap_parenting,
 )
-from .draw import _gitblend_request_redraw
+from .utils import (
+    now_str,
+    request_redraw,
+    get_props,
+    get_selected_branch,
+    find_preferred_or_first_non_dot,
+    log_change,
+    ensure_enum_contains,
+    set_dropdown_selection,
+)
 
 
 class GITBLEND_OT_commit(bpy.types.Operator):
@@ -16,52 +24,29 @@ class GITBLEND_OT_commit(bpy.types.Operator):
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
-        props = getattr(context.scene, "gitblend_props", None)
+        props = get_props(context)
         if not props:
             self.report({'ERROR'}, "GITBLEND properties not found")
             return {'CANCELLED'}
 
         msg = (props.commit_message or "").strip()
-        # Require a non-empty commit message but keep button enabled; show error and cancel
         if not msg:
             self.report({'ERROR'}, "Please enter a commit message before committing.")
             return {'CANCELLED'}
 
         scene = context.scene
-        root = scene.collection
         dot_coll = ensure_gitblend_collection(scene)
 
-        # Determine desired prefix from selected enum (fallback to stored branch or 'main')
-        sel = ""
-        idx = getattr(props, "string_items_index", -1)
-        if 0 <= idx < len(props.string_items):
-            sel = (props.string_items[idx].name or "").strip()
-        if not sel:
-            sel = (getattr(props, "gitblend_branch", "") or "").strip() or "main"
-
-        # Append sanitized commit message after the enum for naming
+        sel = get_selected_branch(props)
         msg_slug = slugify(msg)
         base_name = f"{sel}-{msg_slug}" if msg_slug else sel
 
-        # Choose source collection: prefer one named exactly as base_name; otherwise first non-.gitblend
-        source = None
-        for c in list(root.children):
-            if c.name == base_name:
-                source = c
-                break
-        if not source:
-            for c in list(root.children):
-                if c.name != ".gitblend":
-                    source = c
-                    break
-
+        source = find_preferred_or_first_non_dot(scene, base_name)
         if not source:
             self.report({'WARNING'}, "No top-level collection to commit")
             return {'CANCELLED'}
 
-        # Rename source to match base_name (if not already)
         if source.name != base_name:
-            # Extra safety: if another collection already has this name, use that as source instead of renaming
             other = bpy.data.collections.get(base_name)
             if other and other is not source:
                 source = other
@@ -71,24 +56,15 @@ class GITBLEND_OT_commit(bpy.types.Operator):
                 except Exception:
                     pass
 
-        # Unique id for this commit (timestamp only for .gitblend duplicate name)
-        uid = datetime.now().strftime("%Y%m%d%H%M%S")
+        uid = now_str("%Y%m%d%H%M%S")
 
-        # Duplicate only the source into .gitblend, with names suffixed by UID
         obj_map: dict[bpy.types.Object, bpy.types.Object] = {}
         duplicate_collection_hierarchy(source, dot_coll, uid, obj_map)
-
-        # Remap parenting to use duplicated parents when available
         remap_parenting(obj_map)
 
-        # Log commit entry
-        item = props.changes_log.add()
-        item.timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        item.message = msg
+        log_change(props, msg)
         props.commit_message = ""
-
-        # Redraw UI
-        _gitblend_request_redraw()
+        request_redraw()
 
         self.report({'INFO'}, "Commit snapshot created in .gitblend")
         return {'FINISHED'}
@@ -101,64 +77,33 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
     bl_options = {'INTERNAL'}  # exclude from undo/redo and search
 
     def execute(self, context):
-        # Access addon properties for logging and preferred root name
-        props = getattr(context.scene, "gitblend_props", None)
+        props = get_props(context)
         root_branch = None
         if props:
-            # Ensure enum contains 'init'
-            try:
-                has_init = any((it.name or "").strip() == "init" for it in props.string_items)
-            except Exception:
-                has_init = True
-            if not has_init:
-                try:
-                    it = props.string_items.add()
-                    it.name = "init"
-                except Exception:
-                    pass
-
-            # Use the first element of the enum as root branch if available
+            ensure_enum_contains(props, "init")
             if len(props.string_items) > 0:
                 nm = (props.string_items[0].name or "").strip()
                 if nm:
                     root_branch = nm
-            # Fallback to stored branch name
             if not root_branch:
                 root_branch = (props.gitblend_branch or "").strip()
         if not root_branch:
             root_branch = "main"
 
         scene = context.scene
-        root = scene.collection
-
-        # If .gitblend already exists, abort with an error but keep the button enabled
-        for c in root.children:
+        for c in scene.collection.children:
             if c.name == ".gitblend":
                 self.report({'ERROR'}, "'.gitblend' collection already exists; initialization aborted.")
                 return {'CANCELLED'}
 
-        # Prefer a top-level collection named per preference if present; otherwise first non-.gitblend
-        existing = None
-        for c in list(root.children):
-            if c.name == root_branch:
-                existing = c
-                break
-        if not existing:
-            for c in list(root.children):
-                if c.name != ".gitblend":
-                    existing = c
-                    break
-
+        existing = find_preferred_or_first_non_dot(scene, root_branch)
         if not existing:
             self.report({'WARNING'}, "No top-level collection to initialize")
             return {'CANCELLED'}
 
-        # Create .gitblend and exclude it in all view layers
         dot_coll = ensure_gitblend_collection(scene)
 
-        # Rename the original collection to the preferred root name so source matches prefix
         if existing.name != root_branch:
-            # If another collection already has the desired name, switch to it to avoid duplicates
             same = bpy.data.collections.get(root_branch)
             if same and same is not existing:
                 existing = same
@@ -168,28 +113,16 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
                 except Exception:
                     pass
 
-        # Unique id for initialization copies: use timestamp
-        uid = datetime.now().strftime("%Y%m%d%H%M%S")
+        uid = now_str("%Y%m%d%H%M%S")
 
-        # Keep a map of original->duplicate to later remap parenting
         obj_map: dict[bpy.types.Object, bpy.types.Object] = {}
         duplicate_collection_hierarchy(existing, dot_coll, uid, obj_map)
-
-        # Remap parenting to use duplicated parents when available
         remap_parenting(obj_map)
 
-        # Log initialize entry so it shows in the panel change log
-        try:
-            if props:
-                item = props.changes_log.add()
-                item.timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                item.message = f"Initialize: copied '{existing.name}' into .gitblend"
-        except Exception:
-            # Non-fatal if logging fails
-            pass
+        if props:
+            log_change(props, f"Initialize: copied '{existing.name}' into .gitblend")
 
-        # Request UI redraw so the panel updates immediately
-        _gitblend_request_redraw()
+        request_redraw()
 
         self.report({'INFO'}, f"Initialized .gitblend and copied '{existing.name}' collection")
         return {'FINISHED'}
@@ -202,15 +135,14 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
-        props = getattr(context.scene, "gitblend_props", None)
+        props = get_props(context)
         if not props:
             self.report({'ERROR'}, "GITBLEND properties not found")
             return {'CANCELLED'}
         item = props.string_items.add()
         item.name = ""
-        props.string_items_index = len(props.string_items) - 1
-        props.selected_string = str(props.string_items_index)
-        _gitblend_request_redraw()
+        set_dropdown_selection(props, len(props.string_items) - 1)
+        request_redraw()
         return {'FINISHED'}
 
 
@@ -222,21 +154,15 @@ class GITBLEND_OT_string_remove(bpy.types.Operator):
     index: bpy.props.IntProperty(default=-1)
 
     def execute(self, context):
-        props = getattr(context.scene, "gitblend_props", None)
+        props = get_props(context)
         if not props:
             self.report({'ERROR'}, "GITBLEND properties not found")
             return {'CANCELLED'}
         idx = self.index if self.index >= 0 else props.string_items_index
         if 0 <= idx < len(props.string_items):
             props.string_items.remove(idx)
-            # Adjust index
-            props.string_items_index = max(0, min(idx, len(props.string_items) - 1))
-            # Update dropdown selection
-            if len(props.string_items) > 0:
-                props.selected_string = str(props.string_items_index)
-            else:
-                props.selected_string = "-1"
-            _gitblend_request_redraw()
+            set_dropdown_selection(props, idx)
+            request_redraw()
             return {'FINISHED'}
         else:
             self.report({'WARNING'}, "No item selected")
