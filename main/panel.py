@@ -2,11 +2,11 @@ import bpy
 
 class YANT_Panel(bpy.types.Panel):
     bl_idname = "GB_PT_main_panel"
-    bl_label = "Blend Git Main Panel"
-    bl_category = "Blend Git"
+    bl_label = "Git Blend Main Panel"
+    bl_category = "Git Blend"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "Blend Git"
+    bl_category = "Git Blend"
 
     def draw(self, context):
         layout = self.layout

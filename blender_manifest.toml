@@ -2,9 +2,9 @@ schema_version = "1.0.0"
 
 # Example of manifest file for a Blender extension
 # Change the values according to your extension
-id = "bgit"
+id = "git_blend"
 version = "1.0.0"
-name = "Blender Git"
+name = "Git Blend"
 tagline = "Git like version control but for Blender"
 maintainer = "mzxc"
 # Supported types: "add-on", "theme"
