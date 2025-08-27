@@ -124,6 +124,9 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
     bl_options = {'INTERNAL'}  # exclude from undo/redo and search
 
     def execute(self, context):
+        # Access addon properties for logging
+        props = getattr(context.scene, "gitblend_props", None)
+
         scene = context.scene
         root = scene.collection  # "Scene Collection"
 
@@ -205,6 +208,22 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
             return new_coll
 
         copy_collection(existing, dot_coll)
+
+        # Log initialize entry so it shows in the panel change log
+        try:
+            if props:
+                item = props.changes_log.add()
+                item.timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                item.message = f"Initialize: copied '{existing.name}' into .gitblend"
+        except Exception:
+            # Non-fatal if logging fails
+            pass
+
+        # Request UI redraw so the panel updates immediately
+        try:
+            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+        except Exception:
+            pass
 
         self.report({'INFO'}, "Initialized .gitblend and copied 'main' collection")
         return {'FINISHED'}
