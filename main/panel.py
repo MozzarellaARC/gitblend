@@ -1,12 +1,12 @@
 import bpy
 
 class YANT_Panel(bpy.types.Panel):
-    bl_idname = "YANT_PT_main_panel"
-    bl_label = "YANT Main Panel"
-    bl_category = "YANT"
+    bl_idname = "BGIT_PT_main_panel"
+    bl_label = "Blender Git Main Panel"
+    bl_category = "Blender Git"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "YANT"
+    bl_category = "Blender Git"
 
     def draw(self, context):
         layout = self.layout
