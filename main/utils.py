@@ -31,17 +31,33 @@ def get_props(context) -> bpy.types.PropertyGroup | None:
 
 
 def get_selected_branch(props) -> str:
-    """Return selected branch value, falling back to stored branch or 'main'."""
-    sel = ""
+    """Return selected branch based on enum selection.
+    Prefers the EnumProperty (selected_string) index; falls back to list index.
+    If the selected item's name is empty, return a friendly placeholder (e.g., 'Item 1').
+    Only falls back to stored branch or 'main' when no valid selection exists.
+    """
+    # Determine selected index from enum first, then list index
+    idx = -1
     try:
-        idx = getattr(props, "string_items_index", -1)
-        if 0 <= idx < len(props.string_items):
-            sel = (props.string_items[idx].name or "").strip()
+        sel = getattr(props, "selected_string", "")
+        if sel not in {"", None, "-1"}:
+            idx = int(sel)
     except Exception:
-        sel = ""
-    if not sel:
-        sel = (getattr(props, "gitblend_branch", "") or "").strip() or "main"
-    return sel
+        idx = -1
+    if idx < 0:
+        try:
+            idx = int(getattr(props, "string_items_index", -1))
+        except Exception:
+            idx = -1
+
+    if 0 <= idx < len(props.string_items):
+        nm = (props.string_items[idx].name or "").strip()
+        if not nm:
+            nm = f"Item {idx+1}"
+        return nm
+
+    # No valid selection: use stored default or 'main'
+    return (getattr(props, "gitblend_branch", "") or "").strip() or "main"
 
 
 def find_preferred_or_first_non_dot(scene: bpy.types.Scene, preferred_name: str | None = None) -> bpy.types.Collection | None:
