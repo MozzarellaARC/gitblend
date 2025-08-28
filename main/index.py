@@ -333,28 +333,42 @@ def get_latest_commit(index: Dict, branch: str) -> Optional[Dict]:
 
 
 def derive_changed_set(curr_objs: Dict[str, Dict], prev_objs: Dict[str, Dict]) -> Tuple[bool, List[str]]:
+    """Return (has_changes, changed_names).
+    Includes:
+    - Added and removed object names (set differences)
+    - Modified objects among the intersection (attribute differences)
+    Previously, a name set change would short-circuit and miss modified objects that still exist; this fixes that.
+    """
     curr_names = set(curr_objs.keys())
     prev_names = set(prev_objs.keys())
-    if curr_names != prev_names:
-        # any name set change means there are changes
-        changed = sorted(list((curr_names - prev_names) | (prev_names - curr_names)))
-        return True, changed
-    changed_list: List[str] = []
-    for nm in curr_names:
-        a = curr_objs[nm]
+
+    # Added/removed
+    added = curr_names - prev_names
+    removed = prev_names - curr_names
+
+    changed_set = set()  # collect as set to avoid dups
+    changed_set.update(added)
+    changed_set.update(removed)
+
+    # Modified within intersection
+    intersect = curr_names & prev_names
+    keys = (
+        "parent",
+        "type", "data_name", "transform", "dims", "verts",
+        "edges", "polygons",
+        "modifiers", "vgroups", "uv_meta", "shapekeys_meta", "shapekeys_values", "materials",
+        "geo_hash",
+        "light_meta", "camera_meta",
+    )
+    for nm in intersect:
+        a = curr_objs.get(nm, {})
         b = prev_objs.get(nm, {})
-        keys = (
-            "parent",
-            "type", "data_name", "transform", "dims", "verts",
-            "edges", "polygons",
-            "modifiers", "vgroups", "uv_meta", "shapekeys_meta", "shapekeys_values", "materials",
-            "geo_hash",
-            "light_meta", "camera_meta",
-        )
         for k in keys:
-            if (str(a.get(k)) != str(b.get(k))):
-                changed_list.append(nm)
+            if str(a.get(k)) != str(b.get(k)):
+                changed_set.add(nm)
                 break
+
+    changed_list = sorted(changed_set)
     return (len(changed_list) > 0), changed_list
 
 
