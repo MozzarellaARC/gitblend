@@ -1,11 +1,14 @@
 import bpy
 from .validate import (
     ensure_gitblend_collection,
+    get_dotgitblend_collection,
     slugify,
     get_latest_snapshot,
     create_diff_snapshot_with_changes,
     should_skip_commit,
     unique_coll_name,
+    list_branch_snapshots,
+    SnapshotManager,
 )
 from .utils import (
     now_str,
@@ -26,8 +29,6 @@ from .index import (
     derive_changed_set,
     get_latest_commit,
 )
-from .manager_collection import list_branch_snapshots
-from .manager_snapshot import SnapshotManager
 
 
 class GITBLEND_OT_commit(bpy.types.Operator):
@@ -69,11 +70,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         # Never rename the working collection; keep it as 'source'
 
         # Require existing .gitblend created via Initialize
-        dot_coll = None
-        for c in scene.collection.children:
-            if c.name == ".gitblend":
-                dot_coll = c
-                break
+        dot_coll = get_dotgitblend_collection(scene)
         if not dot_coll:
             self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
             return {'CANCELLED'}
@@ -92,10 +89,12 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         index = load_index()
         last = get_latest_commit(index, sel)
         changed_names = None
+        curr_sigs = None
+        curr_coll_hash = None
         if last:
             # Build prev objs dict from last commit entries
             prev_objs = {o.get("name", ""): o for o in (last.get("objects", []) or []) if o.get("name")}
-            curr_sigs, _coll_hash = compute_collection_signature(source)
+            curr_sigs, curr_coll_hash = compute_collection_signature(source)
             changed, names = derive_changed_set(curr_sigs, prev_objs)
             changed_names = set(names) if changed else set()
         # Create diff snapshot using computed changed set (or let it compute if None)
@@ -110,8 +109,11 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 
         # Update index (stored as JSON)
         snapshot_name = new_coll.name
-        # Compute signatures after snapshot to record exact state
-        obj_sigs, coll_hash = compute_collection_signature(source)
+        # Compute signatures to record exact state (reuse if already computed)
+        if curr_sigs is None or curr_coll_hash is None:
+            obj_sigs, coll_hash = compute_collection_signature(source)
+        else:
+            obj_sigs, coll_hash = curr_sigs, curr_coll_hash
         index = load_index()
         index = update_index_with_commit(index, sel, uid, now_str(), msg, snapshot_name, obj_sigs, coll_hash)
         save_index(index)
@@ -175,7 +177,7 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
     def invoke(self, context, event):
         # Ensure environment is valid before showing prompt
         scene = context.scene
-        has_gitblend = any(c.name == ".gitblend" for c in scene.collection.children)
+        has_gitblend = get_dotgitblend_collection(scene) is not None
         if not has_gitblend:
             self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
             return {'CANCELLED'}
@@ -199,7 +201,7 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
             return {'CANCELLED'}
         # Require existing .gitblend collection
         scene = context.scene
-        has_gitblend = any(c.name == ".gitblend" for c in scene.collection.children)
+        has_gitblend = get_dotgitblend_collection(scene) is not None
         if not has_gitblend:
             self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
             return {'CANCELLED'}
@@ -257,11 +259,7 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
 
         scene = context.scene
         # Check for .gitblend collection
-        dot_coll = None
-        for c in scene.collection.children:
-            if c.name == ".gitblend":
-                dot_coll = c
-                break
+        dot_coll = get_dotgitblend_collection(scene)
         if not dot_coll:
             self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
             return {'CANCELLED'}
@@ -345,11 +343,7 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator):
 
         scene = context.scene
         # Check .gitblend collection
-        dot_coll = None
-        for c in scene.collection.children:
-            if c.name == ".gitblend":
-                dot_coll = c
-                break
+        dot_coll = get_dotgitblend_collection(scene)
         if not dot_coll:
             self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
             return {'CANCELLED'}
@@ -406,11 +400,7 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator):
 
         scene = context.scene
         # Check .gitblend collection
-        dot_coll = None
-        for c in scene.collection.children:
-            if c.name == ".gitblend":
-                dot_coll = c
-                break
+        dot_coll = get_dotgitblend_collection(scene)
         if not dot_coll:
             self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
             return {'CANCELLED'}
