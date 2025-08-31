@@ -199,6 +199,188 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         sig["shapekeys_meta"] = ""
         sig["shapekeys_values"] = ""
         sig["geo_hash"] = ""
+    elif obj_type == "ARMATURE" and has_data:
+        arm = obj.data  # bpy.types.Armature
+        # Rest armature metadata
+        vals = []
+        try:
+            vals.append(str(getattr(arm, "display_type", "")))
+            vals.append(str(getattr(arm, "pose_position", "")))
+            vals.append(str(getattr(arm, "deform_method", "")))
+        except Exception:
+            pass
+        sig["armature_meta"] = _sha256("|".join(vals))
+        # Bone hierarchy/rest transforms
+        try:
+            parts = []
+            for b in arm.bones:
+                try:
+                    parts.append("B:" + (b.name or ""))
+                    parts.append("P:" + (b.parent.name if b.parent else ""))
+                    hl = getattr(b, "head_local", None)
+                    tl = getattr(b, "tail_local", None)
+                    parts.append("H:" + (_fmt_floats(hl) if hl is not None else ""))
+                    parts.append("T:" + (_fmt_floats(tl) if tl is not None else ""))
+                    parts.append("Roll:" + f"{float(getattr(b, 'roll', 0.0)):.6f}")
+                    parts.append("Conn:" + ("1" if getattr(b, 'use_connect', False) else "0"))
+                    parts.append("Deform:" + ("1" if getattr(b, 'use_deform', True) else "0"))
+                    parts.append("InheritScale:" + str(getattr(b, 'inherit_scale', "")))
+                except Exception:
+                    pass
+        except Exception:
+            parts = []
+        sig["armature_bones_hash"] = _sha256("|".join(parts))
+        # Pose transforms and a concise constraints summary
+        try:
+            pparts = []
+            pose = getattr(obj, "pose", None)
+            if pose is not None:
+                for pb in pose.bones:
+                    try:
+                        pparts.append("PB:" + (pb.name or ""))
+                        # Pose matrix in armature space
+                        try:
+                            pparts.append("Mat:" + _matrix_hash(pb.matrix))
+                        except Exception:
+                            pass
+                        # rotation/location/scale
+                        rm = getattr(pb, "rotation_mode", "")
+                        pparts.append("RotMode:" + str(rm))
+                        try:
+                            if rm == 'QUATERNION':
+                                q = getattr(pb, "rotation_quaternion", None)
+                                if q is not None:
+                                    pparts.append("Quat:" + _fmt_floats((q.w, q.x, q.y, q.z)))
+                            else:
+                                e = getattr(pb, "rotation_euler", None)
+                                if e is not None:
+                                    pparts.append("Euler:" + _fmt_floats((e.x, e.y, e.z)))
+                        except Exception:
+                            pass
+                        try:
+                            loc = getattr(pb, "location", None)
+                            if loc is not None:
+                                pparts.append("Loc:" + _fmt_floats((loc.x, loc.y, loc.z)))
+                        except Exception:
+                            pass
+                        try:
+                            sc = getattr(pb, "scale", None)
+                            if sc is not None:
+                                pparts.append("Scl:" + _fmt_floats((sc.x, sc.y, sc.z)))
+                        except Exception:
+                            pass
+                        # Constraints summary
+                        try:
+                            cons = getattr(pb, "constraints", [])
+                            cparts = []
+                            for c in cons:
+                                try:
+                                    tgt = getattr(c, "target", None)
+                                    sub = getattr(c, "subtarget", "")
+                                    cparts.append("|".join([
+                                        str(getattr(c, "type", "")),
+                                        getattr(tgt, "name", "") if tgt else "",
+                                        str(sub or ""),
+                                        f"{float(getattr(c, 'influence', 0.0)):.6f}",
+                                    ]))
+                                except Exception:
+                                    pass
+                            if cparts:
+                                pparts.append("Cons:[" + ";".join(cparts) + "]")
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+        except Exception:
+            pparts = []
+        sig["pose_bones_hash"] = _sha256("|".join(pparts))
+        # Fill non-mesh placeholders
+        sig["verts"] = 0
+        sig["edges"] = 0
+        sig["polygons"] = 0
+        sig["modifiers"] = sig.get("modifiers", "")
+        sig["vgroups"] = ""
+        sig["uv_meta"] = ""
+        sig["shapekeys_meta"] = ""
+        sig["shapekeys_values"] = ""
+        sig["geo_hash"] = ""
+        sig["light_meta"] = ""
+        sig["camera_meta"] = ""
+    elif obj_type == "CURVE" and has_data:
+        cu = obj.data  # bpy.types.Curve
+        # Curve meta (shape and generation)
+        vals = []
+        try:
+            vals.append(str(getattr(cu, "dimensions", "")))
+            vals.append(str(getattr(cu, "twist_mode", "")))
+            vals.append(f"{float(getattr(cu, 'twist_smoothing', 0.0)):.6f}")
+            vals.append(f"{float(getattr(cu, 'resolution_u', 0)):.0f}")
+            vals.append(f"{float(getattr(cu, 'resolution_v', 0)):.0f}")
+            vals.append(f"{float(getattr(cu, 'render_resolution_u', 0)):.0f}")
+            vals.append(f"{float(getattr(cu, 'render_resolution_v', 0)):.0f}")
+            vals.append(f"{float(getattr(cu, 'bevel_depth', 0.0)):.6f}")
+            vals.append(f"{float(getattr(cu, 'bevel_resolution', 0)):.0f}")
+            vals.append(f"{float(getattr(cu, 'extrude', 0.0)):.6f}")
+            vals.append(str(getattr(cu, "fill_mode", "")))
+            vals.append(str(getattr(cu, "bevel_mode", "")))
+            bev = getattr(cu, "bevel_object", None)
+            vals.append(getattr(bev, "name", "") if bev else "")
+            tp = getattr(cu, "taper_object", None)
+            vals.append(getattr(tp, "name", "") if tp else "")
+        except Exception:
+            pass
+        sig["curve_meta"] = _sha256("|".join(vals))
+        # Control points hash
+        try:
+            parts = []
+            for sp in cu.splines:
+                st = getattr(sp, "type", "")
+                parts.append(f"T:{st}")
+                # Common attributes per spline
+                try:
+                    parts.append(f"CyclicU:{int(getattr(sp, 'use_cyclic_u', False))}")
+                    parts.append(f"CyclicV:{int(getattr(sp, 'use_cyclic_v', False))}")
+                    parts.append(f"OrderU:{int(getattr(sp, 'order_u', 0))}")
+                    parts.append(f"OrderV:{int(getattr(sp, 'order_v', 0))}")
+                    parts.append(f"ResU:{int(getattr(sp, 'resolution_u', 0))}")
+                    parts.append(f"ResV:{int(getattr(sp, 'resolution_v', 0))}")
+                except Exception:
+                    pass
+                if st == 'BEZIER':
+                    for bp in getattr(sp, 'bezier_points', []) or []:
+                        try:
+                            hl = bp.handle_left
+                            co = bp.co
+                            hr = bp.handle_right
+                            parts.extend([
+                                _fmt_floats((hl.x, hl.y, hl.z)),
+                                _fmt_floats((co.x, co.y, co.z)),
+                                _fmt_floats((hr.x, hr.y, hr.z)),
+                            ])
+                        except Exception:
+                            pass
+                else:
+                    for p in getattr(sp, 'points', []) or []:
+                        try:
+                            co = p.co  # 4D
+                            parts.append(_fmt_floats((co.x, co.y, co.z, co.w)))
+                        except Exception:
+                            pass
+        except Exception:
+            parts = []
+        sig["curve_points_hash"] = _sha256("|".join(parts))
+        # Fill non-mesh placeholders
+        sig["verts"] = 0
+        sig["edges"] = 0
+        sig["polygons"] = 0
+        sig["modifiers"] = sig.get("modifiers", "")
+        sig["vgroups"] = ""
+        sig["uv_meta"] = ""
+        sig["shapekeys_meta"] = ""
+        sig["shapekeys_values"] = ""
+        sig["geo_hash"] = ""
+        sig["light_meta"] = ""
+        sig["camera_meta"] = ""
     else:
         # Other types
         sig["verts"] = 0
@@ -279,6 +461,11 @@ def compute_collection_signature(coll: bpy.types.Collection) -> Tuple[Dict[str, 
             s.get("light_meta", ""),
             s.get("camera_meta", ""),
             s.get("collection_path", ""),
+            s.get("curve_meta", ""),
+            s.get("curve_points_hash", ""),
+            s.get("armature_meta", ""),
+            s.get("armature_bones_hash", ""),
+            s.get("pose_bones_hash", ""),
         ]))
     collection_hash = _sha256("\n".join(parts))
     return obj_sigs, collection_hash
@@ -376,7 +563,9 @@ def derive_changed_set(curr_objs: Dict[str, Dict], prev_objs: Dict[str, Dict]) -
         "edges", "polygons",
         "modifiers", "vgroups", "uv_meta", "shapekeys_meta", "shapekeys_values", "materials",
         "geo_hash",
-        "light_meta", "camera_meta",
+    "light_meta", "camera_meta",
+    "curve_meta", "curve_points_hash",
+    "armature_meta", "armature_bones_hash", "pose_bones_hash",
     )
     for nm in intersect:
         a = curr_objs.get(nm, {})
