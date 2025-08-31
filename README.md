@@ -1,4 +1,4 @@
-# Git Blend / .gitblend
+# .gitblend
 ## Blender Git like version control
 Made for Blender 4.2 to 4.5
 
