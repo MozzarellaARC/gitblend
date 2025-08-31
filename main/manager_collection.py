@@ -53,8 +53,12 @@ def build_name_map(coll: bpy.types.Collection, snapshot: bool = False) -> Dict[s
 
 def find_containing_collection(root_coll: bpy.types.Collection, target_obj: bpy.types.Object) -> Optional[bpy.types.Collection]:
     """Find the collection that directly contains the target object."""
-    if target_obj in root_coll.objects:
-        return root_coll
+    # Check if target_obj is directly in this collection
+    for obj in root_coll.objects:
+        if obj == target_obj:
+            return root_coll
+    
+    # Search in child collections
     for child in root_coll.children:
         found = find_containing_collection(child, target_obj)
         if found:
