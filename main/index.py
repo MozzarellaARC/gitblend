@@ -1,7 +1,7 @@
 import os
 import hashlib
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Iterable
 import bpy
 
 
@@ -52,6 +52,374 @@ def _list_hash(values: List[str]) -> str:
     return _sha256("|".join(values))
 
 
+def _bool(v: bool) -> str:
+    try:
+        return "1" if bool(v) else "0"
+    except Exception:
+        return "0"
+
+
+def _id_name(x) -> str:
+    try:
+        return getattr(x, "name", "") or ""
+    except Exception:
+        return ""
+
+
+def _hash_idprops(idblock) -> str:
+    """Hash custom ID properties on an ID block, ignoring internal keys.
+
+    Supports simple scalars, sequences and nested dict-like structures.
+    """
+    items: List[str] = []
+    try:
+        keys = sorted([k for k in idblock.keys() if isinstance(k, str)])
+    except Exception:
+        keys = []
+    for k in keys:
+        if not k or k.startswith("_") or k.startswith("gitblend_"):
+            continue
+        try:
+            v = idblock[k]
+        except Exception:
+            continue
+        def _fmt(v) -> str:
+            try:
+                if v is None:
+                    return "null"
+                if isinstance(v, (int, bool)):
+                    return str(int(bool(v)) if isinstance(v, bool) else int(v))
+                if isinstance(v, float):
+                    return f"{float(v):.6f}"
+                if isinstance(v, str):
+                    return v
+                if isinstance(v, dict):
+                    return "{" + ",".join(f"{kk}:{_fmt(vv)}" for kk, vv in sorted(v.items())) + "}"
+                # Sequence
+                try:
+                    return "[" + ",".join(_fmt(x) for x in list(v)) + "]"
+                except Exception:
+                    return str(v)
+            except Exception:
+                return "?"
+        items.append(f"{k}={_fmt(v)}")
+    return _sha256("|".join(items))
+
+
+def _hash_constraints(constraints: Iterable) -> str:
+    parts: List[str] = []
+    try:
+        for c in constraints:
+            try:
+                tgt = getattr(c, "target", None)
+                sub = getattr(c, "subtarget", "")
+                parts.append("|".join([
+                    str(getattr(c, "type", "")),
+                    _id_name(tgt),
+                    str(sub or ""),
+                    f"{float(getattr(c, 'influence', 0.0)):.6f}",
+                ]))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return _sha256(";".join(parts))
+
+
+def _rna_value_repr(owner, prop_ident: str):
+    """Return a stable, compact representation for an RNA property value.
+
+    - Pointers -> name
+    - Collections -> names or basic value repr joined
+    - Numeric/enum/string -> direct
+    - Vectors/arrays -> formatted floats
+    """
+    try:
+        val = getattr(owner, prop_ident)
+    except Exception:
+        return ""
+    # Pointer
+    try:
+        import bpy.types as bt  # type: ignore
+        if isinstance(val, bt.ID) or hasattr(val, "name"):
+            return _id_name(val)
+    except Exception:
+        pass
+    # Sequence (including mathutils types)
+    try:
+        if isinstance(val, (list, tuple)):
+            return _fmt_floats(val)
+    except Exception:
+        pass
+    # RNA collection
+    try:
+        it = iter(val)
+        # If iter works and not a string
+        if isinstance(val, str):
+            return val
+        names = []
+        for item in it:
+            nm = _id_name(item)
+            if nm:
+                names.append(nm)
+            else:
+                try:
+                    names.append(str(item))
+                except Exception:
+                    names.append("?")
+        return ",".join(names)
+    except Exception:
+        pass
+    # Scalars
+    try:
+        if isinstance(val, (int, bool)):
+            return str(int(bool(val)) if isinstance(val, bool) else int(val))
+        if isinstance(val, float):
+            return f"{float(val):.6f}"
+        if isinstance(val, str):
+            return val
+    except Exception:
+        pass
+    return str(val)
+
+
+def _modifiers_meta_hash(obj: bpy.types.Object) -> str:
+    parts: List[str] = []
+    for m in getattr(obj, "modifiers", []) or []:
+        try:
+            base = [str(getattr(m, "type", "")), getattr(m, "name", "") or "",
+                    _bool(getattr(m, "show_viewport", True)), _bool(getattr(m, "show_render", True))]
+            # Special handling for Geometry Nodes
+            if getattr(m, "type", "") == 'NODES':
+                ng = getattr(m, "node_group", None)
+                base.append("NG:" + (_nodes_tree_hash(getattr(ng, "node_tree", ng)) if ng else ""))
+                # Also hash exposed inputs (group inputs on modifier)
+                try:
+                    # Iterate RNA props that start with "Input_" or use interface names
+                    # Fallback: scan rna properties writable
+                    vals = []
+                    for p in m.bl_rna.properties:
+                        if p.is_readonly or p.identifier in {"rna_type", "name", "type", "show_viewport", "show_render", "node_group"}:
+                            continue
+                        vals.append(f"{p.identifier}={_rna_value_repr(m, p.identifier)}")
+                    if vals:
+                        base.append("GIN:" + _sha256("|".join(sorted(vals))))
+                except Exception:
+                    pass
+            else:
+                # Generic property hashing for other modifiers
+                vals = []
+                for p in m.bl_rna.properties:
+                    try:
+                        if p.is_readonly:
+                            continue
+                        pid = p.identifier
+                        if pid in {"rna_type", "name", "type", "show_viewport", "show_render"}:
+                            continue
+                        vals.append(f"{pid}={_rna_value_repr(m, pid)}")
+                    except Exception:
+                        pass
+                if vals:
+                    base.append("P:" + _sha256("|".join(sorted(vals))))
+            parts.append("/".join(base))
+        except Exception:
+            pass
+    return _sha256(";".join(parts))
+
+
+def _drivers_hash(idblock) -> str:
+    parts: List[str] = []
+    try:
+        ad = getattr(idblock, "animation_data", None)
+        if ad and getattr(ad, "drivers", None):
+            for fc in ad.drivers:
+                try:
+                    drv = getattr(fc, "driver", None)
+                    if not drv:
+                        continue
+                    segs = [getattr(fc, "data_path", "") or "", str(getattr(fc, "array_index", 0))]
+                    try:
+                        segs.append(getattr(drv, "type", "") or "")
+                        segs.append((getattr(drv, "expression", "") or "").strip())
+                        vars_parts: List[str] = []
+                        for var in getattr(drv, "variables", []) or []:
+                            try:
+                                tparts: List[str] = [var.name or "", getattr(var, "type", "") or ""]
+                                for t in getattr(var, "targets", []) or []:
+                                    tparts.extend([
+                                        _id_name(getattr(t, "id", None)),
+                                        getattr(t, "data_path", "") or "",
+                                        getattr(t, "bone_target", "") or "",
+                                        getattr(t, "transform_type", "") or "",
+                                        getattr(t, "rotation_mode", "") or "",
+                                    ])
+                                vars_parts.append("[" + ",".join(tparts) + "]")
+                            except Exception:
+                                pass
+                        if vars_parts:
+                            segs.append("V:" + ";".join(vars_parts))
+                    except Exception:
+                        pass
+                    parts.append("|".join(segs))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return _sha256("\n".join(parts))
+
+
+def _nodes_tree_hash(nt) -> str:
+    """Hash a node tree structure: nodes (type,name,label), default values, and links."""
+    if not nt:
+        return ""
+    n_parts: List[str] = []
+    l_parts: List[str] = []
+    try:
+        for n in nt.nodes:
+            try:
+                base = [getattr(n, "bl_idname", "") or getattr(n, "type", ""), getattr(n, "name", "") or "", getattr(n, "label", "") or ""]
+                # Include some defaults from inputs if present
+                try:
+                    in_vals = []
+                    for s in getattr(n, "inputs", []) or []:
+                        try:
+                            if hasattr(s, "default_value"):
+                                dv = getattr(s, "default_value")
+                                if isinstance(dv, (tuple, list)):
+                                    in_vals.append(f"{s.identifier}={_fmt_floats(dv)}")
+                                else:
+                                    in_vals.append(f"{s.identifier}={str(dv)}")
+                        except Exception:
+                            pass
+                    if in_vals:
+                        base.append("IN:" + _sha256("|".join(sorted(in_vals))))
+                except Exception:
+                    pass
+                # Group nodes: include referenced tree name
+                try:
+                    sub = getattr(n, "node_tree", None)
+                    if sub:
+                        base.append("SUB:" + _id_name(sub))
+                except Exception:
+                    pass
+                n_parts.append("/".join(base))
+            except Exception:
+                pass
+        for lnk in nt.links:
+            try:
+                from_id = f"{_id_name(getattr(lnk.from_node, 'name', ''))}:{getattr(lnk.from_socket, 'identifier', '')}"
+                to_id = f"{_id_name(getattr(lnk.to_node, 'name', ''))}:{getattr(lnk.to_socket, 'identifier', '')}"
+                l_parts.append(f"{from_id}->{to_id}")
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return _sha256("N:" + _sha256("|".join(n_parts)) + "|L:" + _sha256("|".join(l_parts)))
+
+
+def _particles_meta_hash(obj: bpy.types.Object) -> str:
+    parts: List[str] = []
+    try:
+        for ps in getattr(obj, "particle_systems", []) or []:
+            try:
+                st = getattr(ps, "settings", None)
+                segs = [getattr(ps, "name", "") or "", _id_name(st)]
+                if st is not None:
+                    vals = []
+                    for attr in ("type", "count", "render_type", "seed", "use_advanced_hair",
+                                 "hair_length", "lifetime", "frame_start", "frame_end"):
+                        if hasattr(st, attr):
+                            try:
+                                v = getattr(st, attr)
+                                if isinstance(v, float):
+                                    vals.append(f"{attr}={float(v):.6f}")
+                                else:
+                                    vals.append(f"{attr}={str(v)}")
+                            except Exception:
+                                pass
+                    if vals:
+                        segs.append("P:" + _sha256("|".join(vals)))
+                parts.append("/".join(segs))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return _sha256(";".join(parts))
+
+
+def _geom_nodes_meta_hash(obj: bpy.types.Object) -> str:
+    parts: List[str] = []
+    try:
+        for m in getattr(obj, "modifiers", []) or []:
+            if getattr(m, "type", "") == 'NODES':
+                try:
+                    ng = getattr(m, "node_group", None)
+                    parts.append(_nodes_tree_hash(getattr(ng, "node_tree", ng)))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return _sha256("|".join(parts))
+
+
+def _material_meta_hash(mat) -> str:
+    if not mat:
+        return ""
+    parts: List[str] = []
+    try:
+        parts.append(getattr(mat, "blend_method", "") or "")
+        parts.append(getattr(mat, "shadow_method", "") or "")
+        # EEVEE/Cycles common flags
+        for attr in ("use_backface_culling", "use_screen_refraction"):
+            if hasattr(mat, attr):
+                parts.append(f"{attr}={_bool(getattr(mat, attr))}")
+        # Node tree
+        nt = getattr(mat, "node_tree", None)
+        if getattr(mat, "use_nodes", False) and nt is not None:
+            parts.append("NT:" + _nodes_tree_hash(nt))
+    except Exception:
+        pass
+    return _sha256("|".join(parts))
+
+
+def _mesh_uv_and_color_hash(me) -> Tuple[str, str]:
+    uv_all: List[str] = []
+    col_all: List[str] = []
+    # UVs
+    try:
+        for layer in getattr(me, "uv_layers", []) or []:
+            try:
+                coords = []
+                for d in layer.data:
+                    try:
+                        coords.append(f"{float(d.uv.x):.5f},{float(d.uv.y):.5f}")
+                    except Exception:
+                        pass
+                uv_all.append(layer.name + "=" + _sha256(";".join(coords)))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # Color attributes (corner/point)
+    try:
+        for attr in getattr(me, "color_attributes", []) or []:
+            try:
+                vals = []
+                for d in attr.data:
+                    try:
+                        c = getattr(d, "color", None)
+                        if c is not None:
+                            vals.append(_fmt_floats((c[0], c[1], c[2], c[3] if len(c) > 3 else 1.0), 4))
+                    except Exception:
+                        pass
+                col_all.append(attr.name + "=" + _sha256(";".join(vals)))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return _sha256("|".join(uv_all)), _sha256("|".join(col_all))
+
+
 # (TOML escape/writer removed; JSON is used for storage)
 
 
@@ -64,11 +432,15 @@ def _ensure_sig_defaults(sig: Dict) -> None:
         "verts": 0,
         "edges": 0,
         "polygons": 0,
-        "modifiers": "",
+    "modifiers": "",
+    "modifiers_meta": "",
         "vgroups": "",
         "uv_meta": "",
+    "uv_data_hash": "",
+    "color_attr_hash": "",
         "shapekeys_meta": "",
         "shapekeys_values": "",
+    "shapekeys_points_hash": "",
         "geo_hash": "",
         # Type-specific metas (may remain empty for other types)
         "light_meta": "",
@@ -78,6 +450,13 @@ def _ensure_sig_defaults(sig: Dict) -> None:
         "armature_meta": "",
         "armature_bones_hash": "",
         "pose_bones_hash": "",
+    "constraints_hash": "",
+    "drivers_hash": "",
+    "custom_props_hash": "",
+    "visibility_flags": "",
+    "materials_meta": "",
+    "particles_meta": "",
+    "geom_nodes_meta": "",
         # Materials often set above, keep safe default
         "materials": "",
     }
@@ -104,12 +483,40 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
     except Exception:
         sig["dims"] = ""
 
-    # Materials (all objects that have material_slots)
+    # Materials (all objects that have material_slots) and meta
+    mats: List[str] = []
+    mats_meta_parts: List[str] = []
     try:
-        mats = [slot.material.name if slot.material else "" for slot in getattr(obj, "material_slots", [])]
+        for slot in getattr(obj, "material_slots", []) or []:
+            try:
+                mat = slot.material
+                mats.append(mat.name if mat else "")
+                mats_meta_parts.append(_material_meta_hash(mat))
+            except Exception:
+                mats.append("")
+                mats_meta_parts.append("")
     except Exception:
-        mats = []
+        pass
     sig["materials"] = _list_hash(mats)
+    sig["materials_meta"] = _sha256("|".join(mats_meta_parts))
+
+    # Base object-level extras
+    try:
+        sig["constraints_hash"] = _hash_constraints(getattr(obj, "constraints", []) or [])
+    except Exception:
+        sig["constraints_hash"] = ""
+    sig["drivers_hash"] = _drivers_hash(obj)
+    sig["custom_props_hash"] = _hash_idprops(obj)
+    # Visibility/render flags
+    try:
+        vis = [
+            _bool(getattr(obj, "hide_viewport", False)),
+            _bool(getattr(obj, "hide_render", False)),
+            _bool(getattr(obj, "visible_get", lambda: True)()),
+        ]
+        sig["visibility_flags"] = _sha256("|".join(vis))
+    except Exception:
+        sig["visibility_flags"] = ""
 
     obj_type = getattr(obj, "type", None)
     has_data = getattr(obj, "data", None) is not None
@@ -126,9 +533,10 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
             sig["polygons"] = int(len(me.polygons))
         except Exception:
             sig["polygons"] = 0
-        # Modifiers (type+name order)
+        # Modifiers quick list + rich meta
         mods = [(m.type, m.name) for m in getattr(obj, "modifiers", [])]
         sig["modifiers"] = _list_hash([f"{t}:{n}" for t, n in mods])
+        sig["modifiers_meta"] = _modifiers_meta_hash(obj)
         # Vertex group names
         vgn = [vg.name for vg in getattr(obj, "vertex_groups", [])]
         sig["vgroups"] = _list_hash(sorted(vgn))
@@ -136,6 +544,10 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         uvl = getattr(me, "uv_layers", None)
         uvs = [uv.name for uv in uvl] if uvl else []
         sig["uv_meta"] = _list_hash(uvs)
+        # UV and color data hashes
+        uvh, colh = _mesh_uv_and_color_hash(me)
+        sig["uv_data_hash"] = uvh
+        sig["color_attr_hash"] = colh
         # Shapekeys names (order)
         kb = getattr(getattr(me, "shape_keys", None), "key_blocks", None)
         sk = [k.name for k in kb] if kb else []
@@ -149,6 +561,26 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         except Exception:
             vals = []
         sig["shapekeys_values"] = _list_hash(vals)
+        # Shapekey points hash (excluding Basis for brevity)
+        try:
+            if kb:
+                pts = []
+                for k in kb:
+                    nm = (k.name or "").lower()
+                    if nm == "basis":
+                        continue
+                    coords = []
+                    for d in getattr(k, "data", []) or []:
+                        try:
+                            co = getattr(d, "co", None)
+                            if co is not None:
+                                coords.append(_fmt_floats((co.x, co.y, co.z)))
+                        except Exception:
+                            pass
+                    pts.append(k.name + "=" + _sha256(";".join(coords)))
+                sig["shapekeys_points_hash"] = _sha256("|".join(pts))
+        except Exception:
+            sig["shapekeys_points_hash"] = ""
         # Geometry hash (object-space vertex coordinates)
         try:
             coords = []
@@ -158,6 +590,9 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
             sig["geo_hash"] = _sha256("|".join(coords))
         except Exception:
             sig["geo_hash"] = ""
+        # Particle systems and geometry nodes summaries
+        sig["particles_meta"] = _particles_meta_hash(obj)
+        sig["geom_nodes_meta"] = _geom_nodes_meta_hash(obj)
     elif obj_type == "LIGHT" and has_data:
         # Light-specific meta
         li = obj.data  # bpy.types.Light
@@ -368,6 +803,19 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         except Exception:
             parts = []
         sig["curve_points_hash"] = _sha256("|".join(parts))
+    elif obj_type in {"EMPTY", "LATTICE", "SURFACE", "META", "FONT", "POINTCLOUD", "VOLUME", "GPENCIL"}:
+        # Minimal metas for non-mesh/non-curve types; still include constraints/drivers/idprops/visibility/materials
+        try:
+            # For empties: display type/size and instance info
+            if obj_type == "EMPTY":
+                parts = [str(getattr(obj, "empty_display_type", "")), f"{float(getattr(obj, 'empty_display_size', 0.0)):.6f}"]
+                if getattr(obj, "instance_type", ""):
+                    parts.append("IT:" + str(getattr(obj, "instance_type")))
+                    inst = getattr(obj, "instance_collection", None)
+                    parts.append("IC:" + _id_name(inst))
+                sig["curve_meta"] = _sha256("|".join(parts))
+        except Exception:
+            pass
     # Ensure all default fields exist
     _ensure_sig_defaults(sig)
 
@@ -428,11 +876,16 @@ def compute_collection_signature(coll: bpy.types.Collection) -> Tuple[Dict[str, 
             s.get("dims", ""),
             str(s.get("verts", 0)),
             s.get("modifiers", ""),
+            s.get("modifiers_meta", ""),
             s.get("vgroups", ""),
             s.get("uv_meta", ""),
+            s.get("uv_data_hash", ""),
+            s.get("color_attr_hash", ""),
             s.get("shapekeys_meta", ""),
             s.get("shapekeys_values", ""),
+            s.get("shapekeys_points_hash", ""),
             s.get("materials", ""),
+            s.get("materials_meta", ""),
             str(s.get("edges", 0)),
             str(s.get("polygons", 0)),
             s.get("geo_hash", ""),
@@ -444,6 +897,12 @@ def compute_collection_signature(coll: bpy.types.Collection) -> Tuple[Dict[str, 
             s.get("armature_meta", ""),
             s.get("armature_bones_hash", ""),
             s.get("pose_bones_hash", ""),
+            s.get("constraints_hash", ""),
+            s.get("drivers_hash", ""),
+            s.get("custom_props_hash", ""),
+            s.get("visibility_flags", ""),
+            s.get("particles_meta", ""),
+            s.get("geom_nodes_meta", ""),
         ]))
     collection_hash = _sha256("\n".join(parts))
     return obj_sigs, collection_hash
@@ -532,11 +991,14 @@ def derive_changed_set(curr_objs: Dict[str, Dict], prev_objs: Dict[str, Dict]) -
         "parent",
         "type", "data_name", "transform", "dims", "verts",
         "edges", "polygons",
-        "modifiers", "vgroups", "uv_meta", "shapekeys_meta", "shapekeys_values", "materials",
+        "modifiers", "modifiers_meta", "vgroups", "uv_meta", "uv_data_hash", "color_attr_hash",
+        "shapekeys_meta", "shapekeys_values", "shapekeys_points_hash", "materials", "materials_meta",
         "geo_hash",
-    "light_meta", "camera_meta",
-    "curve_meta", "curve_points_hash",
-    "armature_meta", "armature_bones_hash", "pose_bones_hash",
+        "light_meta", "camera_meta",
+        "curve_meta", "curve_points_hash",
+        "armature_meta", "armature_bones_hash", "pose_bones_hash",
+        "constraints_hash", "drivers_hash", "custom_props_hash", "visibility_flags",
+        "particles_meta", "geom_nodes_meta",
     )
     for nm in intersect:
         a = curr_objs.get(nm, {})
