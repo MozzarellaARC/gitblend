@@ -55,6 +55,37 @@ def _list_hash(values: List[str]) -> str:
 # (TOML escape/writer removed; JSON is used for storage)
 
 
+def _ensure_sig_defaults(sig: Dict) -> None:
+    """Ensure signature dictionary has all expected keys with defaults.
+
+    This avoids repeating placeholder assignments across object-type branches.
+    """
+    defaults = {
+        "verts": 0,
+        "edges": 0,
+        "polygons": 0,
+        "modifiers": "",
+        "vgroups": "",
+        "uv_meta": "",
+        "shapekeys_meta": "",
+        "shapekeys_values": "",
+        "geo_hash": "",
+        # Type-specific metas (may remain empty for other types)
+        "light_meta": "",
+        "camera_meta": "",
+        "curve_meta": "",
+        "curve_points_hash": "",
+        "armature_meta": "",
+        "armature_bones_hash": "",
+        "pose_bones_hash": "",
+        # Materials often set above, keep safe default
+        "materials": "",
+    }
+    for k, v in defaults.items():
+        if k not in sig:
+            sig[k] = v
+
+
 def compute_object_signature(obj: bpy.types.Object) -> Dict:
     # L2-ish signature: names/meta + transforms + dims + counts
     sig: Dict = {}
@@ -154,16 +185,6 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         except Exception:
             pass
         sig["light_meta"] = _sha256("|".join(vals))
-        # Fill non-mesh placeholders
-        sig["verts"] = 0
-        sig["edges"] = 0
-        sig["polygons"] = 0
-        sig["modifiers"] = ""
-        sig["vgroups"] = ""
-        sig["uv_meta"] = ""
-        sig["shapekeys_meta"] = ""
-        sig["shapekeys_values"] = ""
-        sig["geo_hash"] = ""
     elif obj_type == "CAMERA" and has_data:
         # Camera-specific meta
         cam = obj.data  # bpy.types.Camera
@@ -189,16 +210,6 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         except Exception:
             pass
         sig["camera_meta"] = _sha256("|".join(vals))
-        # Fill non-mesh placeholders
-        sig["verts"] = 0
-        sig["edges"] = 0
-        sig["polygons"] = 0
-        sig["modifiers"] = ""
-        sig["vgroups"] = ""
-        sig["uv_meta"] = ""
-        sig["shapekeys_meta"] = ""
-        sig["shapekeys_values"] = ""
-        sig["geo_hash"] = ""
     elif obj_type == "ARMATURE" and has_data:
         arm = obj.data  # bpy.types.Armature
         # Rest armature metadata
@@ -294,18 +305,6 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         except Exception:
             pparts = []
         sig["pose_bones_hash"] = _sha256("|".join(pparts))
-        # Fill non-mesh placeholders
-        sig["verts"] = 0
-        sig["edges"] = 0
-        sig["polygons"] = 0
-        sig["modifiers"] = sig.get("modifiers", "")
-        sig["vgroups"] = ""
-        sig["uv_meta"] = ""
-        sig["shapekeys_meta"] = ""
-        sig["shapekeys_values"] = ""
-        sig["geo_hash"] = ""
-        sig["light_meta"] = ""
-        sig["camera_meta"] = ""
     elif obj_type == "CURVE" and has_data:
         cu = obj.data  # bpy.types.Curve
         # Curve meta (shape and generation)
@@ -369,29 +368,8 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         except Exception:
             parts = []
         sig["curve_points_hash"] = _sha256("|".join(parts))
-        # Fill non-mesh placeholders
-        sig["verts"] = 0
-        sig["edges"] = 0
-        sig["polygons"] = 0
-        sig["modifiers"] = sig.get("modifiers", "")
-        sig["vgroups"] = ""
-        sig["uv_meta"] = ""
-        sig["shapekeys_meta"] = ""
-        sig["shapekeys_values"] = ""
-        sig["geo_hash"] = ""
-        sig["light_meta"] = ""
-        sig["camera_meta"] = ""
-    else:
-        # Other types
-        sig["verts"] = 0
-        sig["edges"] = 0
-        sig["polygons"] = 0
-        sig["modifiers"] = ""
-        sig["vgroups"] = ""
-        sig["uv_meta"] = ""
-        sig["shapekeys_meta"] = ""
-        sig["shapekeys_values"] = ""
-        sig["geo_hash"] = ""
+    # Ensure all default fields exist
+    _ensure_sig_defaults(sig)
 
     return sig
 
@@ -469,13 +447,6 @@ def compute_collection_signature(coll: bpy.types.Collection) -> Tuple[Dict[str, 
         ]))
     collection_hash = _sha256("\n".join(parts))
     return obj_sigs, collection_hash
-
-
-def _iter_collections_objects(coll: bpy.types.Collection):
-    for o in coll.objects:
-        yield o
-    for c in coll.children:
-        yield from _iter_collections_objects(c)
 
 
 def load_index() -> Dict:
