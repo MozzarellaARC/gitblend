@@ -57,3 +57,5 @@ should_skip_commit(scene, curr, branch) -> (skip, reason)
 Wired validation into GITBLEND_OT_commit:
 If identical to last snapshot for the selected branch, don’t duplicate into .gitblend and report: “No changes detected (…); skipping snapshot”.
 Stored original names during duplication to enable robust matching across commits.
+
+can you add detection changes for pointer/collection props, object constraints, custom properties (ID props), visibility and render flags, material meta, particle system, drivers, geometry nodes internals hashing, uv/color attribute data hash, shapekey, empties and instances, lattice/surface/meta/font/pointcloud/volume/grease pencil
