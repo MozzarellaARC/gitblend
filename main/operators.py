@@ -17,6 +17,7 @@ from .utils import (
     get_selected_branch,
     ensure_source_collection,
     log_change,
+    rebuild_changes_log_from_index,
     set_dropdown_selection,
     ensure_enum_contains,
     sanitize_save_path,
@@ -106,6 +107,11 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             new_coll.name = desired
         except Exception:
             pass
+        # Tag snapshot with explicit branch for unambiguous filtering
+        try:
+            new_coll["gitblend_branch"] = sel
+        except Exception:
+            pass
 
         # Update index (stored as JSON)
         snapshot_name = new_coll.name
@@ -119,6 +125,11 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         save_index(index)
 
         log_change(props, msg)
+        # Rebuild UI change log for the current branch so indices align
+        try:
+            rebuild_changes_log_from_index(props, sel)
+        except Exception:
+            pass
         props.commit_message = ""
         request_redraw()
 
@@ -307,11 +318,10 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
 
         save_index(index)
 
-        # Update UI change log
+        # Rebuild UI change log from index to reflect new HEAD
         if props:
             try:
-                if len(props.changes_log) > 0:
-                    props.changes_log.remove(len(props.changes_log) - 1)
+                rebuild_changes_log_from_index(props, branch)
             except Exception:
                 pass
 

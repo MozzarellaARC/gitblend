@@ -117,21 +117,57 @@ def list_branch_snapshots(scene: bpy.types.Scene, branch: str, max_uid: Optional
 	if not dot_coll:
 		return []
 
+	# Build a set of snapshot names recorded in the index for this branch (for disambiguation)
+	try:
+		_index = load_index()
+		_b = (_index.get("branches", {})).get(branch) or {}
+		_branch_snapshot_names = {c.get("snapshot", "") for c in (_b.get("commits", []) or []) if c.get("snapshot")}
+	except Exception:
+		_branch_snapshot_names = set()
+
 	items: List[tuple[str, bpy.types.Collection]] = []
 	for c in dot_coll.children:
 		name = c.name or ""
-		if not name.startswith(branch):
+
+		# Prefer explicit branch tag set on commit
+		try:
+			tag = c.get("gitblend_branch", None)
+		except Exception:
+			tag = None
+
+		if tag is not None:
+			if str(tag) != str(branch):
+				continue
+			m = _UID_RE.search(name)
+			if not m:
+				continue
+			uid = m.group(1)
+			if max_uid is not None and uid > max_uid:
+				continue
+			items.append((uid, c))
 			continue
 
-		match = _UID_RE.search(name)
-		uid = match.group(1) if match else ""
-		if not uid:
+		# Fallback: prefer exact names known from index; else parse base safely
+		if name in _branch_snapshot_names:
+			m = _UID_RE.search(name)
+			if not m:
+				continue
+			uid = m.group(1)
+			if max_uid is not None and uid > max_uid:
+				continue
+			items.append((uid, c))
 			continue
 
-		# Filter by max_uid if provided
+		# Parse the name safely avoiding prefix collisions (best-effort)
+		m = _UID_RE.search(name)
+		if not m:
+			continue
+		base = name[: m.start()]
+		uid = m.group(1)
+		if not (base == branch or base.startswith(f"{branch}-")):
+			continue
 		if max_uid is not None and uid > max_uid:
 			continue
-
 		items.append((uid, c))
 
 	# Sort by UID descending (newest first)

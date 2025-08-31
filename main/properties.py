@@ -37,6 +37,13 @@ def _on_selected_string_update(self, context):
         idx = -1
     if 0 <= idx < len(self.string_items):
         self.string_items_index = idx
+        # Also rebuild the UI change log for the newly selected branch
+        try:
+            from .utils import get_selected_branch, rebuild_changes_log_from_index
+            branch = get_selected_branch(self)
+            rebuild_changes_log_from_index(self, branch)
+        except Exception:
+            pass
 
 
 def _on_changes_log_index_update(self, context):

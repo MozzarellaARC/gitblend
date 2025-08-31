@@ -1,6 +1,7 @@
 import bpy
 import os
 from datetime import datetime
+from .index import load_index
 
 
 def now_str(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
@@ -128,6 +129,32 @@ def log_change(props, message: str) -> None:
         item.timestamp = now_str()
         item.message = message
     except Exception:
+        pass
+
+
+def rebuild_changes_log_from_index(props, branch: str) -> None:
+    """Rebuild the UI change log from the index for the given branch.
+
+    This keeps the UI list in sync with the branch's commits so selection indices
+    map 1:1 to the branch commit list used by checkout.
+    """
+    try:
+        index = load_index()
+        b = (index.get("branches", {})).get(branch) or {}
+        commits = b.get("commits", []) or []
+        # Clear existing UI log
+        while len(props.changes_log) > 0:
+            props.changes_log.remove(len(props.changes_log) - 1)
+        # Rebuild in the same order as stored in the index
+        for c in commits:
+            it = props.changes_log.add()
+            it.timestamp = str(c.get("timestamp", ""))
+            it.message = str(c.get("message", ""))
+        # Select the last entry (HEAD) if any
+        if len(props.changes_log) > 0:
+            props.changes_log_index = len(props.changes_log) - 1
+    except Exception:
+        # Best effort; leave UI log as-is on failure
         pass
 
 
