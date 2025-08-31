@@ -2,6 +2,9 @@
 ## Blender Git like version control
 Made for Blender 4.2 to 4.5
 
+Index storage
+- Commit history is stored in .gitblend/index.json (JSON). If an older .gitblend/index.toml exists, it's read for backward compatibility; the next write will persist JSON.
+
 Change validation is performed before creating a new snapshot under `.gitblend`:
 
 Order of checks (early exit on first difference):

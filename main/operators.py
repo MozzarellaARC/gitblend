@@ -104,7 +104,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         # Create diff snapshot using computed changed set (or let it compute if None)
         new_coll, obj_map = create_diff_snapshot_with_changes(source, dot_coll, uid, prev, changed_names=changed_names)
 
-        # Update TOML index
+    # Update index (stored as JSON)
         snapshot_name = new_coll.name
         # Compute signatures after snapshot to record exact state
         obj_sigs, coll_hash = compute_collection_signature(source)

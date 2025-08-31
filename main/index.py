@@ -1,6 +1,6 @@
 import os
 import hashlib
-import tomllib
+import json
 from typing import Dict, List, Optional, Tuple
 import bpy
 
@@ -16,6 +16,12 @@ def _index_dir() -> str:
 
 
 def get_index_path() -> str:
+    # Primary JSON index path (new format)
+    return os.path.join(_index_dir(), "index.json")
+
+
+def _legacy_index_toml_path() -> str:
+    # Legacy TOML index path (for backward compatibility reads)
     return os.path.join(_index_dir(), "index.toml")
 
 
@@ -46,11 +52,7 @@ def _list_hash(values: List[str]) -> str:
     return _sha256("|".join(values))
 
 
-def _toml_escape(val) -> str:
-    s = "" if val is None else str(val)
-    # Escape backslashes and double quotes for TOML basic strings
-    s = s.replace("\\", "\\\\").replace('"', '\\"')
-    return s
+# (TOML escape/writer removed; JSON is used for storage)
 
 
 def compute_object_signature(obj: bpy.types.Object) -> Dict:
@@ -255,71 +257,52 @@ def _iter_collections_objects(coll: bpy.types.Collection):
 
 
 def load_index() -> Dict:
-    path = get_index_path()
-    if not os.path.exists(path):
-        return {"branches": {}}
-    with open(path, "rb") as f:
+    """Load the Git Blend index, preferring JSON (new), falling back to legacy TOML.
+    If TOML is found and parsed, return its data without writing; save_index will persist as JSON on next write.
+    """
+    json_path = get_index_path()
+    if os.path.exists(json_path):
         try:
-            data = tomllib.load(f)
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
         except Exception:
-            return {"branches": {}}
-    if "branches" not in data or not isinstance(data["branches"], dict):
-        data["branches"] = {}
-    return data
+            data = {"branches": {}}
+        if "branches" not in data or not isinstance(data.get("branches"), dict):
+            data["branches"] = {}
+        return data
+
+    # Fallback: legacy TOML read (best-effort)
+    toml_path = _legacy_index_toml_path()
+    if os.path.exists(toml_path):
+        try:
+            # Python 3.11+ stdlib tomllib (optional)
+            import tomllib  # type: ignore
+
+            with open(toml_path, "rb") as f:
+                data = tomllib.load(f)
+            if "branches" not in data or not isinstance(data.get("branches"), dict):
+                data["branches"] = {}
+            return data
+        except Exception:
+            pass
+    return {"branches": {}}
 
 
 def save_index(data: Dict) -> None:
+    """Save the index as pretty-printed JSON."""
     _ensure_index_dir()
     path = get_index_path()
-    # Minimal TOML writer for our structure
-    lines: List[str] = []
-    branches = data.get("branches", {})
-    for bname, bdata in branches.items():
-        head = (bdata or {}).get("head", {})
-        if head:
-            lines.append(f"[branches.{bname}.head]")
-            for k in ("uid", "snapshot", "timestamp"):
-                v = head.get(k)
-                if v is not None:
-                    lines.append(f"{k} = \"{_toml_escape(v)}\"")
-            lines.append("")
-        commits = (bdata or {}).get("commits", [])
-        for c in commits:
-            lines.append(f"[[branches.{bname}.commits]]")
-            for k in ("uid", "timestamp", "message", "snapshot", "collection_hash"):
-                v = c.get(k)
-                if v is not None:
-                    lines.append(f"{k} = \"{_toml_escape(v)}\"")
-            # objects array
-            objs = c.get("objects", [])
-            for o in objs:
-                lines.append(f"[[branches.{bname}.commits.objects]]")
-                lines.append(f"name = \"{_toml_escape(o.get('name', ''))}\"")
-                lines.append(f"parent = \"{_toml_escape(o.get('parent', ''))}\"")
-                lines.append(f"type = \"{_toml_escape(o.get('type', ''))}\"")
-                lines.append(f"data_name = \"{_toml_escape(o.get('data_name', ''))}\"")
-                lines.append(f"transform = \"{_toml_escape(o.get('transform', ''))}\"")
-                lines.append(f"dims = \"{_toml_escape(o.get('dims', ''))}\"")
-                lines.append(f"verts = {int(o.get('verts', 0))}")
-                lines.append(f"edges = {int(o.get('edges', 0))}")
-                lines.append(f"polygons = {int(o.get('polygons', 0))}")
-                lines.append(f"modifiers = \"{_toml_escape(o.get('modifiers', ''))}\"")
-                lines.append(f"vgroups = \"{_toml_escape(o.get('vgroups', ''))}\"")
-                lines.append(f"uv_meta = \"{_toml_escape(o.get('uv_meta', ''))}\"")
-                lines.append(f"shapekeys_meta = \"{_toml_escape(o.get('shapekeys_meta', ''))}\"")
-                if o.get('shapekeys_values') is not None:
-                    lines.append(f"shapekeys_values = \"{_toml_escape(o.get('shapekeys_values', ''))}\"")
-                if o.get('materials') is not None:
-                    lines.append(f"materials = \"{_toml_escape(o.get('materials', ''))}\"")
-                if o.get('geo_hash') is not None:
-                    lines.append(f"geo_hash = \"{_toml_escape(o.get('geo_hash', ''))}\"")
-                if o.get('light_meta') is not None:
-                    lines.append(f"light_meta = \"{_toml_escape(o.get('light_meta', ''))}\"")
-                if o.get('camera_meta') is not None:
-                    lines.append(f"camera_meta = \"{_toml_escape(o.get('camera_meta', ''))}\"")
-            lines.append("")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+    # Ensure top-level structure validity
+    if not isinstance(data, dict):
+        data = {"branches": {}}
+    if "branches" not in data or not isinstance(data.get("branches"), dict):
+        data["branches"] = {}
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        # Best-effort; ignore write failures silently in addon context
+        pass
 
 
 def get_latest_commit(index: Dict, branch: str) -> Optional[Dict]:
