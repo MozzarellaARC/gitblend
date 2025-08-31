@@ -39,11 +39,24 @@ def _on_selected_string_update(self, context):
         self.string_items_index = idx
 
 
+def _on_changes_log_index_update(self, context):
+    """When a log item is selected, check out the scene up to that commit."""
+    try:
+        # Non-blocking best-effort; avoid modal
+        bpy.ops.gitblend.checkout_log('EXEC_DEFAULT')
+    except Exception:
+        pass
+
+
 class GITBLEND_Properties(bpy.types.PropertyGroup):
     """Root properties for GITBLEND add-on."""
     # Change log
     changes_log: bpy.props.CollectionProperty(type=GITBLEND_ChangeLogEntry)
-    changes_log_index: bpy.props.IntProperty(default=0)
+    changes_log_index: bpy.props.IntProperty(
+        default=0,
+        update=_on_changes_log_index_update,
+        description="Select a log entry to show the scene up to that commit",
+    )
     commit_message: bpy.props.StringProperty(
         name="Commit Message",
         description="Describe the changes to record in the log",

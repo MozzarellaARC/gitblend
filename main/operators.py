@@ -558,6 +558,244 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator):
         self.report({'INFO'}, msg)
         return {'FINISHED'}
 
+
+class GITBLEND_OT_checkout_log(bpy.types.Operator):
+    bl_idname = "gitblend.checkout_log"
+    bl_label = "Checkout Log Entry"
+    bl_description = "Restore the working collection to the state up to the selected log entry"
+    bl_options = {'INTERNAL'}
+
+    def _iter_objects_recursive(self, coll):
+        for o in coll.objects:
+            yield o
+        for c in coll.children:
+            yield from self._iter_objects_recursive(c)
+
+    def _orig_name(self, id_block):
+        try:
+            v = id_block.get("gitblend_orig_name", None)
+            if isinstance(v, str) and v:
+                return v
+        except Exception:
+            pass
+        name = getattr(id_block, "name", "") or ""
+        import re
+        m = re.search(r"_(\d{10,20})(?:-\d+)?$", name)
+        return name[: m.start()] if m else name
+
+    def _build_name_map(self, coll, snapshot=False):
+        out = {}
+        for o in self._iter_objects_recursive(coll):
+            nm = self._orig_name(o) if snapshot else (o.name or "")
+            if nm and nm not in out:
+                out[nm] = o
+        return out
+
+    def _list_branch_snapshots_upto_uid(self, scene, branch, max_uid: str):
+        # Mirror logic from validate._list_branch_snapshots but limit to <= max_uid
+        dot = None
+        for c in scene.collection.children:
+            if c.name == ".gitblend":
+                dot = c
+                break
+        if not dot:
+            return []
+        import re
+        uid_re = re.compile(r"_(\d{10,20})(?:-\d+)?$")
+        items = []
+        for c in dot.children:
+            nm = c.name or ""
+            if not nm.startswith(branch):
+                continue
+            m = uid_re.search(nm)
+            uid = m.group(1) if m else ""
+            if not uid:
+                continue
+            if uid <= max_uid:
+                items.append((uid, c))
+        items.sort(key=lambda t: t[0], reverse=True)
+        return [c for _, c in items]
+
+    def execute(self, context):
+        ok, _proj, err = sanitize_save_path()
+        if not ok:
+            self.report({'ERROR'}, err)
+            return {'CANCELLED'}
+
+        scene = context.scene
+        # Ensure .gitblend exists
+        dot_coll = None
+        for c in scene.collection.children:
+            if c.name == ".gitblend":
+                dot_coll = c
+                break
+        if not dot_coll:
+            self.report({'ERROR'}, "'.gitblend' collection does not exist. Click Initialize first.")
+            return {'CANCELLED'}
+
+        props = get_props(context)
+        branch = get_selected_branch(props) if props else "main"
+
+        # Load commits and resolve target index from UI log index
+        index = load_index()
+        b = (index.get("branches", {})).get(branch) or {}
+        commits = b.get("commits", []) or []
+        if not commits:
+            self.report({'INFO'}, f"No commit history for branch '{branch}'.")
+            return {'CANCELLED'}
+        ui_idx = getattr(props, "changes_log_index", 0) if props else 0
+        if ui_idx < 0:
+            ui_idx = 0
+        if ui_idx >= len(commits):
+            ui_idx = len(commits) - 1
+        target = commits[ui_idx]
+        target_uid = str(target.get("uid", ""))
+        if not target_uid:
+            self.report({'WARNING'}, "Selected log entry has no UID; cannot checkout.")
+            return {'CANCELLED'}
+
+        # Desired object state at that commit
+        commit_objs = target.get("objects", []) or []
+        desired_names = [o.get("name", "") for o in commit_objs if o.get("name")]
+        desired_parent = {o.get("name", ""): o.get("parent", "") for o in commit_objs if o.get("name")}
+
+        source = ensure_source_collection(scene)
+        if not source:
+            self.report({'WARNING'}, "No top-level collection to restore into.")
+            return {'CANCELLED'}
+
+        # Prepare source maps
+        src_map = self._build_name_map(source, snapshot=False)
+
+        # Build snapshot search list newest->oldest, but only up to target UID
+        snapshots = self._list_branch_snapshots_upto_uid(scene, branch, target_uid)
+        snap_maps = [self._build_name_map(s, snapshot=True) for s in snapshots]
+
+        def find_snapshot_obj(nm: str):
+            for mp in snap_maps:
+                o = mp.get(nm)
+                if o is not None:
+                    return o
+            return None
+
+        # Remove any objects not part of the committed set
+        removed_extras = 0
+        for nm, obj in list(src_map.items()):
+            if nm not in desired_names:
+                try:
+                    for col in list(obj.users_collection):
+                        try:
+                            col.objects.unlink(obj)
+                        except Exception:
+                            pass
+                    bpy.data.objects.remove(obj, do_unlink=True)
+                    removed_extras += 1
+                except Exception:
+                    pass
+
+        # Rebuild map after removals
+        src_map = self._build_name_map(source, snapshot=False)
+
+        # First pass: create or replace all desired objects from snapshots up to target
+        new_dups = {}
+        old_objs = {}
+        for nm in desired_names:
+            snap_obj = find_snapshot_obj(nm)
+            if not snap_obj:
+                # If we can't find snapshot source, keep current if exists
+                continue
+            try:
+                dup = snap_obj.copy()
+                if getattr(snap_obj, "data", None) is not None:
+                    try:
+                        dup.data = snap_obj.data.copy()
+                    except Exception:
+                        pass
+            except Exception:
+                continue
+            try:
+                dup.name = f"{nm}_restored"
+            except Exception:
+                pass
+            curr = src_map.get(nm)
+            colls = []
+            if curr:
+                old_objs[nm] = curr
+                try:
+                    colls = list(curr.users_collection)
+                except Exception:
+                    colls = []
+            linked_any = False
+            for col in colls:
+                try:
+                    col.objects.link(dup)
+                    linked_any = True
+                except Exception:
+                    pass
+            if not linked_any:
+                try:
+                    source.objects.link(dup)
+                except Exception:
+                    pass
+            new_dups[nm] = dup
+
+        # Second pass: ensure parents according to commit metadata
+        for nm, dup in list(new_dups.items()):
+            pnm = (desired_parent.get(nm) or "")
+            if not pnm:
+                try:
+                    dup.parent = None
+                except Exception:
+                    pass
+                continue
+            target_parent = new_dups.get(pnm) or src_map.get(pnm)
+            if target_parent is not None:
+                try:
+                    dup.parent = target_parent
+                except Exception:
+                    pass
+            else:
+                try:
+                    dup.parent = None
+                except Exception:
+                    pass
+
+        # Third pass: remove or unlink old objects and fill in missing ones
+        for nm in desired_names:
+            curr = old_objs.get(nm)
+            if curr:
+                try:
+                    for col in list(curr.users_collection):
+                        try:
+                            col.objects.unlink(curr)
+                        except Exception:
+                            pass
+                    bpy.data.objects.remove(curr, do_unlink=True)
+                except Exception:
+                    pass
+
+        # Final: rename dups to original names
+        for nm, dup in list(new_dups.items()):
+            try:
+                dup.name = nm
+            except Exception:
+                pass
+
+        restored = len(new_dups)
+        skipped = max(0, len(desired_names) - restored)
+
+        request_redraw()
+        msg = f"Checked out commit {ui_idx+1}/{len(commits)}"
+        m = (target.get("message", "") or "").strip()
+        if m:
+            msg += f": {m}"
+        if skipped:
+            msg += f" (skipped {skipped})"
+        if removed_extras:
+            msg += f", removed {removed_extras} extra"
+        self.report({'INFO'}, msg)
+        return {'FINISHED'}
+
 def register_operators():
     bpy.utils.register_class(GITBLEND_OT_commit)
     bpy.utils.register_class(GITBLEND_OT_initialize)
@@ -565,6 +803,7 @@ def register_operators():
     bpy.utils.register_class(GITBLEND_OT_string_remove)
     bpy.utils.register_class(GITBLEND_OT_undo_commit)
     bpy.utils.register_class(GITBLEND_OT_discard_changes)
+    bpy.utils.register_class(GITBLEND_OT_checkout_log)
 
 
 def unregister_operators():
@@ -574,3 +813,7 @@ def unregister_operators():
     bpy.utils.unregister_class(GITBLEND_OT_string_add)
     bpy.utils.unregister_class(GITBLEND_OT_initialize)
     bpy.utils.unregister_class(GITBLEND_OT_commit)
+    try:
+        bpy.utils.unregister_class(GITBLEND_OT_checkout_log)
+    except RuntimeError:
+        pass
