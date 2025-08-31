@@ -74,6 +74,53 @@ def find_preferred_or_first_non_dot(scene: bpy.types.Scene, preferred_name: str 
     return None
 
 
+def ensure_source_collection(scene: bpy.types.Scene) -> bpy.types.Collection:
+    """Ensure there's a top-level working collection named 'source' and return it.
+
+    Strategy:
+    - If a top-level child named 'source' exists, return it.
+    - Else if any collection named 'source' exists in bpy.data, link it under the scene root and return it.
+    - Else take the first non-.gitblend top-level collection and rename it to 'source' (if possible).
+    - Else create a new collection named 'source' and link it to the scene root.
+    """
+    root = scene.collection
+    # 1) Top-level 'source' already present
+    for c in list(root.children):
+        if c.name == "source":
+            return c
+    # 2) A collection named 'source' exists somewhere: ensure it's linked under root
+    existing = bpy.data.collections.get("source")
+    if existing is not None:
+        try:
+            # Link under root if not already
+            if existing not in root.children:
+                root.children.link(existing)
+        except Exception:
+            pass
+        return existing
+    # 3) Try to repurpose the first non-.gitblend top-level collection
+    first = None
+    for c in list(root.children):
+        if c.name != ".gitblend":
+            first = c
+            break
+    if first is not None:
+        try:
+            first.name = "source"
+            return first
+        except Exception:
+            # Fall through to create a new one
+            pass
+    # 4) Create a new 'source'
+    try:
+        coll = bpy.data.collections.new("source")
+        root.children.link(coll)
+        return coll
+    except Exception:
+        # Last resort: return first non-dot or root.collection
+        return first or root
+
+
 def log_change(props, message: str) -> None:
     """Append a message to the change log safely."""
     try:

@@ -5,13 +5,14 @@ from .validate import (
     get_latest_snapshot,
     create_diff_snapshot_with_changes,
     should_skip_commit,
+    unique_coll_name,
 )
 from .utils import (
     now_str,
     request_redraw,
     get_props,
     get_selected_branch,
-    find_preferred_or_first_non_dot,
+    ensure_source_collection,
     log_change,
     set_dropdown_selection,
     ensure_enum_contains,
@@ -30,7 +31,7 @@ from .index import (
 class GITBLEND_OT_commit(bpy.types.Operator):
     bl_idname = "gitblend.commit"
     bl_label = "Commit Changes"
-    bl_description = "Rename the source collection to the selected prefix and copy it into .gitblend with a UID suffix; log the message"
+    bl_description = "Copy the 'source' working collection into .gitblend as a snapshot named with the branch/message; log the message"
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
@@ -54,22 +55,16 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 
         sel = get_selected_branch(props) or "main"
         msg_slug = slugify(msg)
-        base_name = f"{sel}-{msg_slug}" if msg_slug else sel
+        # Snapshot base name still includes branch/message, but working coll stays 'source'
+        snapshot_base_name = f"{sel}-{msg_slug}" if msg_slug else sel
 
-        source = find_preferred_or_first_non_dot(scene, base_name)
+        # Always operate on a working collection named 'source'
+        source = ensure_source_collection(scene)
         if not source:
             self.report({'WARNING'}, "No top-level collection to commit")
             return {'CANCELLED'}
 
-        if source.name != base_name:
-            other = bpy.data.collections.get(base_name)
-            if other and other is not source:
-                source = other
-            else:
-                try:
-                    source.name = base_name
-                except Exception:
-                    pass
+        # Never rename the working collection; keep it as 'source'
 
         # Require existing .gitblend created via Initialize
         dot_coll = None
@@ -102,9 +97,16 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             changed, names = derive_changed_set(curr_sigs, prev_objs)
             changed_names = set(names) if changed else set()
         # Create diff snapshot using computed changed set (or let it compute if None)
+        # Create diff snapshot with names derived from snapshot_base_name while leaving working coll as 'source'
         new_coll, obj_map = create_diff_snapshot_with_changes(source, dot_coll, uid, prev, changed_names=changed_names)
+        # Rename snapshot collection to follow our branch/message naming convention (ensure unique)
+        try:
+            desired = unique_coll_name(snapshot_base_name, uid)
+            new_coll.name = desired
+        except Exception:
+            pass
 
-    # Update index (stored as JSON)
+        # Update index (stored as JSON)
         snapshot_name = new_coll.name
         # Compute signatures after snapshot to record exact state
         obj_sigs, coll_hash = compute_collection_signature(source)
@@ -123,7 +125,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 class GITBLEND_OT_initialize(bpy.types.Operator):
     bl_idname = "gitblend.initialize"
     bl_label = "Initialize Git Blend"
-    bl_description = "Create .gitblend; rename source to preferred root name; copy it into .gitblend with a UID suffix"
+    bl_description = "Create .gitblend; ensure a 'source' working collection exists; create the first snapshot"
     bl_options = {'INTERNAL'}  # exclude from undo/redo and search
 
     def execute(self, context):
@@ -151,6 +153,11 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
             request_redraw()
         # Ensure .gitblend exists up-front for user feedback in UI
         ensure_gitblend_collection(context.scene)
+        # Ensure a working 'source' collection is present
+        try:
+            ensure_source_collection(context.scene)
+        except Exception:
+            pass
         # Delegate to the Commit operator; first commit will initialize automatically
         return bpy.ops.gitblend.commit()
 
@@ -403,8 +410,8 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator):
         props = get_props(context)
         branch = get_selected_branch(props) if props else "main"
 
-        # Find source working collection (prefer branch name)
-        source = find_preferred_or_first_non_dot(scene, branch)
+        # Always restore into the working 'source' collection
+        source = ensure_source_collection(scene)
         if not source:
             self.report({'WARNING'}, "No top-level collection to restore into.")
             return {'CANCELLED'}
