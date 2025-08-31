@@ -431,14 +431,83 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator):
 
         # Build snapshot search list newest->oldest
         snapshots = self._list_branch_snapshots(scene, branch)
-        snap_maps = [self._build_name_map(s, snapshot=True) for s in snapshots]
+        # Couple each root with its name->object map
+        snap_maps = [(root, self._build_name_map(root, snapshot=True)) for root in snapshots]
 
-        def find_snapshot_obj(nm: str):
-            for mp in snap_maps:
-                o = mp.get(nm)
-                if o is not None:
-                    return o
+        def _orig_coll_name(coll):
+            try:
+                v = coll.get("gitblend_orig_name", None)
+                if isinstance(v, str) and v:
+                    return v
+            except Exception:
+                pass
+            nm = coll.name or ""
+            import re
+            m = re.search(r"_(\d{10,20})(?:-\d+)?$", nm)
+            return nm[: m.start()] if m else nm
+
+        def _find_containing_collection(root_coll, target_obj):
+            if target_obj in root_coll.objects:
+                return root_coll
+            for child in root_coll.children:
+                found = _find_containing_collection(child, target_obj)
+                if found:
+                    return found
             return None
+
+        def _path_to_collection(root_coll, target_coll):
+            path = []
+            found = False
+            def dfs(c, acc):
+                nonlocal path, found
+                if found:
+                    return
+                acc.append(c)
+                if c == target_coll:
+                    path = list(acc)
+                    found = True
+                else:
+                    for ch in c.children:
+                        dfs(ch, acc)
+                        if found:
+                            break
+                acc.pop()
+            dfs(root_coll, [])
+            return path if found else []
+
+        def _ensure_mirrored_path_under_source(source_coll, snapshot_path):
+            dest = source_coll
+            for snap_coll in snapshot_path[1:]:
+                name = _orig_coll_name(snap_coll)
+                existing = None
+                for ch in dest.children:
+                    if ch.name == name:
+                        existing = ch
+                        break
+                if existing is None:
+                    try:
+                        newc = bpy.data.collections.new(name)
+                        dest.children.link(newc)
+                        dest = newc
+                    except Exception:
+                        # If creation fails, fallback to current dest
+                        pass
+                    else:
+                        dest = newc
+                else:
+                    dest = existing
+            return dest
+
+        def find_snapshot_obj_and_dest(nm: str):
+            for root, mp in snap_maps:
+                o = mp.get(nm)
+                if o is None:
+                    continue
+                cont = _find_containing_collection(root, o) or root
+                path = _path_to_collection(root, cont)
+                dest = _ensure_mirrored_path_under_source(source, path) if path else source
+                return o, dest
+            return None, source
 
         # Remove any objects not part of the committed set
         removed_extras = 0
@@ -463,7 +532,7 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator):
         new_dups = {}
         old_objs = {}
         for nm in desired_names:
-            snap_obj = find_snapshot_obj(nm)
+            snap_obj, dest_coll = find_snapshot_obj_and_dest(nm)
             if not snap_obj:
                 # If we can't find snapshot source, keep current if exists
                 continue
@@ -482,20 +551,15 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator):
                 pass
             curr = src_map.get(nm)
             # Link duplicate to same collections as current (if exists), else to source
-            colls = []
             if curr:
                 old_objs[nm] = curr
-                try:
-                    colls = list(curr.users_collection)
-                except Exception:
-                    colls = []
+            # Link duplicate into the mirrored destination collection
             linked_any = False
-            for col in colls:
-                try:
-                    col.objects.link(dup)
-                    linked_any = True
-                except Exception:
-                    pass
+            try:
+                dest_coll.objects.link(dup)
+                linked_any = True
+            except Exception:
+                linked_any = False
             if not linked_any:
                 try:
                     source.objects.link(dup)

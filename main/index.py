@@ -214,12 +214,46 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
     return sig
 
 
+def _iter_objects_with_paths(root: bpy.types.Collection):
+    """Yield (object, path_list) where path_list is the list of collection names from root's child to the collection holding the object.
+    The root collection name is excluded from the path. Objects directly under root have an empty path_list.
+    If an object is found in multiple branches, the first encountered path is used.
+    """
+    # DFS over collections recording path
+    seen: set[int] = set()  # object id() seen to avoid duplicates
+
+    def dfs(coll: bpy.types.Collection, path: List[str]):
+        nonlocal seen
+        for o in coll.objects:
+            try:
+                oid = id(o)
+            except Exception:
+                oid = None
+            if oid is not None and oid in seen:
+                continue
+            if oid is not None:
+                seen.add(oid)
+            yield o, path
+        for ch in coll.children:
+            ch_name = getattr(ch, "name", "") or ""
+            next_path = path + ([ch_name] if ch_name else [])
+            yield from dfs(ch, next_path)
+
+    yield from dfs(root, [])
+
+
 def compute_collection_signature(coll: bpy.types.Collection) -> Tuple[Dict[str, Dict], str]:
     obj_sigs: Dict[str, Dict] = {}
-    for c in _iter_collections_objects(coll):
-        sig = compute_object_signature(c)
+    for obj, path in _iter_objects_with_paths(coll):
+        sig = compute_object_signature(obj)
         if not sig["name"]:
             continue
+        # Store collection path relative to provided root (exclude root name)
+        try:
+            # Normalize as 'A|B|C' to avoid ambiguity with '/'
+            sig["collection_path"] = "|".join([p for p in path if p])
+        except Exception:
+            sig["collection_path"] = ""
         obj_sigs[sig["name"]] = sig
     # Overall collection hash: names + per-object quick fields
     parts: List[str] = []
@@ -244,6 +278,7 @@ def compute_collection_signature(coll: bpy.types.Collection) -> Tuple[Dict[str, 
             s.get("geo_hash", ""),
             s.get("light_meta", ""),
             s.get("camera_meta", ""),
+            s.get("collection_path", ""),
         ]))
     collection_hash = _sha256("\n".join(parts))
     return obj_sigs, collection_hash
@@ -335,7 +370,7 @@ def derive_changed_set(curr_objs: Dict[str, Dict], prev_objs: Dict[str, Dict]) -
 
     # Modified within intersection
     intersect = curr_names & prev_names
-    keys = (
+    base_keys = (
         "parent",
         "type", "data_name", "transform", "dims", "verts",
         "edges", "polygons",
@@ -346,10 +381,16 @@ def derive_changed_set(curr_objs: Dict[str, Dict], prev_objs: Dict[str, Dict]) -
     for nm in intersect:
         a = curr_objs.get(nm, {})
         b = prev_objs.get(nm, {})
-        for k in keys:
+        # Compare base keys always
+        for k in base_keys:
             if str(a.get(k)) != str(b.get(k)):
                 changed_set.add(nm)
                 break
+        else:
+            # Compare collection_path only when present in both (backward compatible)
+            if ("collection_path" in a) and ("collection_path" in b):
+                if str(a.get("collection_path", "")) != str(b.get("collection_path", "")):
+                    changed_set.add(nm)
 
     changed_list = sorted(changed_set)
     return (len(changed_list) > 0), changed_list
