@@ -66,10 +66,13 @@ def _ensure_sig_defaults(sig: Dict) -> None:
         "polygons": 0,
         "modifiers": "",
         "vgroups": "",
+    # Modifiers
         "uv_meta": "",
         "shapekeys_meta": "",
         "shapekeys_values": "",
         "geo_hash": "",
+    # New: stable hash of modifier settings for each modifier
+    "modifiers_meta": "",
         # Type-specific metas (may remain empty for other types)
         "light_meta": "",
         "camera_meta": "",
@@ -114,6 +117,87 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
     obj_type = getattr(obj, "type", None)
     has_data = getattr(obj, "data", None) is not None
 
+    # Modifiers (available on many object types): include both stack and settings
+    try:
+        mods_all = [(m.type, m.name, m) for m in getattr(obj, "modifiers", [])]
+    except Exception:
+        mods_all = []
+    if mods_all:
+        sig["modifiers"] = _list_hash([f"{t}:{n}" for t, n, _ in mods_all])
+        try:
+            def _serialize_val(v):
+                try:
+                    if isinstance(v, float):
+                        return f"{v:.6f}"
+                    if isinstance(v, (list, tuple)):
+                        parts = []
+                        for x in v:
+                            if isinstance(x, float):
+                                parts.append(f"{float(x):.6f}")
+                            else:
+                                parts.append(str(x))
+                        return "(" + ",".join(parts) + ")"
+                    return str(v)
+                except Exception:
+                    return ""
+
+            def _modifier_settings_signature(m) -> str:
+                parts: List[str] = []
+                SKIP = {"name", "type", "rna_type", "bl_rna"}
+                try:
+                    for p in m.bl_rna.properties:  # type: ignore[attr-defined]
+                        try:
+                            pid = getattr(p, "identifier", "")
+                        except Exception:
+                            pid = ""
+                        if not pid or pid in SKIP:
+                            continue
+                        try:
+                            if getattr(p, "is_hidden", False) or getattr(p, "is_readonly", False):
+                                continue
+                        except Exception:
+                            pass
+                        try:
+                            ptype = getattr(p, "type", None)
+                        except Exception:
+                            ptype = None
+                        if ptype in {"POINTER", "COLLECTION"}:
+                            if pid == "node_group":
+                                try:
+                                    ng = getattr(m, "node_group", None)
+                                    parts.append(f"node_group:{getattr(ng, 'name', '') if ng else ''}")
+                                except Exception:
+                                    pass
+                            continue
+                        try:
+                            val = getattr(m, pid)
+                        except Exception:
+                            continue
+                        if callable(val):
+                            continue
+                        try:
+                            if hasattr(val, "__len__") and not isinstance(val, (str, bytes)):
+                                try:
+                                    seq = [val[i] for i in range(len(val))]
+                                except Exception:
+                                    seq = None
+                                if seq is not None and len(seq) <= 16:
+                                    sval = _serialize_val(seq)
+                                    parts.append(f"{pid}:{sval}")
+                                    continue
+                        except Exception:
+                            pass
+                        parts.append(f"{pid}:{_serialize_val(val)}")
+                except Exception:
+                    pass
+                parts_sorted = sorted(parts)
+                return _sha256("|".join(parts_sorted))
+
+            mods_meta = [f"{t}:{n}:{_modifier_settings_signature(m)}" for t, n, m in mods_all]
+            sig["modifiers_meta"] = _list_hash(mods_meta)
+        except Exception:
+            sig["modifiers_meta"] = ""
+
     if obj_type == "MESH" and has_data:
         me = obj.data
         sig["verts"] = int(len(me.vertices))
@@ -126,9 +210,6 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
             sig["polygons"] = int(len(me.polygons))
         except Exception:
             sig["polygons"] = 0
-        # Modifiers (type+name order)
-        mods = [(m.type, m.name) for m in getattr(obj, "modifiers", [])]
-        sig["modifiers"] = _list_hash([f"{t}:{n}" for t, n in mods])
         # Vertex group names
         vgn = [vg.name for vg in getattr(obj, "vertex_groups", [])]
         sig["vgroups"] = _list_hash(sorted(vgn))
@@ -428,6 +509,7 @@ def compute_collection_signature(coll: bpy.types.Collection) -> Tuple[Dict[str, 
             s.get("dims", ""),
             str(s.get("verts", 0)),
             s.get("modifiers", ""),
+            s.get("modifiers_meta", ""),
             s.get("vgroups", ""),
             s.get("uv_meta", ""),
             s.get("shapekeys_meta", ""),
@@ -532,7 +614,7 @@ def derive_changed_set(curr_objs: Dict[str, Dict], prev_objs: Dict[str, Dict]) -
         "parent",
         "type", "data_name", "transform", "dims", "verts",
         "edges", "polygons",
-        "modifiers", "vgroups", "uv_meta", "shapekeys_meta", "shapekeys_values", "materials",
+        "modifiers", "modifiers_meta", "vgroups", "uv_meta", "shapekeys_meta", "shapekeys_values", "materials",
         "geo_hash",
     "light_meta", "camera_meta",
     "curve_meta", "curve_points_hash",
@@ -543,7 +625,8 @@ def derive_changed_set(curr_objs: Dict[str, Dict], prev_objs: Dict[str, Dict]) -
         b = prev_objs.get(nm, {})
         # Compare base keys always
         for k in base_keys:
-            if str(a.get(k)) != str(b.get(k)):
+            # Backward compatible: treat missing as empty string
+            if str(a.get(k, "")) != str(b.get(k, "")):
                 changed_set.add(nm)
                 break
         else:

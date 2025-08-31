@@ -419,6 +419,89 @@ def _compare_modifiers(a: bpy.types.Object, b: bpy.types.Object) -> Optional[str
 	return None
 
 
+def _hash_modifier_settings(m) -> str:
+	"""Stable summary hash of a modifier's settings (subset of RNA props)."""
+	try:
+		def _serialize_val(v):
+			try:
+				if isinstance(v, float):
+					return f"{v:.6f}"
+				if isinstance(v, (list, tuple)):
+					parts = []
+					for x in v:
+						if isinstance(x, float):
+							parts.append(f"{float(x):.6f}")
+						else:
+							parts.append(str(x))
+					return "(" + ",".join(parts) + ")"
+				return str(v)
+			except Exception:
+				return ""
+
+		parts: List[str] = []
+		SKIP = {"name", "type", "rna_type", "bl_rna"}
+		for p in m.bl_rna.properties:  # type: ignore[attr-defined]
+			try:
+				pid = getattr(p, "identifier", "")
+			except Exception:
+				pid = ""
+			if not pid or pid in SKIP:
+				continue
+			try:
+				if getattr(p, "is_hidden", False) or getattr(p, "is_readonly", False):
+					continue
+			except Exception:
+				pass
+			try:
+				ptype = getattr(p, "type", None)
+			except Exception:
+				ptype = None
+			if ptype in {"POINTER", "COLLECTION"}:
+				if pid == "node_group":
+					try:
+						ng = getattr(m, "node_group", None)
+						parts.append(f"node_group:{getattr(ng, 'name', '') if ng else ''}")
+					except Exception:
+						pass
+				continue
+			try:
+				val = getattr(m, pid)
+			except Exception:
+				continue
+			if callable(val):
+				continue
+			try:
+				if hasattr(val, "__len__") and not isinstance(val, (str, bytes)):
+					try:
+						seq = [val[i] for i in range(len(val))]
+					except Exception:
+						seq = None
+					if seq is not None and len(seq) <= 16:
+						parts.append(f"{pid}:{_serialize_val(seq)}")
+						continue
+			except Exception:
+				pass
+			parts.append(f"{pid}:{_serialize_val(val)}")
+		parts_sorted = sorted(parts)
+		import hashlib
+		return hashlib.sha256("|".join(parts_sorted).encode("utf-8", errors="ignore")).hexdigest()
+	except Exception:
+		return ""
+
+
+def _compare_modifiers_settings(a: bpy.types.Object, b: bpy.types.Object) -> Optional[str]:
+	ma = [(m.type, m.name, _hash_modifier_settings(m)) for m in getattr(a, "modifiers", [])]
+	mb = [(m.type, m.name, _hash_modifier_settings(m)) for m in getattr(b, "modifiers", [])]
+	if len(ma) != len(mb):
+		return None  # stack/name/type difference is handled by _compare_modifiers
+	for (ta, na, ha), (tb, nb, hb) in zip(ma, mb):
+		if ta != tb or na != nb:
+			return None  # defer to _compare_modifiers for this difference
+		if ha != hb:
+			return f"modifier settings differ ({na})"
+	return None
+
+
 def _compare_vertex_groups(a: bpy.types.Object, b: bpy.types.Object) -> Optional[str]:
 	# Compare group names only here (cheap); detailed weights later
 	na = {g.name for g in getattr(a, "vertex_groups", [])}
@@ -598,6 +681,7 @@ def collections_identical(curr: bpy.types.Collection, prev: bpy.types.Collection
 			_compare_dimensions,
 			_compare_vertex_count,
 			_compare_modifiers,
+			_compare_modifiers_settings,
 			_compare_vertex_groups,
 			_compare_uv_layers_meta,
 			_compare_shapekeys_meta,
@@ -671,6 +755,7 @@ def objects_identical(a: bpy.types.Object, b: bpy.types.Object) -> Tuple[bool, s
 		_compare_dimensions,
 		_compare_vertex_count,
 		_compare_modifiers,
+		_compare_modifiers_settings,
 		_compare_vertex_groups,
 		_compare_uv_layers_meta,
 		_compare_shapekeys_meta,
