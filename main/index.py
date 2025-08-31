@@ -20,9 +20,7 @@ def get_index_path() -> str:
     return os.path.join(_index_dir(), "index.json")
 
 
-def _legacy_index_toml_path() -> str:
-    # Legacy TOML index path (for backward compatibility reads)
-    return os.path.join(_index_dir(), "index.toml")
+# Legacy TOML support removed; JSON is the only supported index format
 
 
 def _ensure_index_dir():
@@ -532,9 +530,7 @@ def compute_collection_signature(coll: bpy.types.Collection) -> Tuple[Dict[str, 
 
 
 def load_index() -> Dict:
-    """Load the Git Blend index, preferring JSON (new), falling back to legacy TOML.
-    If TOML is found and parsed, return its data without writing; save_index will persist as JSON on next write.
-    """
+    """Load the Git Blend index from JSON. If missing or invalid, return an empty structure."""
     json_path = get_index_path()
     if os.path.exists(json_path):
         try:
@@ -545,21 +541,6 @@ def load_index() -> Dict:
         if "branches" not in data or not isinstance(data.get("branches"), dict):
             data["branches"] = {}
         return data
-
-    # Fallback: legacy TOML read (best-effort)
-    toml_path = _legacy_index_toml_path()
-    if os.path.exists(toml_path):
-        try:
-            # Python 3.11+ stdlib tomllib (optional)
-            import tomllib  # type: ignore
-
-            with open(toml_path, "rb") as f:
-                data = tomllib.load(f)
-            if "branches" not in data or not isinstance(data.get("branches"), dict):
-                data["branches"] = {}
-            return data
-        except Exception:
-            pass
     return {"branches": {}}
 
 
