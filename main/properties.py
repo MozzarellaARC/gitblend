@@ -1,10 +1,12 @@
 import bpy
+from .utils import refresh_change_log
 
 
 class GITBLEND_ChangeLogEntry(bpy.types.PropertyGroup):
     """Single commit/change-log entry."""
     timestamp: bpy.props.StringProperty(name="Timestamp")
     message: bpy.props.StringProperty(name="Message")
+    branch: bpy.props.StringProperty(name="Branch")
 
 class GITBLEND_StringItem(bpy.types.PropertyGroup):
     """Simple string item for dynamic lists."""
@@ -37,6 +39,11 @@ def _on_selected_string_update(self, context):
         idx = -1
     if 0 <= idx < len(self.string_items):
         self.string_items_index = idx
+    # Refresh change log to show only selected branch
+    try:
+        refresh_change_log(self)
+    except Exception:
+        pass
 
 
 def _on_changes_log_index_update(self, context):

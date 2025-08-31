@@ -10,7 +10,14 @@ class GITBLEND_UL_ChangeLog(bpy.types.UIList):
         if self.layout_type in {"DEFAULT", "COMPACT"}:
             msg = getattr(item, "message", "") or "<no message>"
             ts = getattr(item, "timestamp", "?")
-            layout.label(text=f"{index + 1}. {ts} - {msg}")
+            br = getattr(item, "branch", "")
+            # Show in format: YYYY-MM-DD branch commit-message
+            # Accept full timestamp by trimming to date portion
+            try:
+                date_only = (ts.split(" ")[0] or ts)[:10]
+            except Exception:
+                date_only = ts
+            layout.label(text=f"{date_only} {br} {msg}")
         elif self.layout_type == "GRID":
             layout.alignment = 'CENTER'
             layout.label(text=str(index + 1))
@@ -83,6 +90,12 @@ class GITBLEND_Panel(bpy.types.Panel):
         header.prop(props, "ui_show_log", icon='TRIA_DOWN' if props.ui_show_log else 'TRIA_RIGHT', icon_only=True, emboss=False)
         header.label(text="Change Log")
         if props.ui_show_log:
+            # Ensure the log reflects current branch and formatting
+            try:
+                from .utils import refresh_change_log
+                refresh_change_log(props)
+            except Exception:
+                pass
             if len(props.changes_log) == 0:
                 box.label(text="No commits yet.", icon='INFO')
             else:

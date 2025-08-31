@@ -20,6 +20,7 @@ from .utils import (
     set_dropdown_selection,
     ensure_enum_contains,
     sanitize_save_path,
+    refresh_change_log,
 )
 from .index import (
     load_index,
@@ -119,6 +120,11 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         save_index(index)
 
         log_change(props, msg)
+        # Rebuild branch-specific log
+        try:
+            refresh_change_log(props)
+        except Exception:
+            pass
         props.commit_message = ""
         request_redraw()
 
@@ -307,11 +313,10 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
 
         save_index(index)
 
-        # Update UI change log
+        # Update UI change log by refreshing from index
         if props:
             try:
-                if len(props.changes_log) > 0:
-                    props.changes_log.remove(len(props.changes_log) - 1)
+                refresh_change_log(props)
             except Exception:
                 pass
 
@@ -382,6 +387,13 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator):
         if removed:
             msg += f", removed {removed} extra"
         self.report({'INFO'}, msg)
+        # Log view may not change, but ensure consistency if timestamps/messages updated
+        try:
+            props = get_props(context)
+            if props:
+                refresh_change_log(props)
+        except Exception:
+            pass
         return {'FINISHED'}
 
 
@@ -453,6 +465,13 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator):
         if removed:
             msg += f", removed {removed} extra"
         self.report({'INFO'}, msg)
+        # Ensure log selection aligns with UI index
+        try:
+            props = get_props(context)
+            if props:
+                refresh_change_log(props)
+        except Exception:
+            pass
         return {'FINISHED'}
 
 def register_operators():

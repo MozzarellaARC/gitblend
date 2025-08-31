@@ -1,6 +1,7 @@
 import bpy
 import os
 from datetime import datetime
+from .index import load_index
 
 
 def now_str(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
@@ -122,11 +123,75 @@ def ensure_source_collection(scene: bpy.types.Scene) -> bpy.types.Collection:
 
 
 def log_change(props, message: str) -> None:
-    """Append a message to the change log safely."""
+    """Append a message to the change log safely (legacy direct append).
+
+    Note: The panel now rebuilds from the index per-branch using refresh_change_log().
+    This remains for backward compatibility in flows that still append directly.
+    """
     try:
         item = props.changes_log.add()
         item.timestamp = now_str()
         item.message = message
+        try:
+            # Best-effort branch label for legacy entries
+            item.branch = get_selected_branch(props)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def refresh_change_log(props) -> None:
+    """Rebuild the UI change log to show only the selected branch, newest first.
+
+    Each entry sets:
+    - timestamp: original timestamp from index
+    - branch: selected branch name
+    - message: commit message
+    """
+    if not props:
+        return
+    try:
+        # Use local function defined in this module
+        br = get_selected_branch(props)
+    except Exception:
+        br = "main"
+    data = {}
+    try:
+        data = load_index() or {}
+    except Exception:
+        data = {}
+    branches = data.get("branches", {}) if isinstance(data, dict) else {}
+    b = branches.get(br) or {}
+    commits = list(b.get("commits", []) or [])
+    # Preserve current selection index
+    old_index = int(getattr(props, "changes_log_index", 0) or 0)
+    # Clear existing
+    try:
+        # Fast clear by popping
+        for _ in range(len(props.changes_log) - 1, -1, -1):
+            props.changes_log.remove(len(props.changes_log) - 1)
+    except Exception:
+        pass
+    # Refill in commit order (oldest -> newest)
+    for c in commits:
+        try:
+            item = props.changes_log.add()
+            item.timestamp = str(c.get("timestamp", ""))
+            item.message = (c.get("message", "") or "").strip()
+            item.branch = br
+        except Exception:
+            pass
+    # Adjust index only if out of range; avoid triggering update callback unnecessarily
+    try:
+        new_len = len(props.changes_log)
+        if new_len == 0:
+            props.changes_log_index = 0
+        elif old_index > new_len - 1:
+            props.changes_log_index = new_len - 1
+        else:
+            # leave as-is
+            pass
     except Exception:
         pass
 
