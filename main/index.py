@@ -1,7 +1,7 @@
 import os
 import hashlib
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 import bpy
 
 
@@ -52,8 +52,365 @@ def _list_hash(values: List[str]) -> str:
     return _sha256("|".join(values))
 
 
-# (TOML escape/writer removed; JSON is used for storage)
+# ============= Helper Functions for Property Extraction =============
 
+def _get_custom_properties(obj: Any) -> str:
+    """Extract custom properties (ID properties) as a hash."""
+    try:
+        props = []
+        for key in obj.keys():
+            if not key.startswith("_"):  # Skip internal props
+                val = obj[key]
+                # Handle different value types
+                if isinstance(val, (int, float, bool, str)):
+                    props.append(f"{key}:{val}")
+                elif hasattr(val, "__len__"):  # Arrays/sequences
+                    props.append(f"{key}:[{','.join(str(v) for v in val)}]")
+                else:
+                    props.append(f"{key}:{str(val)}")
+        return _sha256("|".join(sorted(props)))
+    except Exception:
+        return ""
+
+
+def _get_visibility_flags(obj: bpy.types.Object) -> str:
+    """Extract visibility and render flags."""
+    try:
+        flags = []
+        # Visibility settings
+        flags.append(f"hide_viewport:{int(obj.hide_viewport)}")
+        flags.append(f"hide_render:{int(obj.hide_render)}")
+        flags.append(f"hide_select:{int(obj.hide_select)}")
+        flags.append(f"visible_camera:{int(obj.visible_camera)}")
+        flags.append(f"visible_diffuse:{int(obj.visible_diffuse)}")
+        flags.append(f"visible_glossy:{int(obj.visible_glossy)}")
+        flags.append(f"visible_transmission:{int(obj.visible_transmission)}")
+        flags.append(f"visible_volume_scatter:{int(obj.visible_volume_scatter)}")
+        flags.append(f"visible_shadow:{int(obj.visible_shadow)}")
+        # Display settings
+        flags.append(f"show_name:{int(obj.show_name)}")
+        flags.append(f"show_axis:{int(obj.show_axis)}")
+        flags.append(f"show_in_front:{int(obj.show_in_front)}")
+        flags.append(f"show_bounds:{int(obj.show_bounds)}")
+        if hasattr(obj, "display_bounds_type"):
+            flags.append(f"bounds_type:{obj.display_bounds_type}")
+        return _sha256("|".join(flags))
+    except Exception:
+        return ""
+
+
+def _get_constraints_hash(constraints) -> str:
+    """Extract constraints data as hash."""
+    try:
+        parts = []
+        for c in constraints:
+            con_data = [
+                str(c.type),
+                c.name,
+                f"{c.influence:.6f}",
+                f"mute:{int(c.mute)}",
+            ]
+            # Target info
+            if hasattr(c, "target"):
+                con_data.append(f"target:{c.target.name if c.target else ''}")
+            if hasattr(c, "subtarget"):
+                con_data.append(f"subtarget:{c.subtarget}")
+            # Space settings
+            if hasattr(c, "owner_space"):
+                con_data.append(f"owner_space:{c.owner_space}")
+            if hasattr(c, "target_space"):
+                con_data.append(f"target_space:{c.target_space}")
+            parts.append("|".join(con_data))
+        return _sha256("||".join(parts))
+    except Exception:
+        return ""
+
+
+def _get_modifiers_hash(obj: bpy.types.Object) -> str:
+    """Extract detailed modifier data including all settings."""
+    try:
+        parts = []
+        for m in obj.modifiers:
+            mod_data = [f"type:{m.type}", f"name:{m.name}"]
+            # Common modifier properties
+            if hasattr(m, "show_viewport"):
+                mod_data.append(f"show_viewport:{int(m.show_viewport)}")
+            if hasattr(m, "show_render"):
+                mod_data.append(f"show_render:{int(m.show_render)}")
+            
+            # Type-specific properties
+            if m.type == "SUBSURF":
+                mod_data.extend([
+                    f"levels:{m.levels}",
+                    f"render_levels:{m.render_levels}",
+                    f"quality:{m.quality}",
+                    f"uv_smooth:{m.uv_smooth}",
+                    f"boundary_smooth:{m.boundary_smooth}",
+                    f"use_creases:{int(m.use_creases)}",
+                ])
+            elif m.type == "ARRAY":
+                mod_data.extend([
+                    f"count:{m.count}",
+                    f"fit_type:{m.fit_type}",
+                    f"use_relative_offset:{int(m.use_relative_offset)}",
+                    f"use_constant_offset:{int(m.use_constant_offset)}",
+                ])
+                if m.use_relative_offset:
+                    mod_data.append(f"relative_offset:{_fmt_floats(m.relative_offset_displace)}")
+                if m.use_constant_offset:
+                    mod_data.append(f"constant_offset:{_fmt_floats(m.constant_offset_displace)}")
+            elif m.type == "MIRROR":
+                mod_data.extend([
+                    f"use_axis:{int(m.use_axis[0])},{int(m.use_axis[1])},{int(m.use_axis[2])}",
+                    f"use_bisect_axis:{int(m.use_bisect_axis[0])},{int(m.use_bisect_axis[1])},{int(m.use_bisect_axis[2])}",
+                    f"use_bisect_flip_axis:{int(m.use_bisect_flip_axis[0])},{int(m.use_bisect_flip_axis[1])},{int(m.use_bisect_flip_axis[2])}",
+                    f"mirror_object:{m.mirror_object.name if m.mirror_object else ''}",
+                ])
+            elif m.type == "SOLIDIFY":
+                mod_data.extend([
+                    f"thickness:{m.thickness:.6f}",
+                    f"offset:{m.offset:.6f}",
+                    f"use_even_offset:{int(m.use_even_offset)}",
+                    f"use_quality_normals:{int(m.use_quality_normals)}",
+                ])
+            elif m.type == "BEVEL":
+                mod_data.extend([
+                    f"width:{m.width:.6f}",
+                    f"segments:{m.segments}",
+                    f"limit_method:{m.limit_method}",
+                    f"angle_limit:{m.angle_limit:.6f}",
+                ])
+            elif m.type == "ARMATURE":
+                mod_data.extend([
+                    f"object:{m.object.name if m.object else ''}",
+                    f"use_deform_preserve_volume:{int(m.use_deform_preserve_volume)}",
+                    f"use_vertex_groups:{int(m.use_vertex_groups)}",
+                ])
+            elif m.type == "NODES":
+                # Geometry nodes modifier
+                mod_data.append(f"node_group:{m.node_group.name if m.node_group else ''}")
+                if m.node_group:
+                    mod_data.append(_get_geometry_nodes_hash(m.node_group))
+            # Add more modifier types as needed
+            
+            parts.append("|".join(mod_data))
+        return _sha256("||".join(parts))
+    except Exception:
+        return ""
+
+
+def _get_geometry_nodes_hash(node_group: bpy.types.NodeTree) -> str:
+    """Hash geometry nodes setup including node graph structure."""
+    try:
+        parts = []
+        # Node tree metadata
+        parts.append(f"name:{node_group.name}")
+        
+        # Nodes
+        for node in node_group.nodes:
+            node_data = [
+                f"node:{node.name}",
+                f"type:{node.type}",
+                f"location:{_fmt_floats(node.location)}",
+            ]
+            # Node-specific properties
+            if hasattr(node, "operation"):
+                node_data.append(f"operation:{node.operation}")
+            if hasattr(node, "data_type"):
+                node_data.append(f"data_type:{node.data_type}")
+            # Input values
+            for input in node.inputs:
+                if hasattr(input, "default_value"):
+                    try:
+                        val = input.default_value
+                        if hasattr(val, "__len__"):
+                            node_data.append(f"input:{input.name}={_fmt_floats(val)}")
+                        else:
+                            node_data.append(f"input:{input.name}={val}")
+                    except:
+                        pass
+            parts.append("|".join(node_data))
+        
+        # Links
+        for link in node_group.links:
+            parts.append(f"link:{link.from_node.name}.{link.from_socket.name}->{link.to_node.name}.{link.to_socket.name}")
+        
+        return f"geo_nodes:{_sha256('||'.join(parts))}"
+    except Exception:
+        return "geo_nodes:"
+
+
+def _get_particle_systems_hash(obj: bpy.types.Object) -> str:
+    """Extract particle system settings."""
+    try:
+        parts = []
+        for ps in obj.particle_systems:
+            ps_data = [
+                f"name:{ps.name}",
+                f"seed:{ps.seed}",
+            ]
+            settings = ps.settings
+            if settings:
+                ps_data.extend([
+                    f"type:{settings.type}",
+                    f"count:{settings.count}",
+                    f"frame_start:{settings.frame_start}",
+                    f"frame_end:{settings.frame_end}",
+                    f"lifetime:{settings.lifetime}",
+                    f"emit_from:{settings.emit_from}",
+                    f"physics_type:{settings.physics_type}",
+                    f"render_type:{settings.render_type}",
+                ])
+                # Emission
+                if hasattr(settings, "use_emit_random"):
+                    ps_data.append(f"use_emit_random:{int(settings.use_emit_random)}")
+                # Physics
+                if settings.physics_type != 'NO':
+                    ps_data.extend([
+                        f"mass:{settings.mass:.6f}",
+                        f"damping:{settings.damping:.6f}",
+                        f"size:{settings.particle_size:.6f}",
+                    ])
+            parts.append("|".join(ps_data))
+        return _sha256("||".join(parts))
+    except Exception:
+        return ""
+
+
+def _get_drivers_hash(obj) -> str:
+    """Extract animation drivers data."""
+    try:
+        parts = []
+        if obj.animation_data and obj.animation_data.drivers:
+            for fcurve in obj.animation_data.drivers:
+                driver = fcurve.driver
+                drv_data = [
+                    f"path:{fcurve.data_path}",
+                    f"index:{fcurve.array_index}",
+                    f"type:{driver.type}",
+                    f"expr:{driver.expression}",
+                ]
+                # Variables
+                for var in driver.variables:
+                    drv_data.append(f"var:{var.name}={var.type}")
+                    for target in var.targets:
+                        drv_data.append(f"target:{target.id_type}:{target.data_path}")
+                parts.append("|".join(drv_data))
+        return _sha256("||".join(parts))
+    except Exception:
+        return ""
+
+
+def _get_material_meta_hash(material: bpy.types.Material) -> str:
+    """Extract material metadata including node setup."""
+    try:
+        parts = []
+        parts.append(f"name:{material.name}")
+        parts.append(f"use_nodes:{int(material.use_nodes)}")
+        
+        if material.use_nodes and material.node_tree:
+            # Node tree structure
+            for node in material.node_tree.nodes:
+                node_data = [
+                    f"node:{node.name}",
+                    f"type:{node.type}",
+                ]
+                # Shader node specifics
+                if node.type == 'BSDF_PRINCIPLED':
+                    for input in node.inputs:
+                        if hasattr(input, "default_value"):
+                            try:
+                                val = input.default_value
+                                if hasattr(val, "__len__"):
+                                    node_data.append(f"{input.name}:{_fmt_floats(val)}")
+                                else:
+                                    node_data.append(f"{input.name}:{val}")
+                            except:
+                                pass
+                parts.append("|".join(node_data))
+            
+            # Links
+            for link in material.node_tree.links:
+                parts.append(f"link:{link.from_node.name}.{link.from_socket.name}->{link.to_node.name}.{link.to_socket.name}")
+        else:
+            # Non-node material properties
+            parts.append(f"diffuse:{_fmt_floats(material.diffuse_color)}")
+            parts.append(f"specular:{material.specular_intensity:.6f}")
+            parts.append(f"roughness:{material.roughness:.6f}")
+            parts.append(f"metallic:{material.metallic:.6f}")
+        
+        return _sha256("||".join(parts))
+    except Exception:
+        return ""
+
+
+def _get_uv_color_attributes_hash(mesh: bpy.types.Mesh) -> str:
+    """Extract UV and color attribute data."""
+    try:
+        parts = []
+        
+        # UV layers with actual data
+        for uv_layer in mesh.uv_layers:
+            uv_data = [f"uv_layer:{uv_layer.name}"]
+            # Sample some UV coordinates for change detection
+            sample_uvs = []
+            for i, uv in enumerate(uv_layer.data[:100]):  # Sample first 100
+                sample_uvs.append(_fmt_floats(uv.uv))
+            uv_data.append(f"uvs:{_sha256('|'.join(sample_uvs))}")
+            parts.append("|".join(uv_data))
+        
+        # Color attributes (Blender 4.2)
+        if hasattr(mesh, "color_attributes"):
+            for color_attr in mesh.color_attributes:
+                color_data = [
+                    f"color_attr:{color_attr.name}",
+                    f"domain:{color_attr.domain}",
+                    f"data_type:{color_attr.data_type}",
+                ]
+                parts.append("|".join(color_data))
+        
+        # Vertex colors (legacy, if still present)
+        elif hasattr(mesh, "vertex_colors"):
+            for vc in mesh.vertex_colors:
+                vc_data = [f"vertex_color:{vc.name}"]
+                # Sample some colors
+                sample_colors = []
+                for i, col in enumerate(vc.data[:100]):  # Sample first 100
+                    sample_colors.append(_fmt_floats(col.color))
+                vc_data.append(f"colors:{_sha256('|'.join(sample_colors))}")
+                parts.append("|".join(vc_data))
+        
+        return _sha256("||".join(parts))
+    except Exception:
+        return ""
+
+
+def _get_shapekeys_detailed_hash(mesh: bpy.types.Mesh) -> str:
+    """Extract detailed shapekey data including vertex positions."""
+    try:
+        parts = []
+        kb = getattr(getattr(mesh, "shape_keys", None), "key_blocks", None)
+        if kb:
+            for key in kb:
+                key_data = [
+                    f"name:{key.name}",
+                    f"value:{key.value:.6f}",
+                    f"min:{key.slider_min:.6f}",
+                    f"max:{key.slider_max:.6f}",
+                    f"mute:{int(key.mute)}",
+                ]
+                # Sample vertex positions from shapekey
+                sample_verts = []
+                for i, point in enumerate(key.data[:50]):  # Sample first 50 verts
+                    sample_verts.append(_fmt_floats(point.co))
+                key_data.append(f"verts:{_sha256('|'.join(sample_verts))}")
+                parts.append("|".join(key_data))
+        return _sha256("||".join(parts))
+    except Exception:
+        return ""
+
+
+# ============= Main Signature Computation =============
 
 def compute_object_signature(obj: bpy.types.Object) -> Dict:
     # L2-ish signature: names/meta + transforms + dims + counts
@@ -66,19 +423,45 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         sig["data_name"] = getattr(obj, "data", None).name if getattr(obj, "data", None) else ""
     except Exception:
         sig["data_name"] = ""
+    
     # Transforms and dimensions
     sig["transform"] = _matrix_hash(obj.matrix_world)
     try:
         sig["dims"] = _sha256(_fmt_floats(obj.dimensions))
     except Exception:
         sig["dims"] = ""
-
+    
+    # Common properties for all objects
+    sig["visibility_flags"] = _get_visibility_flags(obj)
+    sig["custom_properties"] = _get_custom_properties(obj)
+    sig["constraints"] = _get_constraints_hash(obj.constraints)
+    sig["drivers"] = _get_drivers_hash(obj)
+    
+    # Instance properties
+    if obj.type == 'EMPTY' or obj.instance_type != 'NONE':
+        sig["instance_type"] = obj.instance_type
+        sig["instance_collection"] = obj.instance_collection.name if obj.instance_collection else ""
+        sig["use_instance_vertices_rotation"] = int(obj.use_instance_vertices_rotation)
+        sig["use_instance_faces_scale"] = int(obj.use_instance_faces_scale)
+        sig["show_instancer_for_viewport"] = int(obj.show_instancer_for_viewport)
+        sig["show_instancer_for_render"] = int(obj.show_instancer_for_render)
+    
     # Materials (all objects that have material_slots)
     try:
-        mats = [slot.material.name if slot.material else "" for slot in getattr(obj, "material_slots", [])]
+        mats = []
+        for slot in getattr(obj, "material_slots", []):
+            if slot.material:
+                mats.append(slot.material.name)
+                # Add material meta hash
+                mats.append(_get_material_meta_hash(slot.material))
+            else:
+                mats.append("")
     except Exception:
         mats = []
     sig["materials"] = _list_hash(mats)
+    
+    # Particle systems
+    sig["particle_systems"] = _get_particle_systems_hash(obj)
 
     obj_type = getattr(obj, "type", None)
     has_data = getattr(obj, "data", None) is not None
@@ -95,20 +478,30 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
             sig["polygons"] = int(len(me.polygons))
         except Exception:
             sig["polygons"] = 0
-        # Modifiers (type+name order)
-        mods = [(m.type, m.name) for m in getattr(obj, "modifiers", [])]
-        sig["modifiers"] = _list_hash([f"{t}:{n}" for t, n in mods])
+        
+        # Enhanced modifiers hash
+        sig["modifiers"] = _get_modifiers_hash(obj)
+        
         # Vertex group names
         vgn = [vg.name for vg in getattr(obj, "vertex_groups", [])]
         sig["vgroups"] = _list_hash(sorted(vgn))
-        # UV layers names (order)
+        
+        # UV and color attributes
+        sig["uv_color_data"] = _get_uv_color_attributes_hash(me)
+        
+        # UV layers names (meta)
         uvl = getattr(me, "uv_layers", None)
         uvs = [uv.name for uv in uvl] if uvl else []
         sig["uv_meta"] = _list_hash(uvs)
+        
+        # Detailed shapekeys
+        sig["shapekeys_detailed"] = _get_shapekeys_detailed_hash(me)
+        
         # Shapekeys names (order)
         kb = getattr(getattr(me, "shape_keys", None), "key_blocks", None)
         sk = [k.name for k in kb] if kb else []
         sig["shapekeys_meta"] = _list_hash(sk)
+        
         # Shapekey values snapshot (name:value)
         try:
             if kb:
@@ -118,6 +511,7 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         except Exception:
             vals = []
         sig["shapekeys_values"] = _list_hash(vals)
+        
         # Geometry hash (object-space vertex coordinates)
         try:
             coords = []
@@ -127,6 +521,156 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
             sig["geo_hash"] = _sha256("|".join(coords))
         except Exception:
             sig["geo_hash"] = ""
+            
+    elif obj_type == "LATTICE" and has_data:
+        lat = obj.data
+        sig["lattice_meta"] = _sha256("|".join([
+            f"points_u:{lat.points_u}",
+            f"points_v:{lat.points_v}",
+            f"points_w:{lat.points_w}",
+            f"interpolation_type_u:{lat.interpolation_type_u}",
+            f"interpolation_type_v:{lat.interpolation_type_v}",
+            f"interpolation_type_w:{lat.interpolation_type_w}",
+        ]))
+        # Lattice point positions
+        try:
+            coords = []
+            for point in lat.points:
+                co = point.co_deform
+                coords.append(_fmt_floats([co.x, co.y, co.z]))
+            sig["lattice_points"] = _sha256("|".join(coords))
+        except:
+            sig["lattice_points"] = ""
+        sig["modifiers"] = _get_modifiers_hash(obj)
+        
+    elif obj_type == "SURFACE" and has_data:
+        # NURBS surface (similar to curve but 2D parametric)
+        surf = obj.data
+        sig["surface_meta"] = _sha256("|".join([
+            f"resolution_u:{surf.resolution_u}",
+            f"resolution_v:{surf.resolution_v}",
+            f"render_resolution_u:{surf.render_resolution_u}",
+            f"render_resolution_v:{surf.render_resolution_v}",
+        ]))
+        # Control points
+        try:
+            parts = []
+            for spline in surf.splines:
+                for point in spline.points:
+                    co = point.co
+                    parts.append(_fmt_floats([co.x, co.y, co.z, co.w]))
+            sig["surface_points"] = _sha256("|".join(parts))
+        except:
+            sig["surface_points"] = ""
+        sig["modifiers"] = _get_modifiers_hash(obj)
+        
+    elif obj_type == "META" and has_data:
+        # Metaball
+        mb = obj.data
+        sig["meta_meta"] = _sha256("|".join([
+            f"resolution:{mb.resolution:.6f}",
+            f"render_resolution:{mb.render_resolution:.6f}",
+            f"threshold:{mb.threshold:.6f}",
+        ]))
+        # Metaball elements
+        try:
+            parts = []
+            for elem in mb.elements:
+                parts.extend([
+                    f"type:{elem.type}",
+                    f"co:{_fmt_floats(elem.co)}",
+                    f"radius:{elem.radius:.6f}",
+                    f"stiffness:{elem.stiffness:.6f}",
+                ])
+                if elem.type in ('ELLIPSOID', 'CAPSULE'):
+                    parts.append(f"size:{_fmt_floats([elem.size_x, elem.size_y, elem.size_z])}")
+                if elem.type == 'PLANE':
+                    parts.append(f"size:{_fmt_floats([elem.size_x, elem.size_y])}")
+            sig["meta_elements"] = _sha256("|".join(parts))
+        except:
+            sig["meta_elements"] = ""
+            
+    elif obj_type == "FONT" and has_data:
+        # Text/Font object
+        txt = obj.data
+        sig["font_meta"] = _sha256("|".join([
+            f"body:{txt.body}",
+            f"align_x:{txt.align_x}",
+            f"align_y:{txt.align_y}",
+            f"size:{txt.size:.6f}",
+            f"shear:{txt.shear:.6f}",
+            f"offset_x:{txt.offset_x:.6f}",
+            f"offset_y:{txt.offset_y:.6f}",
+            f"extrude:{txt.extrude:.6f}",
+            f"bevel_depth:{txt.bevel_depth:.6f}",
+            f"bevel_resolution:{txt.bevel_resolution}",
+            f"font:{txt.font.name if txt.font else ''}",
+        ]))
+        sig["modifiers"] = _get_modifiers_hash(obj)
+        
+    elif obj_type == "VOLUME" and has_data:
+        # Volume object (OpenVDB)
+        vol = obj.data
+        sig["volume_meta"] = _sha256("|".join([
+            f"filepath:{vol.filepath}",
+            f"is_sequence:{int(vol.is_sequence)}",
+            f"frame_start:{vol.frame_start}",
+            f"frame_duration:{vol.frame_duration}",
+            f"frame_offset:{vol.frame_offset}",
+            f"sequence_mode:{vol.sequence_mode}",
+        ]))
+        # Grid metadata
+        try:
+            grids = []
+            for grid in vol.grids:
+                grids.append(f"{grid.name}:{grid.data_type}")
+            sig["volume_grids"] = _sha256("|".join(grids))
+        except:
+            sig["volume_grids"] = ""
+        sig["modifiers"] = _get_modifiers_hash(obj)
+        
+    elif obj_type == "POINTCLOUD" and has_data:
+        # Point Cloud (geometry nodes)
+        pc = obj.data
+        try:
+            sig["pointcloud_count"] = len(pc.points)
+            # Attributes
+            attrs = []
+            for attr in pc.attributes:
+                attrs.append(f"{attr.name}:{attr.data_type}:{attr.domain}")
+            sig["pointcloud_attributes"] = _sha256("|".join(attrs))
+        except:
+            sig["pointcloud_count"] = 0
+            sig["pointcloud_attributes"] = ""
+        sig["modifiers"] = _get_modifiers_hash(obj)
+        
+    elif obj_type == "GPENCIL" and has_data:
+        # Grease Pencil
+        gp = obj.data
+        sig["gpencil_meta"] = _sha256("|".join([
+            f"pixel_factor:{gp.pixel_factor:.6f}",
+            f"use_stroke_edit_mode:{int(gp.use_stroke_edit_mode)}",
+        ]))
+        # Layers and frames
+        try:
+            parts = []
+            for layer in gp.layers:
+                parts.append(f"layer:{layer.info}")
+                parts.append(f"opacity:{layer.opacity:.6f}")
+                parts.append(f"use_lights:{int(layer.use_lights)}")
+                # Frames
+                for frame in layer.frames:
+                    parts.append(f"frame:{frame.frame_number}")
+                    # Strokes
+                    for stroke in frame.strokes:
+                        parts.append(f"points:{len(stroke.points)}")
+                        parts.append(f"material:{stroke.material_index}")
+                        parts.append(f"line_width:{stroke.line_width}")
+            sig["gpencil_data"] = _sha256("|".join(parts))
+        except:
+            sig["gpencil_data"] = ""
+        sig["modifiers"] = _get_modifiers_hash(obj)
+        
     elif obj_type == "LIGHT" and has_data:
         # Light-specific meta
         li = obj.data  # bpy.types.Light
@@ -154,16 +698,7 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         except Exception:
             pass
         sig["light_meta"] = _sha256("|".join(vals))
-        # Fill non-mesh placeholders
-        sig["verts"] = 0
-        sig["edges"] = 0
-        sig["polygons"] = 0
-        sig["modifiers"] = ""
-        sig["vgroups"] = ""
-        sig["uv_meta"] = ""
-        sig["shapekeys_meta"] = ""
-        sig["shapekeys_values"] = ""
-        sig["geo_hash"] = ""
+        
     elif obj_type == "CAMERA" and has_data:
         # Camera-specific meta
         cam = obj.data  # bpy.types.Camera
@@ -189,16 +724,7 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         except Exception:
             pass
         sig["camera_meta"] = _sha256("|".join(vals))
-        # Fill non-mesh placeholders
-        sig["verts"] = 0
-        sig["edges"] = 0
-        sig["polygons"] = 0
-        sig["modifiers"] = ""
-        sig["vgroups"] = ""
-        sig["uv_meta"] = ""
-        sig["shapekeys_meta"] = ""
-        sig["shapekeys_values"] = ""
-        sig["geo_hash"] = ""
+        
     elif obj_type == "ARMATURE" and has_data:
         arm = obj.data  # bpy.types.Armature
         # Rest armature metadata
@@ -230,7 +756,7 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         except Exception:
             parts = []
         sig["armature_bones_hash"] = _sha256("|".join(parts))
-        # Pose transforms and a concise constraints summary
+        # Pose transforms and constraints
         try:
             pparts = []
             pose = getattr(obj, "pose", None)
@@ -269,43 +795,15 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
                                 pparts.append("Scl:" + _fmt_floats((sc.x, sc.y, sc.z)))
                         except Exception:
                             pass
-                        # Constraints summary
-                        try:
-                            cons = getattr(pb, "constraints", [])
-                            cparts = []
-                            for c in cons:
-                                try:
-                                    tgt = getattr(c, "target", None)
-                                    sub = getattr(c, "subtarget", "")
-                                    cparts.append("|".join([
-                                        str(getattr(c, "type", "")),
-                                        getattr(tgt, "name", "") if tgt else "",
-                                        str(sub or ""),
-                                        f"{float(getattr(c, 'influence', 0.0)):.6f}",
-                                    ]))
-                                except Exception:
-                                    pass
-                            if cparts:
-                                pparts.append("Cons:[" + ";".join(cparts) + "]")
-                        except Exception:
-                            pass
+                        # Enhanced constraints
+                        pparts.append(f"Cons:{_get_constraints_hash(pb.constraints)}")
                     except Exception:
                         pass
         except Exception:
             pparts = []
         sig["pose_bones_hash"] = _sha256("|".join(pparts))
-        # Fill non-mesh placeholders
-        sig["verts"] = 0
-        sig["edges"] = 0
-        sig["polygons"] = 0
-        sig["modifiers"] = sig.get("modifiers", "")
-        sig["vgroups"] = ""
-        sig["uv_meta"] = ""
-        sig["shapekeys_meta"] = ""
-        sig["shapekeys_values"] = ""
-        sig["geo_hash"] = ""
-        sig["light_meta"] = ""
-        sig["camera_meta"] = ""
+        sig["modifiers"] = _get_modifiers_hash(obj)
+        
     elif obj_type == "CURVE" and has_data:
         cu = obj.data  # bpy.types.Curve
         # Curve meta (shape and generation)
@@ -369,30 +867,43 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         except Exception:
             parts = []
         sig["curve_points_hash"] = _sha256("|".join(parts))
-        # Fill non-mesh placeholders
-        sig["verts"] = 0
-        sig["edges"] = 0
-        sig["polygons"] = 0
-        sig["modifiers"] = sig.get("modifiers", "")
-        sig["vgroups"] = ""
-        sig["uv_meta"] = ""
-        sig["shapekeys_meta"] = ""
-        sig["shapekeys_values"] = ""
-        sig["geo_hash"] = ""
-        sig["light_meta"] = ""
-        sig["camera_meta"] = ""
+        sig["modifiers"] = _get_modifiers_hash(obj)
+    elif obj_type == "EMPTY":
+        # Empty-specific properties
+        sig["empty_display_type"] = obj.empty_display_type
+        sig["empty_display_size"] = f"{obj.empty_display_size:.6f}"
+        if obj.empty_display_type == 'IMAGE':
+            sig["empty_image"] = obj.data.name if obj.data else ""
     else:
-        # Other types
-        sig["verts"] = 0
-        sig["edges"] = 0
-        sig["polygons"] = 0
-        sig["modifiers"] = ""
-        sig["vgroups"] = ""
-        sig["uv_meta"] = ""
-        sig["shapekeys_meta"] = ""
-        sig["shapekeys_values"] = ""
-        sig["geo_hash"] = ""
-
+        # Other/unknown types - ensure all fields exist
+        pass
+    
+    # Ensure all signature fields exist (for compatibility)
+    defaults = {
+        "verts": 0, "edges": 0, "polygons": 0,
+        "modifiers": "", "vgroups": "", "uv_meta": "",
+        "shapekeys_meta": "", "shapekeys_values": "", "geo_hash": "",
+        "light_meta": "", "camera_meta": "", "curve_meta": "",
+        "curve_points_hash": "", "armature_meta": "",
+        "armature_bones_hash": "", "pose_bones_hash": "",
+        "lattice_meta": "", "lattice_points": "",
+        "surface_meta": "", "surface_points": "",
+        "meta_meta": "", "meta_elements": "",
+        "font_meta": "", "volume_meta": "", "volume_grids": "",
+        "pointcloud_count": 0, "pointcloud_attributes": "",
+        "gpencil_meta": "", "gpencil_data": "",
+        "empty_display_type": "", "empty_display_size": "",
+        "empty_image": "", "instance_type": "",
+        "instance_collection": "", "use_instance_vertices_rotation": 0,
+        "use_instance_faces_scale": 0, "show_instancer_for_viewport": 0,
+        "show_instancer_for_render": 0, "uv_color_data": "",
+        "shapekeys_detailed": "",
+    }
+    
+    for key, default in defaults.items():
+        if key not in sig:
+            sig[key] = default
+    
     return sig
 
 
@@ -542,7 +1053,6 @@ def derive_changed_set(curr_objs: Dict[str, Dict], prev_objs: Dict[str, Dict]) -
     Includes:
     - Added and removed object names (set differences)
     - Modified objects among the intersection (attribute differences)
-    Previously, a name set change would short-circuit and miss modified objects that still exist; this fixes that.
     """
     curr_names = set(curr_objs.keys())
     prev_names = set(prev_objs.keys())
@@ -555,31 +1065,18 @@ def derive_changed_set(curr_objs: Dict[str, Dict], prev_objs: Dict[str, Dict]) -
     changed_set.update(added)
     changed_set.update(removed)
 
-    # Modified within intersection
+    # Modified within intersection - check ALL signature keys
     intersect = curr_names & prev_names
-    base_keys = (
-        "parent",
-        "type", "data_name", "transform", "dims", "verts",
-        "edges", "polygons",
-        "modifiers", "vgroups", "uv_meta", "shapekeys_meta", "shapekeys_values", "materials",
-        "geo_hash",
-    "light_meta", "camera_meta",
-    "curve_meta", "curve_points_hash",
-    "armature_meta", "armature_bones_hash", "pose_bones_hash",
-    )
     for nm in intersect:
         a = curr_objs.get(nm, {})
         b = prev_objs.get(nm, {})
-        # Compare base keys always
-        for k in base_keys:
-            if str(a.get(k)) != str(b.get(k)):
+        
+        # Compare all signature keys
+        all_keys = set(a.keys()) | set(b.keys())
+        for k in all_keys:
+            if str(a.get(k, "")) != str(b.get(k, "")):
                 changed_set.add(nm)
                 break
-        else:
-            # Compare collection_path only when present in both (backward compatible)
-            if ("collection_path" in a) and ("collection_path" in b):
-                if str(a.get("collection_path", "")) != str(b.get("collection_path", "")):
-                    changed_set.add(nm)
 
     changed_list = sorted(changed_set)
     return (len(changed_list) > 0), changed_list
