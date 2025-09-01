@@ -93,8 +93,8 @@ def ensure_source_collection(scene: bpy.types.Scene) -> bpy.types.Collection:
     existing = bpy.data.collections.get("source")
     if existing is not None:
         try:
-            # Link under root if not already
-            if existing not in root.children:
+            # Link under root if not already (check by name)
+            if root.children.get(existing.name) is None:
                 root.children.link(existing)
         except Exception:
             pass
@@ -215,8 +215,16 @@ def build_name_map(coll: bpy.types.Collection, snapshot: bool = False) -> dict:
 
 
 def find_containing_collection(root_coll: bpy.types.Collection, target_obj: bpy.types.Object):
-    """Find the collection that directly contains the target object."""
-    if target_obj in root_coll.objects:
+    """Find the collection that directly contains the target object.
+
+    Note: membership on bpy_prop_collection expects a name (string),
+    not the object reference itself.
+    """
+    try:
+        tname = target_obj.name
+    except Exception:
+        return None
+    if root_coll.objects.get(tname) is not None:
         return root_coll
     for child in root_coll.children:
         found = find_containing_collection(child, target_obj)
