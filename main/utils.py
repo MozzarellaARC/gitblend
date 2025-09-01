@@ -1,6 +1,7 @@
 import bpy
 import os
 from datetime import datetime
+import re
 
 
 def now_str(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
@@ -171,3 +172,125 @@ def sanitize_save_path() -> tuple[bool, str, str]:
         return True, project_dir, ""
     except Exception:
         return False, "", "Unable to determine project folder from the saved .blend path."
+
+
+def iter_objects_recursive(coll: bpy.types.Collection):
+    """Recursively iterate through all objects in a collection hierarchy."""
+    for o in coll.objects:
+        yield o
+    for c in coll.children:
+        yield from iter_objects_recursive(c)
+
+
+def get_original_name(id_block) -> str:
+    """Get the original name of an object or collection, stripping snapshot suffixes."""
+    try:
+        v = id_block.get("gitblend_orig_name", None)
+        if isinstance(v, str) and v:
+            return v
+    except Exception:
+        pass
+    name = getattr(id_block, "name", "") or ""
+    # Strip _<digits> or _<digits>-<digits> suffix
+    m = re.search(r"_(\d{10,20})(?:-\d+)?$", name)
+    return name[: m.start()] if m else name
+
+
+def build_name_map(coll: bpy.types.Collection, snapshot: bool = False) -> dict:
+    """Build a mapping of names to objects in a collection.
+    
+    Args:
+        coll: Collection to map
+        snapshot: If True, use original names from gitblend_orig_name metadata
+    
+    Returns:
+        Dictionary mapping names to objects
+    """
+    out = {}
+    for o in iter_objects_recursive(coll):
+        nm = get_original_name(o) if snapshot else (o.name or "")
+        if nm and nm not in out:
+            out[nm] = o
+    return out
+
+
+def find_containing_collection(root_coll: bpy.types.Collection, target_obj: bpy.types.Object):
+    """Find the collection that directly contains the target object."""
+    if target_obj in root_coll.objects:
+        return root_coll
+    for child in root_coll.children:
+        found = find_containing_collection(child, target_obj)
+        if found:
+            return found
+    return None
+
+
+def path_to_collection(root_coll: bpy.types.Collection, target_coll: bpy.types.Collection) -> list:
+    """Get the path from root collection to target collection."""
+    path = []
+    found = False
+    
+    def dfs(c, acc):
+        nonlocal path, found
+        if found:
+            return
+        acc.append(c)
+        if c == target_coll:
+            path = list(acc)
+            found = True
+        else:
+            for ch in c.children:
+                dfs(ch, acc)
+                if found:
+                    break
+        acc.pop()
+    
+    dfs(root_coll, [])
+    return path if found else []
+
+
+def ensure_mirrored_path(source_coll: bpy.types.Collection, snapshot_path: list) -> bpy.types.Collection:
+    """Ensure a mirrored collection path exists under source collection."""
+    dest = source_coll
+    for snap_coll in snapshot_path[1:]:
+        name = get_original_name(snap_coll)
+        existing = None
+        for ch in dest.children:
+            if ch.name == name:
+                existing = ch
+                break
+        if existing is None:
+            try:
+                newc = bpy.data.collections.new(name)
+                dest.children.link(newc)
+                dest = newc
+            except Exception:
+                pass
+        else:
+            dest = existing
+    return dest
+
+
+def duplicate_object_with_data(obj: bpy.types.Object) -> bpy.types.Object:
+    """Create a duplicate of an object including its data."""
+    dup = obj.copy()
+    if getattr(obj, "data", None) is not None:
+        try:
+            dup.data = obj.data.copy()
+        except Exception:
+            pass
+    return dup
+
+
+def remove_object_safely(obj: bpy.types.Object) -> bool:
+    """Safely remove an object from all collections and delete it."""
+    try:
+        for col in list(obj.users_collection):
+            try:
+                col.objects.unlink(obj)
+            except Exception:
+                pass
+        bpy.data.objects.remove(obj, do_unlink=True)
+        return True
+    except Exception:
+        return False

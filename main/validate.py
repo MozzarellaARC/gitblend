@@ -3,6 +3,11 @@ import re
 from math import isclose
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 from .index import load_index, get_latest_commit, compute_collection_signature, derive_changed_set
+from .utils import (
+    iter_objects_recursive,
+    build_name_map,
+    duplicate_object_with_data,
+)
 
 # Tolerances for float comparisons (relaxed slightly to avoid noise-based false positives)
 EPS = 1e-5
@@ -79,12 +84,7 @@ def duplicate_collection_hierarchy(src: bpy.types.Collection, parent: bpy.types.
 		pass
 
 	for obj in src.objects:
-		dup = obj.copy()
-		if getattr(obj, "data", None) is not None:
-			try:
-				dup.data = obj.data.copy()
-			except Exception:
-				pass
+		dup = duplicate_object_with_data(obj)
 		dup.name = unique_obj_name(obj.name, uid)
 		new_coll.objects.link(dup)
 		# store original name for robust comparisons
@@ -116,74 +116,47 @@ _UID_RE = re.compile(r"_(\d{10,20})(?:-\d+)?$")
 
 
 def _base_name_from_snapshot(name: str) -> str:
-	"""Remove trailing _<uid>[-i] suffix from names created by unique_* helpers."""
-	m = _UID_RE.search(name or "")
-	if m:
-		return name[: m.start()]
-	return name
-
-
-def _orig_name(id_block) -> Optional[str]:
-	try:
-		v = id_block.get("gitblend_orig_name", None)
-		if isinstance(v, str) and v:
-			return v
-	except Exception:
-		pass
-	# Fallback to strip UID suffix
-	return _base_name_from_snapshot(getattr(id_block, "name", ""))
-
-
-def _iter_objects_recursive(coll: bpy.types.Collection) -> Iterable[bpy.types.Object]:
-	for o in coll.objects:
-		yield o
-	for c in coll.children:
-		yield from _iter_objects_recursive(c)
-
-
-def _build_name_map_for_collection(coll: bpy.types.Collection, snapshot: bool) -> Dict[str, bpy.types.Object]:
-	"""Map base/original names to objects, recursively.
-	If snapshot=True, use stored gitblend_orig_name when available.
-	For duplicates, later entries won't overwrite earlier ones to keep first occurrence.
-	"""
-	out: Dict[str, bpy.types.Object] = {}
-	for obj in _iter_objects_recursive(coll):
-		name = _orig_name(obj) if snapshot else (obj.name or "")
-		if not name:
-			continue
-		if name not in out:
-			out[name] = obj
-	return out
+    """Remove trailing _<uid>[-i] suffix from names created by unique_* helpers."""
+    m = _UID_RE.search(name or "")
+    if m:
+        return name[: m.start()]
+    return name
 
 
 def _list_branch_snapshots(scene: bpy.types.Scene, branch: str) -> List[bpy.types.Collection]:
-	"""All snapshot collections in .gitblend for a given branch.
-	Matches names starting with 'branch' (with or without '-<slug>') and ending with '_<uid>'.
-	Sorted by UID descending.
-	"""
-	root = scene.collection
-	dot = None
-	for c in root.children:
-		if c.name == ".gitblend":
-			dot = c
-			break
-	if not dot:
-		return []
+    """All snapshot collections in .gitblend for a given branch.
+    Matches names starting with 'branch' (with or without '-<slug>') and ending with '_<uid>'.
+    Sorted by UID descending.
+    """
+    root = scene.collection
+    dot = None
+    for c in root.children:
+        if c.name == ".gitblend":
+            dot = c
+            break
+    if not dot:
+        return []
 
-	items: List[Tuple[str, bpy.types.Collection]] = []
-	for c in dot.children:
-		nm = c.name or ""
-		if not nm.startswith(branch):
-			continue
-		m = _UID_RE.search(nm)
-		uid = m.group(1) if m else ""
-		if not uid:
-			continue
-		items.append((uid, c))
+    items: List[Tuple[str, bpy.types.Collection]] = []
+    for c in dot.children:
+        nm = c.name or ""
+        if not nm.startswith(branch):
+            continue
+        m = _UID_RE.search(nm)
+        uid = m.group(1) if m else ""
+        if not uid:
+            continue
+        items.append((uid, c))
 
-	# Sort newest first (string uid is sortable as datetime-like yyyymmdd...)
-	items.sort(key=lambda t: t[0], reverse=True)
-	return [c for _, c in items]
+    items.sort(key=lambda t: t[0], reverse=True)
+    return [c for _, c in items]
+
+
+def list_branch_snapshots_upto_uid(scene: bpy.types.Scene, branch: str, max_uid: str) -> List[bpy.types.Collection]:
+    """Get branch snapshots up to and including the specified UID."""
+    all_snapshots = _list_branch_snapshots(scene, branch)
+    return [s for uid, s in [((_UID_RE.search(s.name or "").group(1) if _UID_RE.search(s.name or "") else ""), s) 
+                              for s in all_snapshots] if uid and uid <= max_uid]
 
 
 def get_latest_snapshot(scene: bpy.types.Scene, branch: str) -> Optional[bpy.types.Collection]:
@@ -393,8 +366,8 @@ def collections_identical(curr: bpy.types.Collection, prev: bpy.types.Collection
 	If subset_mode=True, only compare objects that exist in 'prev' (useful when 'prev' is a differential snapshot).
 	Order of checks: names -> transforms -> dimensions -> vert count -> modifiers -> vgroup names -> UV meta -> shapekey meta -> UV data -> weights -> vertex world positions.
 	"""
-	curr_map = _build_name_map_for_collection(curr, snapshot=False)
-	prev_map = _build_name_map_for_collection(prev, snapshot=True)
+	curr_map = build_name_map(curr, snapshot=False)
+	prev_map = build_name_map(prev, snapshot=True)
 
 	if not curr_map and not prev_map:
 		return True, "both empty"
@@ -446,8 +419,8 @@ def collections_identical(curr: bpy.types.Collection, prev: bpy.types.Collection
 
 def commit_contains_previous_names(curr: bpy.types.Collection, prev: bpy.types.Collection) -> bool:
 	"""Cheap pre-check: does current contain all names that existed previously?"""
-	curr_map = _build_name_map_for_collection(curr, snapshot=False)
-	prev_map = _build_name_map_for_collection(prev, snapshot=True)
+	curr_map = build_name_map(curr, snapshot=False)
+	prev_map = build_name_map(prev, snapshot=True)
 	return set(prev_map.keys()).issubset(set(curr_map.keys()))
 
 
@@ -540,9 +513,8 @@ def _duplicate_collection_hierarchy_diff_recursive(
 	Pure-delta: unchanged objects are omitted. Populates name_to_new_obj with newly copied objects by original name.
 	copied_names records which original names were duplicated (to fix parenting later).
 	"""
-	# Skip creating a collection if its subtree has no changed objects
 	def _subtree_has_changes(coll: bpy.types.Collection) -> bool:
-		for o in _iter_objects_recursive(coll):
+		for o in iter_objects_recursive(coll):
 			if (o.name or "") in changed:
 				return True
 		return False
@@ -559,12 +531,7 @@ def _duplicate_collection_hierarchy_diff_recursive(
 			continue
 		if name not in changed:
 			continue
-		dup = obj.copy()
-		if getattr(obj, "data", None) is not None:
-			try:
-				dup.data = obj.data.copy()
-			except Exception:
-				pass
+		dup = duplicate_object_with_data(obj)
 		dup.name = unique_obj_name(obj.name, uid)
 		new_coll.objects.link(dup)
 		try:
@@ -614,22 +581,19 @@ def _create_diff_snapshot_internal(
 	"""Internal helper to support both legacy and explicit-changes flows."""
 	prev_map: Dict[str, bpy.types.Object] = {}
 
-	# Build current object map and parent map
 	curr_objs: Dict[str, bpy.types.Object] = {}
 	parent_of: Dict[str, Optional[str]] = {}
-	for o in _iter_objects_recursive(src):
+	for o in iter_objects_recursive(src):
 		nm = o.name or ""
 		if not nm:
 			continue
 		curr_objs[nm] = o
 		parent_of[nm] = o.parent.name if o.parent else None
 
-	# Initial changed set: use provided names if any; otherwise compute by object-wise comparison
 	changed: Set[str] = set(changed_names or [])
 	if not changed:
-		# Only build previous map if we need to compute diffs
 		if prev_snapshot is not None:
-			prev_map = _build_name_map_for_collection(prev_snapshot, snapshot=True)
+			prev_map = build_name_map(prev_snapshot, snapshot=True)
 		for nm, o in curr_objs.items():
 			prev_o = prev_map.get(nm)
 			if prev_o is None:
@@ -657,12 +621,7 @@ def _create_diff_snapshot_internal(
 		name = obj.name or ""
 		if not name or name not in changed:
 			continue
-		dup = obj.copy()
-		if getattr(obj, "data", None) is not None:
-			try:
-				dup.data = obj.data.copy()
-			except Exception:
-				pass
+		dup = duplicate_object_with_data(obj)
 		dup.name = unique_obj_name(obj.name, uid)
 		new_coll.objects.link(dup)
 		try:
