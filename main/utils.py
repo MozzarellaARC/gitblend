@@ -122,12 +122,13 @@ def ensure_source_collection(scene: bpy.types.Scene) -> bpy.types.Collection:
         return first or root
 
 
-def log_change(props, message: str) -> None:
-    """Append a message to the change log safely."""
+def log_change(props, message: str, branch: str | None = None) -> None:
+    """Append a message to the change log safely with branch info."""
     try:
         item = props.changes_log.add()
         item.timestamp = now_str()
         item.message = message
+        item.branch = (branch or getattr(props, "gitblend_branch", "") or "").strip() or "main"
     except Exception:
         pass
 

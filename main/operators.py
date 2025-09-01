@@ -221,7 +221,15 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         index = update_index_with_commit(index, sel, uid, now_str(), msg, snapshot_name, obj_sigs, coll_hash)
         save_index(index)
 
-        log_change(props, msg)
+        # Record UI log entry with branch and uid for filtering/selection
+        try:
+            # log_change now accepts branch and fills timestamp
+            log_change(props, msg, branch=sel)
+            # Also set uid on the last added entry
+            if len(props.changes_log) > 0:
+                props.changes_log[-1].uid = uid
+        except Exception:
+            pass
         props.commit_message = ""
         request_redraw()
 
@@ -416,12 +424,21 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
 
         save_index(index)
 
-        # Pop from UI change log if available (remove most recent entry)
+        # Pop from UI change log if available (remove most recent entry for this branch)
         props = get_props(context)
         if props:
             try:
-                if len(props.changes_log) > 0:
-                    props.changes_log.remove(len(props.changes_log) - 1)
+                last_uid = last.get("uid", "")
+                # remove last matching branch entry; prefer matching UID
+                rm_idx = -1
+                for i in range(len(props.changes_log) - 1, -1, -1):
+                    e = props.changes_log[i]
+                    if (getattr(e, "branch", "") or "").strip() == branch:
+                        rm_idx = i
+                        if last_uid and getattr(e, "uid", "") == last_uid:
+                            break
+                if rm_idx >= 0:
+                    props.changes_log.remove(rm_idx)
             except Exception:
                 pass
 
@@ -526,13 +543,27 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
         if not commits:
             self.report({'INFO'}, f"No commit history for branch '{branch}'.")
             return {'CANCELLED'}
-        
-        ui_idx = getattr(props, "changes_log_index", 0) if props else 0
-        ui_idx = max(0, min(ui_idx, len(commits) - 1))
-        target = commits[ui_idx]
-        target_uid = str(target.get("uid", ""))
+
+        # Map selection via UI list to the actual selected change log entry
+        target_uid = ""
+        try:
+            if props and 0 <= props.changes_log_index < len(props.changes_log):
+                selected = props.changes_log[props.changes_log_index]
+                # Ensure branch matches current filter
+                if (getattr(selected, "branch", "") or "").strip() == branch:
+                    target_uid = getattr(selected, "uid", "") or ""
+        except Exception:
+            target_uid = ""
+        # Fallback to latest if no uid on selected (older entries)
         if not target_uid:
-            self.report({'WARNING'}, "Selected log entry has no UID; cannot checkout.")
+            target_uid = commits[-1].get("uid", "")
+        if not target_uid:
+            self.report({'WARNING'}, "Unable to resolve target commit UID.")
+            return {'CANCELLED'}
+        # Find the target commit by uid
+        target = next((c for c in commits if str(c.get("uid", "")) == str(target_uid)), None)
+        if not target:
+            self.report({'WARNING'}, "Selected commit not found in index.")
             return {'CANCELLED'}
 
         source = ensure_source_collection(scene)
@@ -547,7 +578,12 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
         restored, skipped = self.restore_objects_from_commit(source, commit_objs, snapshots, removed_msg_parts)
         
         request_redraw()
-        msg = f"Checked out commit {ui_idx+1}/{len(commits)}"
+        # Derive position for messaging
+        try:
+            pos = next((i for i, c in enumerate(commits) if str(c.get("uid", "")) == str(target_uid)), -1)
+        except Exception:
+            pos = -1
+        msg = f"Checked out commit {pos+1 if pos>=0 else '?'}/{len(commits)}"
         m = (target.get("message", "") or "").strip()
         if m:
             msg += f": {m}"

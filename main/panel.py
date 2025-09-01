@@ -7,13 +7,34 @@ class GITBLEND_UL_ChangeLog(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index=0):
         # item is a GITBLEND_ChangeLogEntry
         if self.layout_type in {"DEFAULT", "COMPACT"}:
-            # Show index and concise message
-            msg = getattr(item, "message", "") or "<no message>"
+            # Show: <date> <branch> <commit-message>
+            msg = (getattr(item, "message", "") or "").strip() or "<no message>"
             ts = getattr(item, "timestamp", "?")
-            layout.label(text=f"{index+1}. {ts} - {msg}")
+            # Extract date only
+            try:
+                date_only = ts.split()[0] if isinstance(ts, str) and ts else str(ts)
+            except Exception:
+                date_only = str(ts)
+            br = (getattr(item, "branch", "") or "").strip() or "main"
+            layout.label(text=f"{date_only} {br} {msg}")
         elif self.layout_type == "GRID":
             layout.alignment = 'CENTER'
             layout.label(text=str(index+1))
+
+    def filter_items(self, context, data, propname):
+        # Filter to show only entries for the current branch
+        items = getattr(data, propname, [])
+        try:
+            current_branch = get_selected_branch(data)
+        except Exception:
+            current_branch = "main"
+        flt_flags = [0] * len(items)
+        bf = self.bitflag_filter_item
+        for i, it in enumerate(items):
+            br = (getattr(it, "branch", "") or "").strip() or "main"
+            if br == current_branch:
+                flt_flags[i] = bf
+        return flt_flags, []
 
 class GITBLEND_Panel(bpy.types.Panel):
     bl_idname = "GB_PT_main_panel"

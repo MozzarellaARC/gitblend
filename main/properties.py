@@ -5,6 +5,8 @@ class GITBLEND_ChangeLogEntry(bpy.types.PropertyGroup):
     """Single commit/change-log entry."""
     timestamp: bpy.props.StringProperty(name="Timestamp")
     message: bpy.props.StringProperty(name="Message")
+    branch: bpy.props.StringProperty(name="Branch", default="")
+    uid: bpy.props.StringProperty(name="UID", default="")
 
 class GITBLEND_StringItem(bpy.types.PropertyGroup):
     """Simple string item for dynamic lists."""
