@@ -2,6 +2,7 @@ import bpy
 import os
 from datetime import datetime
 import re
+from typing import Callable, Dict, Optional
 
 
 def now_str(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
@@ -303,3 +304,155 @@ def remove_object_safely(obj: bpy.types.Object) -> bool:
         return True
     except Exception:
         return False
+
+
+# -----------------------------
+# Pointer remapping utilities
+# -----------------------------
+
+def _resolve_target_object(current: Optional[bpy.types.Object], resolver: Callable[[str], Optional[bpy.types.Object]]) -> Optional[bpy.types.Object]:
+    """Resolve a replacement for current object via its original base name."""
+    try:
+        if current is None:
+            return None
+        base = get_original_name(current)
+        repl = resolver(base)
+        return repl or current
+    except Exception:
+        return current
+
+
+def remap_object_pointers(obj: bpy.types.Object, resolver: Callable[[str], Optional[bpy.types.Object]]) -> None:
+    """Remap modifier/constraint/driver object pointers using resolver(name)->Object.
+
+    - Modifiers: scan common attributes and all RNA properties; remap any Object value.
+    - Constraints: remap .target and any RNA Object pointers.
+    - Drivers: remap variable targets whose id is an Object.
+    """
+    # Modifiers
+    try:
+        for m in getattr(obj, "modifiers", []) or []:
+            try:
+                # Known attributes first
+                for ident in ("object", "mirror_object", "offset_object", "target", "curve_object", "auxiliary_target"):
+                    try:
+                        if hasattr(m, ident):
+                            cur = getattr(m, ident)
+                            if isinstance(cur, bpy.types.Object):
+                                new = _resolve_target_object(cur, resolver)
+                                if new is not None and new is not cur:
+                                    setattr(m, ident, new)
+                    except Exception:
+                        pass
+                rna = getattr(m, "bl_rna", None)
+                if rna:
+                    for prop in getattr(rna, "properties", []) or []:
+                        try:
+                            ident = getattr(prop, "identifier", "")
+                            if not ident or ident in {"rna_type", "name"}:
+                                continue
+                            val = getattr(m, ident, None)
+                            if isinstance(val, bpy.types.Object):
+                                new = _resolve_target_object(val, resolver)
+                                if new is not None and new is not val:
+                                    setattr(m, ident, new)
+                        except Exception:
+                            continue
+                # Geometry Nodes modifier: object-like inputs
+                try:
+                    if getattr(m, "type", None) == 'NODES':
+                        ng = getattr(m, "node_group", None)
+                        if ng:
+                            for node in getattr(ng, "nodes", []) or []:
+                                try:
+                                    if hasattr(node, "object") and isinstance(node.object, bpy.types.Object):
+                                        new = _resolve_target_object(node.object, resolver)
+                                        if new is not None and new is not node.object:
+                                            node.object = new
+                                except Exception:
+                                    pass
+                                for sock in getattr(node, "inputs", []) or []:
+                                    try:
+                                        if hasattr(sock, "default_value"):
+                                            dv = sock.default_value
+                                            if isinstance(dv, bpy.types.Object):
+                                                new = _resolve_target_object(dv, resolver)
+                                                if new is not None and new is not dv:
+                                                    sock.default_value = new
+                                    except Exception:
+                                        continue
+                except Exception:
+                    pass
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # Constraints
+    try:
+        for c in getattr(obj, "constraints", []) or []:
+            try:
+                if hasattr(c, "target") and isinstance(c.target, bpy.types.Object):
+                    new = _resolve_target_object(c.target, resolver)
+                    if new is not None and new is not c.target:
+                        c.target = new
+                rna = getattr(c, "bl_rna", None)
+                if rna:
+                    for prop in getattr(rna, "properties", []) or []:
+                        try:
+                            ident = getattr(prop, "identifier", "")
+                            if not ident or ident in {"rna_type", "name", "target"}:
+                                continue
+                            val = getattr(c, ident, None)
+                            if isinstance(val, bpy.types.Object):
+                                new = _resolve_target_object(val, resolver)
+                                if new is not None and new is not val:
+                                    setattr(c, ident, new)
+                        except Exception:
+                            continue
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # Drivers
+    try:
+        ad = getattr(obj, "animation_data", None)
+        if ad and ad.drivers:
+            for fc in ad.drivers:
+                try:
+                    drv = fc.driver
+                    for var in drv.variables:
+                        for targ in var.targets:
+                            try:
+                                idref = getattr(targ, "id", None)
+                                if isinstance(idref, bpy.types.Object):
+                                    new = _resolve_target_object(idref, resolver)
+                                    if new is not None and new is not idref:
+                                        targ.id = new
+                            except Exception:
+                                continue
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+
+def remap_references_for_objects(new_dups: Dict[str, bpy.types.Object], existing_by_name: Dict[str, bpy.types.Object]) -> None:
+    """Remap object pointers on all provided objects.
+
+    Resolution priority: new_dups[name] first, else existing_by_name[name].
+    """
+    def resolver(name: str) -> Optional[bpy.types.Object]:
+        try:
+            if name in new_dups:
+                return new_dups[name]
+            return existing_by_name.get(name)
+        except Exception:
+            return None
+
+    for obj in (new_dups or {}).values():
+        try:
+            remap_object_pointers(obj, resolver)
+        except Exception:
+            continue

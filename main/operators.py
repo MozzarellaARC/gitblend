@@ -24,6 +24,8 @@ from .utils import (
     ensure_mirrored_path,
     duplicate_object_with_data,
     remove_object_safely,
+    remap_references_for_objects,
+    remap_object_pointers,
 )
 from .index import (
     load_index,
@@ -103,6 +105,24 @@ class RestoreOperationMixin:
                     pass
             
             new_dups[nm] = dup
+
+        # Remap pointers to point to new duplicates (and fall back to existing objects) BEFORE deleting old ones
+        try:
+            existing_by_name = build_name_map(source, snapshot=False)
+            remap_references_for_objects(new_dups, existing_by_name)
+            # Also remap other scene objects that might reference replaced names
+            for name, obj in list(existing_by_name.items()):
+                if name in new_dups:
+                    # Skip the old object with same name; it will be removed
+                    continue
+                try:
+                    def resolver(nm: str):
+                        return new_dups.get(nm) or existing_by_name.get(nm)
+                    remap_object_pointers(obj, resolver)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         
         # Set parents
         for nm, dup in new_dups.items():
