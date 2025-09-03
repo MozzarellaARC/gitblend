@@ -2,7 +2,7 @@ import bpy
 import os
 from datetime import datetime
 import re
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Optional, Set, Tuple
 
 
 def now_str(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
@@ -456,3 +456,147 @@ def remap_references_for_objects(new_dups: Dict[str, bpy.types.Object], existing
             remap_object_pointers(obj, resolver)
         except Exception:
             continue
+
+
+# -----------------------------
+# Pointer dependency utilities
+# -----------------------------
+
+def pointer_targets(obj: bpy.types.Object) -> Set[str]:
+    """Return names of objects referenced by modifiers/constraints/drivers/geometry nodes on obj."""
+    out: Set[str] = set()
+    try:
+        # Modifiers
+        for m in getattr(obj, "modifiers", []) or []:
+            try:
+                # Known attributes
+                for ident in ("object", "mirror_object", "offset_object", "target", "curve_object", "auxiliary_target"):
+                    try:
+                        if hasattr(m, ident):
+                            tgt = getattr(m, ident)
+                            if isinstance(tgt, bpy.types.Object) and getattr(tgt, "name", ""):
+                                out.add(tgt.name)
+                    except Exception:
+                        pass
+                # Generic RNA value check
+                rna = getattr(m, "bl_rna", None)
+                if rna:
+                    for prop in getattr(rna, "properties", []) or []:
+                        try:
+                            ident = getattr(prop, "identifier", "")
+                            if not ident or ident in {"rna_type", "name"}:
+                                continue
+                            val = getattr(m, ident, None)
+                            if isinstance(val, bpy.types.Object) and getattr(val, "name", ""):
+                                out.add(val.name)
+                        except Exception:
+                            continue
+                # Geometry Nodes
+                try:
+                    if getattr(m, "type", None) == 'NODES':
+                        ng = getattr(m, "node_group", None)
+                        if ng:
+                            for node in getattr(ng, "nodes", []) or []:
+                                try:
+                                    if hasattr(node, "object") and isinstance(node.object, bpy.types.Object) and node.object.name:
+                                        out.add(node.object.name)
+                                except Exception:
+                                    pass
+                                for sock in getattr(node, "inputs", []) or []:
+                                    try:
+                                        if hasattr(sock, "default_value"):
+                                            dv = sock.default_value
+                                            if isinstance(dv, bpy.types.Object) and getattr(dv, "name", ""):
+                                                out.add(dv.name)
+                                    except Exception:
+                                        continue
+                except Exception:
+                    pass
+            except Exception:
+                continue
+        # Constraints
+        for c in getattr(obj, "constraints", []) or []:
+            try:
+                if hasattr(c, "target") and isinstance(c.target, bpy.types.Object) and getattr(c.target, "name", ""):
+                    out.add(c.target.name)
+                rna = getattr(c, "bl_rna", None)
+                if rna:
+                    for prop in getattr(rna, "properties", []) or []:
+                        try:
+                            ident = getattr(prop, "identifier", "")
+                            if not ident or ident in {"rna_type", "name", "target"}:
+                                continue
+                            val = getattr(c, ident, None)
+                            if isinstance(val, bpy.types.Object) and getattr(val, "name", ""):
+                                out.add(val.name)
+                        except Exception:
+                            continue
+            except Exception:
+                continue
+        # Drivers
+        ad = getattr(obj, "animation_data", None)
+        if ad and ad.drivers:
+            for fc in ad.drivers:
+                try:
+                    drv = fc.driver
+                    for var in drv.variables:
+                        for targ in var.targets:
+                            try:
+                                idref = getattr(targ, "id", None)
+                                if isinstance(idref, bpy.types.Object) and getattr(idref, "name", ""):
+                                    out.add(idref.name)
+                            except Exception:
+                                continue
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return out
+
+
+def compute_pointer_dependency_closure(curr_objs: Dict[str, bpy.types.Object], initial_changed: Set[str]) -> Tuple[Set[str], Set[str]]:
+    """Expand changed names to include referenced targets; also return targets not in curr_objs (external).
+
+    Returns (changed_names, external_deps).
+    """
+    changed: Set[str] = set(initial_changed)
+    external: Set[str] = set()
+    if not curr_objs:
+        return changed, external
+    names_in_src = set(curr_objs.keys())
+    stable = False
+    while not stable:
+        before = len(changed)
+        for nm in list(changed):
+            try:
+                obj = curr_objs.get(nm)
+                if not obj:
+                    continue
+                for dep in pointer_targets(obj):
+                    if dep in names_in_src:
+                        changed.add(dep)
+                    else:
+                        external.add(dep)
+            except Exception:
+                continue
+        stable = len(changed) == before
+    return changed, external
+
+
+def remap_scene_pointers(source: bpy.types.Collection, new_dups: Dict[str, bpy.types.Object]) -> None:
+    """Convenience: remap object pointers for new duplicates and other objects in a source collection."""
+    try:
+        existing_by_name = build_name_map(source, snapshot=False)
+        remap_references_for_objects(new_dups, existing_by_name)
+        for name, obj in list(existing_by_name.items()):
+            if name in new_dups:
+                # Skip old object (to be removed)
+                continue
+            try:
+                def resolver(nm: str):
+                    return new_dups.get(nm) or existing_by_name.get(nm)
+                remap_object_pointers(obj, resolver)
+            except Exception:
+                pass
+    except Exception:
+        pass

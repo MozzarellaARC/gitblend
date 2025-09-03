@@ -8,6 +8,7 @@ from .utils import (
     build_name_map,
     duplicate_object_with_data,
 	remap_references_for_objects,
+	compute_pointer_dependency_closure,
 )
 
 # Tolerances for float comparisons (relaxed slightly to avoid noise-based false positives)
@@ -604,121 +605,8 @@ def _create_diff_snapshot_internal(
 			if not same:
 				changed.add(nm)
 
-	# Include pointer dependencies: if an object is changed and it references other objects
-	# via modifiers/constraints/driver variable targets, include those targets too (if they exist in src)
-	def _pointer_targets(obj: bpy.types.Object) -> Set[str]:
-		out: Set[str] = set()
-		try:
-			# Modifiers
-			for m in getattr(obj, "modifiers", []) or []:
-				try:
-					rna = getattr(m, "bl_rna", None)
-					if not rna:
-						continue
-					# Known attributes first (reliable across versions)
-					for ident in ("object", "mirror_object", "offset_object", "target", "curve_object", "auxiliary_target"):
-						try:
-							if hasattr(m, ident):
-								tgt = getattr(m, ident)
-								if isinstance(tgt, bpy.types.Object) and getattr(tgt, "name", ""):
-									out.add(tgt.name)
-						except Exception:
-							pass
-					# Generic scan of pointer properties; use current value isinstance check
-					for prop in getattr(rna, "properties", []) or []:
-						try:
-							ident = getattr(prop, "identifier", "")
-							if not ident or ident in {"rna_type", "name"}:
-								continue
-							val = getattr(m, ident, None)
-							if isinstance(val, bpy.types.Object) and getattr(val, "name", ""):
-								out.add(val.name)
-						except Exception:
-							continue
-					# Geometry Nodes: scan node group for object defaults
-					try:
-						if getattr(m, "type", None) == 'NODES':
-							ng = getattr(m, "node_group", None)
-							if ng:
-								for node in getattr(ng, "nodes", []) or []:
-									# Common node-level object pointer
-									try:
-										if hasattr(node, "object") and isinstance(node.object, bpy.types.Object) and node.object.name:
-											out.add(node.object.name)
-									except Exception:
-										pass
-									for sock in getattr(node, "inputs", []) or []:
-										try:
-											if hasattr(sock, "default_value"):
-												dv = sock.default_value
-												if isinstance(dv, bpy.types.Object) and getattr(dv, "name", ""):
-													out.add(dv.name)
-										except Exception:
-											continue
-					except Exception:
-						pass
-				except Exception:
-					continue
-			# Constraints
-			for c in getattr(obj, "constraints", []) or []:
-				try:
-					if hasattr(c, "target") and isinstance(c.target, bpy.types.Object) and getattr(c.target, "name", ""):
-						out.add(c.target.name)
-					rna = getattr(c, "bl_rna", None)
-					if rna:
-						for prop in getattr(rna, "properties", []) or []:
-							try:
-								ident = getattr(prop, "identifier", "")
-								if not ident or ident in {"rna_type", "name", "target"}:
-									continue
-								val = getattr(c, ident, None)
-								if isinstance(val, bpy.types.Object) and getattr(val, "name", ""):
-									out.add(val.name)
-							except Exception:
-								continue
-				except Exception:
-					continue
-			# Drivers
-			ad = getattr(obj, "animation_data", None)
-			if ad and ad.drivers:
-				for fc in ad.drivers:
-					try:
-						drv = fc.driver
-						for var in drv.variables:
-							for targ in var.targets:
-								try:
-									idref = getattr(targ, "id", None)
-									if isinstance(idref, bpy.types.Object) and getattr(idref, "name", ""):
-										out.add(idref.name)
-								except Exception:
-									continue
-					except Exception:
-						continue
-		except Exception:
-			pass
-		return out
-
-	# Dependency closure: grow 'changed' until stable by adding any pointer targets.
-	# Track external dependencies (targets not present inside the source collection) for optional inclusion.
-	external_deps: Set[str] = set()
-	if curr_objs:
-		names_in_src = set(curr_objs.keys())
-		stable = False
-		while not stable:
-			before = len(changed)
-			for nm in list(changed):
-				try:
-					obj = curr_objs.get(nm)
-					if not obj:
-						continue
-					for dep in _pointer_targets(obj):
-						if dep in names_in_src:
-							changed.add(dep)
-						else:
-							external_deps.add(dep)
-				except Exception:
-					continue
-			stable = len(changed) == before
+	# Dependency closure via utility (includes external tracking)
+	changed, external_deps = compute_pointer_dependency_closure(curr_objs, changed)
 
 	# Propagate change to descendants: if a parent is changed, all its children change
 	changed_stable = False

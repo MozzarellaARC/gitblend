@@ -24,8 +24,7 @@ from .utils import (
     ensure_mirrored_path,
     duplicate_object_with_data,
     remove_object_safely,
-    remap_references_for_objects,
-    remap_object_pointers,
+    remap_scene_pointers,
 )
 from .index import (
     load_index,
@@ -56,40 +55,40 @@ class RestoreOperationMixin:
         """Common logic for restoring objects from a commit."""
         desired_names = [o.get("name", "") for o in commit_objs if o.get("name")]
         desired_parent = {o.get("name", ""): o.get("parent", "") for o in commit_objs if o.get("name")}
-        
+
         # Build maps
         src_map = build_name_map(source, snapshot=False)
         snap_maps = [(root, build_name_map(root, snapshot=True)) for root in snapshots]
-        
+
         # Remove extras
         removed_extras = 0
         for nm, obj in list(src_map.items()):
             if nm not in desired_names:
                 if remove_object_safely(obj):
                     removed_extras += 1
-        
-        # Rebuild map
+
+        # Rebuild map after removals
         src_map = build_name_map(source, snapshot=False)
-        
+
         # Restore objects
         new_dups = {}
         old_objs = {}
-        
+
         for nm in desired_names:
             snap_obj, dest_coll = self.find_snapshot_obj_and_dest(nm, snap_maps, source)
             if not snap_obj:
                 continue
-            
+
             try:
                 dup = duplicate_object_with_data(snap_obj)
                 dup.name = f"{nm}_restored"
             except Exception:
                 continue
-            
+
             curr = src_map.get(nm)
             if curr:
                 old_objs[nm] = curr
-            
+
             # Link duplicate
             linked_any = False
             try:
@@ -97,33 +96,18 @@ class RestoreOperationMixin:
                 linked_any = True
             except Exception:
                 pass
-            
+
             if not linked_any:
                 try:
                     source.objects.link(dup)
                 except Exception:
                     pass
-            
+
             new_dups[nm] = dup
 
-        # Remap pointers to point to new duplicates (and fall back to existing objects) BEFORE deleting old ones
-        try:
-            existing_by_name = build_name_map(source, snapshot=False)
-            remap_references_for_objects(new_dups, existing_by_name)
-            # Also remap other scene objects that might reference replaced names
-            for name, obj in list(existing_by_name.items()):
-                if name in new_dups:
-                    # Skip the old object with same name; it will be removed
-                    continue
-                try:
-                    def resolver(nm: str):
-                        return new_dups.get(nm) or existing_by_name.get(nm)
-                    remap_object_pointers(obj, resolver)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        
+        # Remap pointers BEFORE deleting old ones
+        remap_scene_pointers(source, new_dups)
+
         # Set parents
         for nm, dup in new_dups.items():
             pnm = desired_parent.get(nm, "")
@@ -132,26 +116,26 @@ class RestoreOperationMixin:
                 dup.parent = target_parent
             except Exception:
                 pass
-        
+
         # Clean up old objects
         for nm in desired_names:
             curr = old_objs.get(nm)
             if curr:
                 remove_object_safely(curr)
-        
+
         # Rename duplicates
         for nm, dup in new_dups.items():
             try:
                 dup.name = nm
             except Exception:
                 pass
-        
+
         restored = len(new_dups)
         skipped = max(0, len(desired_names) - restored)
-        
+
         if removed_extras:
             removed_msg_parts.append(f"removed {removed_extras} extra")
-        
+
         return restored, skipped
 
 
