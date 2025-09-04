@@ -13,7 +13,6 @@ from .utils import (
     request_redraw,
     get_props,
     get_selected_branch,
-    ensure_source_collection,
     log_change,
     set_dropdown_selection,
     ensure_enum_contains,

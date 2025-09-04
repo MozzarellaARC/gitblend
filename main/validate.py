@@ -63,40 +63,8 @@ def _get_or_create_gitblend_scene() -> bpy.types.Scene:
 
 
 def ensure_gitblend_collection(scene: bpy.types.Scene) -> bpy.types.Collection:
-	"""Back-compat helper: ensure and return the root collection of the 'gitblend' Scene.
-
-	Note: Previously this created a hidden top-level collection named '.gitblend' under the current
-	scene. We now use a dedicated Scene named 'gitblend' to avoid confusion with working collections.
-	"""
+	"""Return the root collection of the 'gitblend' Scene (creates the Scene if missing)."""
 	dot_scene = _get_or_create_gitblend_scene()
-	# Backward compatibility: migrate legacy top-level '.gitblend' collection if present
-	try:
-		legacy = None
-		for c in getattr(scene.collection, "children", []) or []:
-			if getattr(c, "name", "") == ".gitblend":
-				legacy = c
-				break
-		if legacy is not None:
-			target = dot_scene.collection
-			# Move all snapshot collections under the new scene root
-			for ch in list(getattr(legacy, "children", []) or []):
-				try:
-					# Avoid duplicate links
-					if target.children.get(ch.name) is None:
-						target.children.link(ch)
-				except Exception:
-					pass
-			# Remove legacy container
-			try:
-				scene.collection.children.unlink(legacy)
-			except Exception:
-				pass
-			try:
-				bpy.data.collections.remove(legacy, do_unlink=True)
-			except Exception:
-				pass
-	except Exception:
-		pass
 	return dot_scene.collection
 
 def slugify(text: str, max_len: int = 50) -> str:
