@@ -30,17 +30,60 @@ def exclude_collection_in_all_view_layers(scene: bpy.types.Scene, coll: bpy.type
 		lc = find_layer_collection(vl.layer_collection, coll)
 		if lc:
 			lc.exclude = True
+def _get_or_create_gitblend_scene() -> bpy.types.Scene:
+	"""Find or create a dedicated '.gitblend' Scene to hold snapshots."""
+	dot = bpy.data.scenes.get(".gitblend")
+	if dot:
+		return dot
+	# Create a new scene; do not switch context here
+	try:
+		dot = bpy.data.scenes.new(".gitblend")
+	except Exception:
+		# Fallback: attempt a different unique name
+		base = ".gitblend"
+		i = 1
+		while bpy.data.scenes.get(f"{base}-{i}") is not None:
+			i += 1
+		dot = bpy.data.scenes.new(f"{base}-{i}")
+	return dot
+
 
 def ensure_gitblend_collection(scene: bpy.types.Scene) -> bpy.types.Collection:
-	"""Find or create the hidden .gitblend collection under the scene root."""
-	root = scene.collection
-	for c in root.children:
-		if c.name == ".gitblend":
-			return c
-	coll = bpy.data.collections.new(".gitblend")
-	root.children.link(coll)
-	exclude_collection_in_all_view_layers(scene, coll)
-	return coll
+	"""Back-compat helper: ensure and return the root collection of the '.gitblend' Scene.
+
+	Note: Previously this created a hidden top-level collection named '.gitblend' under the current
+	scene. We now use a dedicated Scene to avoid confusion with working collections.
+	"""
+	dot_scene = _get_or_create_gitblend_scene()
+	# Backward compatibility: migrate legacy top-level '.gitblend' collection if present
+	try:
+		legacy = None
+		for c in getattr(scene.collection, "children", []) or []:
+			if getattr(c, "name", "") == ".gitblend":
+				legacy = c
+				break
+		if legacy is not None:
+			target = dot_scene.collection
+			# Move all snapshot collections under the new scene root
+			for ch in list(getattr(legacy, "children", []) or []):
+				try:
+					# Avoid duplicate links
+					if target.children.get(ch.name) is None:
+						target.children.link(ch)
+				except Exception:
+					pass
+			# Remove legacy container
+			try:
+				scene.collection.children.unlink(legacy)
+			except Exception:
+				pass
+			try:
+				bpy.data.collections.remove(legacy, do_unlink=True)
+			except Exception:
+				pass
+	except Exception:
+		pass
+	return dot_scene.collection
 
 def slugify(text: str, max_len: int = 50) -> str:
 	s = (text or "").strip().lower()
@@ -126,32 +169,28 @@ def _base_name_from_snapshot(name: str) -> str:
 
 
 def _list_branch_snapshots(scene: bpy.types.Scene, branch: str) -> List[bpy.types.Collection]:
-    """All snapshot collections in .gitblend for a given branch.
-    Matches names starting with 'branch' (with or without '-<slug>') and ending with '_<uid>'.
-    Sorted by UID descending.
-    """
-    root = scene.collection
-    dot = None
-    for c in root.children:
-        if c.name == ".gitblend":
-            dot = c
-            break
-    if not dot:
-        return []
+	"""All snapshot collections in the '.gitblend' Scene for a given branch.
+	Matches names starting with 'branch' (with or without '-<slug>') and ending with '_<uid>'.
+	Sorted by UID descending.
+	"""
+	dot_scene = bpy.data.scenes.get(".gitblend")
+	if not dot_scene:
+		return []
+	dot_root = dot_scene.collection
 
-    items: List[Tuple[str, bpy.types.Collection]] = []
-    for c in dot.children:
-        nm = c.name or ""
-        if not nm.startswith(branch):
-            continue
-        m = _UID_RE.search(nm)
-        uid = m.group(1) if m else ""
-        if not uid:
-            continue
-        items.append((uid, c))
+	items: List[Tuple[str, bpy.types.Collection]] = []
+	for c in dot_root.children:
+		nm = c.name or ""
+		if not nm.startswith(branch):
+			continue
+		m = _UID_RE.search(nm)
+		uid = m.group(1) if m else ""
+		if not uid:
+			continue
+		items.append((uid, c))
 
-    items.sort(key=lambda t: t[0], reverse=True)
-    return [c for _, c in items]
+	items.sort(key=lambda t: t[0], reverse=True)
+	return [c for _, c in items]
 
 
 def list_branch_snapshots_upto_uid(scene: bpy.types.Scene, branch: str, max_uid: str) -> List[bpy.types.Collection]:
