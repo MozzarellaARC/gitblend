@@ -143,7 +143,7 @@ class RestoreOperationMixin:
 class GITBLEND_OT_commit(bpy.types.Operator):
     bl_idname = "gitblend.commit"
     bl_label = "Commit Changes"
-    bl_description = "Copy the 'source' working collection into gitblend as a snapshot named with the branch/message; log the message"
+    bl_description = "Copy the scene's root collection into gitblend as a snapshot named with the branch/message; log the message"
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
@@ -167,16 +167,11 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 
         sel = get_selected_branch(props) or "main"
         msg_slug = slugify(msg)
-        # Snapshot base name still includes branch/message, but working coll stays 'source'
+        # Snapshot base name still includes branch/message
         snapshot_base_name = f"{sel}-{msg_slug}" if msg_slug else sel
 
-        # Always operate on a working collection named 'source'
-        source = ensure_source_collection(scene)
-        if not source:
-            self.report({'WARNING'}, "No top-level collection to commit")
-            return {'CANCELLED'}
-
-        # Never rename the working collection; keep it as 'source'
+        # Use the scene's root collection as the working area
+        source = scene.collection
 
         # Require existing gitblend Scene created via Initialize
         dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
@@ -205,8 +200,8 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             curr_sigs, _coll_hash = compute_collection_signature(source)
             changed, names = derive_changed_set(curr_sigs, prev_objs)
             changed_names = set(names) if changed else set()
+
         # Create diff snapshot using computed changed set (or let it compute if None)
-        # Create diff snapshot with names derived from snapshot_base_name while leaving working coll as 'source'
         new_coll, obj_map = create_diff_snapshot_with_changes(source, dot_coll, uid, prev, changed_names=changed_names)
         # Rename snapshot collection to follow our branch/message naming convention (ensure unique)
         try:
@@ -226,16 +221,13 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         # Optional: commit index.json to a local Git repo in .gitblend via pygit2
         try:
             ok_git, reason = try_pygit2_commit(sel, msg, uid)
-            # Non-fatal; silently ignore failures to keep addon UX smooth
             _ = (ok_git, reason)
         except Exception:
             pass
 
         # Record UI log entry with branch and uid for filtering/selection
         try:
-            # log_change now accepts branch and fills timestamp
             log_change(props, msg, branch=sel)
-            # Also set uid on the last added entry
             if len(props.changes_log) > 0:
                 props.changes_log[-1].uid = uid
         except Exception:
@@ -276,13 +268,8 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
             if idx >= 0:
                 set_dropdown_selection(props, idx)
             request_redraw()
-        # Ensure .gitblend (Scene) exists up-front for user feedback in UI
+        # Ensure gitblend (Scene) exists up-front for user feedback in UI
         ensure_gitblend_collection(context.scene)
-        # Ensure a working 'source' collection is present
-        try:
-            ensure_source_collection(context.scene)
-        except Exception:
-            pass
         # Delegate to the Commit operator; first commit will initialize automatically
         return bpy.ops.gitblend.commit()
 
@@ -489,23 +476,21 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator, RestoreOperationMixin):
         props = get_props(context)
         branch = get_selected_branch(props) if props else "main"
 
-        source = ensure_source_collection(scene)
-        if not source:
-            self.report({'WARNING'}, "No top-level collection to restore into.")
-            return {'CANCELLED'}
+        # Restore into the scene's root collection
+        source = scene.collection
 
         index = load_index()
         last = get_latest_commit(index, branch)
         if not last:
             self.report({'INFO'}, f"No commit history for branch '{branch}'.")
             return {'CANCELLED'}
-        
+
         commit_objs = last.get("objects", []) or []
         snapshots = self._list_branch_snapshots(scene, branch)
-        
+
         removed_msg_parts = []
         restored, skipped = self.restore_objects_from_commit(source, commit_objs, snapshots, removed_msg_parts)
-        
+
         request_redraw()
         msg = f"Restored {restored} object(s) from snapshot"
         if skipped:
@@ -567,17 +552,15 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
             self.report({'WARNING'}, "Selected commit not found in index.")
             return {'CANCELLED'}
 
-        source = ensure_source_collection(scene)
-        if not source:
-            self.report({'WARNING'}, "No top-level collection to restore into.")
-            return {'CANCELLED'}
+        # Restore into the scene's root collection
+        source = scene.collection
 
         commit_objs = target.get("objects", []) or []
         snapshots = list_branch_snapshots_upto_uid(scene, branch, target_uid)
-        
+
         removed_msg_parts = []
         restored, skipped = self.restore_objects_from_commit(source, commit_objs, snapshots, removed_msg_parts)
-        
+
         request_redraw()
         # Derive position for messaging
         try:
