@@ -34,6 +34,7 @@ from .index import (
     derive_changed_set,
     get_latest_commit,
 )
+from .vcs import try_pygit2_commit
 
 
 class RestoreOperationMixin:
@@ -224,6 +225,14 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         index = load_index()
         index = update_index_with_commit(index, sel, uid, now_str(), msg, snapshot_name, obj_sigs, coll_hash)
         save_index(index)
+
+        # Optional: commit index.json to a local Git repo in .gitblend via pygit2
+        try:
+            ok_git, reason = try_pygit2_commit(sel, msg, uid)
+            # Non-fatal; silently ignore failures to keep addon UX smooth
+            _ = (ok_git, reason)
+        except Exception:
+            pass
 
         # Record UI log entry with branch and uid for filtering/selection
         try:
