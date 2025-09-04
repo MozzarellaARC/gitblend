@@ -1,8 +1,9 @@
 import bpy
 import re
+import json
+import hashlib
 from math import isclose
 from typing import Dict, Iterable, List, Optional, Set, Tuple
-from .index import load_index, get_latest_commit, compute_collection_signature, derive_changed_set
 from .utils import (
     iter_objects_recursive,
     build_name_map,
@@ -428,41 +429,18 @@ def commit_contains_previous_names(curr: bpy.types.Collection, prev: bpy.types.C
 
 def should_skip_commit(scene: bpy.types.Scene, curr: bpy.types.Collection, branch: str) -> Tuple[bool, str]:
 	"""Return (skip, reason).
-	Preferred fast path: compare current collection hash with the last commit's stored hash.
-	Fallback: compare against the latest on-disk snapshot in .gitblend.
+	Snapshot-based comparison only: compare current collection to the latest on-disk snapshot in .gitblend.
 	"""
-	# Index-based detection (preferred): compare against last commit object set.
-	index_reports_unchanged = False
-	try:
-		index = load_index()
-		last = get_latest_commit(index, branch)
-		if last:
-			curr_sigs, curr_hash = compute_collection_signature(curr)
-			prev_objs = {o.get("name", ""): o for o in (last.get("objects", []) or []) if o.get("name")}
-			# Quick win: if hashes match and objects identical, mark unchanged
-			if str(last.get("collection_hash", "")) == str(curr_hash):
-				index_reports_unchanged = True
-			else:
-				# Authoritative per-object diff using the index
-				changed, _names = derive_changed_set(curr_sigs, prev_objs)
-				index_reports_unchanged = not changed
-	except Exception:
-		# If index isn't available or hashing fails, continue with snapshot comparison
-		index_reports_unchanged = False
-
-	# Fallback to snapshot-based comparison
 	prev = get_latest_snapshot(scene, branch)
 	if not prev:
-		# Without a snapshot to compare, only rely on index; skip only if index says unchanged
-		return (index_reports_unchanged, "index unchanged (no previous snapshot)" if index_reports_unchanged else "no previous snapshot")
+		return False, "no previous snapshot"
 	# Cheapest: ensure current still contains previous names
 	if not commit_contains_previous_names(curr, prev):
 		return False, "name sets differ"
 	# Full comparison (ordered with early exit)
 	same, reason = collections_identical(curr, prev, subset_mode=True)
-	# Be conservative: require both index and snapshot to report unchanged to skip
-	if index_reports_unchanged and same:
-		return True, f"index+snapshot unchanged ({reason})"
+	if same:
+		return True, f"snapshot unchanged ({reason})"
 	return False, "changes detected"
 
 
@@ -685,3 +663,81 @@ def _create_diff_snapshot_internal(
 		pass
 
 	return new_coll, name_to_new_obj
+
+
+##############################################
+# Signatures and hashing (formerly in index.py)
+##############################################
+
+def _flatten_matrix_world(mw) -> list:
+	try:
+		return [float(mw[i][j]) for i in range(4) for j in range(4)]
+	except Exception:
+		return []
+
+
+def _obj_signature(o: bpy.types.Object) -> Dict:
+	sig: Dict = {"name": o.name or "", "type": getattr(o, "type", "")}
+	try:
+		sig["dimensions"] = [float(x) for x in getattr(o, "dimensions", [])]
+	except Exception:
+		sig["dimensions"] = []
+	try:
+		sig["matrix_world"] = _flatten_matrix_world(getattr(o, "matrix_world", None))
+	except Exception:
+		sig["matrix_world"] = []
+	# Mesh specifics
+	try:
+		if getattr(o, "type", None) == "MESH" and getattr(o, "data", None) is not None:
+			sig["vertex_count"] = int(len(o.data.vertices))
+			try:
+				sig["uv_layers"] = [uv.name for uv in getattr(o.data, "uv_layers", [])]
+			except Exception:
+				sig["uv_layers"] = []
+			try:
+				keys = getattr(getattr(o.data, "shape_keys", None), "key_blocks", None)
+				sig["shapekeys"] = [k.name for k in keys] if keys else []
+			except Exception:
+				sig["shapekeys"] = []
+		else:
+			sig["vertex_count"] = 0
+			sig["uv_layers"] = []
+			sig["shapekeys"] = []
+	except Exception:
+		pass
+	# Vertex groups
+	try:
+		sig["vertex_groups"] = sorted([g.name for g in getattr(o, "vertex_groups", [])])
+	except Exception:
+		sig["vertex_groups"] = []
+	# Modifiers (type+name)
+	try:
+		sig["modifiers"] = [(m.type, m.name) for m in getattr(o, "modifiers", [])]
+	except Exception:
+		sig["modifiers"] = []
+	# Parent name only
+	try:
+		sig["parent"] = o.parent.name if getattr(o, "parent", None) else None
+	except Exception:
+		sig["parent"] = None
+	return sig
+
+
+def compute_collection_signature(curr: bpy.types.Collection) -> Tuple[Dict[str, Dict], str]:
+	"""Compute per-object signatures and a collection hash.
+
+	Returns (obj_sigs, collection_hash) where obj_sigs maps object name to its signature dict.
+	"""
+	objs = build_name_map(curr, snapshot=False)
+	obj_sigs: Dict[str, Dict] = {}
+	for name, obj in sorted(objs.items()):
+		try:
+			obj_sigs[name] = _obj_signature(obj)
+		except Exception:
+			continue
+	try:
+		payload = json.dumps(obj_sigs, sort_keys=True, ensure_ascii=False)
+		h = hashlib.sha1(payload.encode("utf-8")).hexdigest()
+	except Exception:
+		h = ""
+	return obj_sigs, h

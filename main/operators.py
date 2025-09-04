@@ -7,6 +7,7 @@ from .validate import (
     should_skip_commit,
     unique_coll_name,
     list_branch_snapshots_upto_uid,
+    compute_collection_signature,
 )
 from .utils import (
     now_str,
@@ -26,15 +27,13 @@ from .utils import (
     remove_object_safely,
     remap_scene_pointers,
 )
-from .index import (
-    load_index,
-    save_index,
-    compute_collection_signature,
-    update_index_with_commit,
-    derive_changed_set,
-    get_latest_commit,
+# Removed legacy index imports
+from .vcs import (
+    commit_snapshot,
+    read_head_commit,
+    list_commits,
+    reset_branch_to_parent,
 )
-from .vcs import try_pygit2_commit
 
 
 class RestoreOperationMixin:
@@ -198,17 +197,8 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 
         prev = get_latest_snapshot(scene, sel)
 
-        # Differential snapshot: compute changed set via index signatures to be robust to previous diff snapshots
-        index = load_index()
-        last = get_latest_commit(index, sel)
+        # Create diff snapshot; let the snapshot builder compute diffs vs previous snapshot
         changed_names = None
-        if last:
-            # Build prev objs dict from last commit entries
-            prev_objs = {o.get("name", ""): o for o in (last.get("objects", []) or []) if o.get("name")}
-            curr_sigs, _coll_hash = compute_collection_signature(source)
-            changed, names = derive_changed_set(curr_sigs, prev_objs)
-            changed_names = set(names) if changed else set()
-        # Create diff snapshot using computed changed set (or let it compute if None)
         # Create diff snapshot with names derived from snapshot_base_name while leaving working coll as 'source'
         new_coll, obj_map = create_diff_snapshot_with_changes(source, dot_coll, uid, prev, changed_names=changed_names)
         # Rename snapshot collection to follow our branch/message naming convention (ensure unique)
@@ -218,19 +208,12 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         except Exception:
             pass
 
-        # Update index (stored as JSON)
+        # Record commit in .gitblend Git repository via pygit2
         snapshot_name = new_coll.name
-        # Compute signatures after snapshot to record exact state
         obj_sigs, coll_hash = compute_collection_signature(source)
-        index = load_index()
-        index = update_index_with_commit(index, sel, uid, now_str(), msg, snapshot_name, obj_sigs, coll_hash)
-        save_index(index)
-
-        # Optional: commit index.json to a local Git repo in .gitblend via pygit2
         try:
-            ok_git, reason = try_pygit2_commit(sel, msg, uid)
-            # Non-fatal; silently ignore failures to keep addon UX smooth
-            _ = (ok_git, reason)
+            ok_git, reason = commit_snapshot(sel, uid, now_str(), msg, snapshot_name, obj_sigs, coll_hash)
+            _ = (ok_git, reason)  # ignore errors; UI flow continues
         except Exception:
             pass
 
@@ -395,15 +378,12 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
         props = get_props(context)
         branch = get_selected_branch(props) if props else "main"
 
-        index = load_index()
-        b = (index.get("branches", {})).get(branch)
-        if not b or not b.get("commits"):
+        head = read_head_commit(branch)
+        if not head:
             self.report({'INFO'}, f"No commits found for branch '{branch}'.")
             return {'CANCELLED'}
 
-        commits = b.get("commits", [])
-        last = commits[-1]
-        snap_name = last.get("snapshot", "")
+        snap_name = head.get("snapshot", "")
 
         # Delete snapshot collection if present
         snap_coll = None
@@ -423,25 +403,17 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
                 # If removal fails, keep going but notify
                 self.report({'WARNING'}, f"Snapshot collection '{snap_name}' could not be fully removed.")
 
-        # Pop the commit and rewind head
-        commits.pop()
-        if commits:
-            prev = commits[-1]
-            b["head"] = {
-                "uid": prev.get("uid", ""),
-                "snapshot": prev.get("snapshot", ""),
-                "timestamp": prev.get("timestamp", ""),
-            }
-        else:
-            b["head"] = {}
-
-        save_index(index)
+        # Reset branch head to previous commit in Git repo
+        try:
+            reset_branch_to_parent(branch)
+        except Exception:
+            pass
 
         # Pop from UI change log if available (remove most recent entry for this branch)
         props = get_props(context)
         if props:
             try:
-                last_uid = last.get("uid", "")
+                last_uid = head.get("uid", "")
                 # remove last matching branch entry; prefer matching UID
                 rm_idx = -1
                 for i in range(len(props.changes_log) - 1, -1, -1):
@@ -457,9 +429,8 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
 
         # Optionally restore working collection to the new HEAD commit state
         try:
-            remaining_commits = (b.get("commits", []) if b else [])
-            if remaining_commits:
-                # Reconstruct scene to match the latest commit after undo
+            new_head = read_head_commit(branch)
+            if new_head:
                 bpy.ops.gitblend.discard_changes()
         except Exception:
             pass
@@ -503,8 +474,7 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator, RestoreOperationMixin):
             self.report({'WARNING'}, "No top-level collection to restore into.")
             return {'CANCELLED'}
 
-        index = load_index()
-        last = get_latest_commit(index, branch)
+        last = read_head_commit(branch)
         if not last:
             self.report({'INFO'}, f"No commit history for branch '{branch}'.")
             return {'CANCELLED'}
@@ -550,9 +520,7 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
         props = get_props(context)
         branch = get_selected_branch(props) if props else "main"
 
-        index = load_index()
-        b = (index.get("branches", {})).get(branch) or {}
-        commits = b.get("commits", []) or []
+        commits = list_commits(branch) or []
         if not commits:
             self.report({'INFO'}, f"No commit history for branch '{branch}'.")
             return {'CANCELLED'}

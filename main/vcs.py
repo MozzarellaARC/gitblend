@@ -7,22 +7,28 @@ from typing import Tuple, Optional, List, Dict, Any
 
 
 def _get_index_dir() -> str:
+    """Repository workdir for Git operations.
+    Prefer the .blend project folder's '.gitblend' subfolder; fallback to CWD.
+    """
     try:
-        from .index import get_index_path
-        p = get_index_path()
-        return os.path.dirname(p)
+        import bpy  # type: ignore
+        blend_path = getattr(getattr(bpy, "data", None), "filepath", "") or ""
+        if blend_path:
+            proj = os.path.dirname(os.path.abspath(blend_path))
+            d = os.path.join(proj, ".gitblend")
+            os.makedirs(d, exist_ok=True)
+            return d
     except Exception:
-        # Fallback to current working directory if index import fails
-        return os.getcwd()
+        pass
+    # Fallback
+    d = os.path.join(os.getcwd(), ".gitblend")
+    os.makedirs(d, exist_ok=True)
+    return d
 
 
 def _get_index_relpath(workdir: str) -> str:
-    try:
-        from .index import get_index_path
-        p = get_index_path()
-        return os.path.relpath(p, workdir)
-    except Exception:
-        return "index.json"
+    # index.json resides at the repo workdir root
+    return "index.json"
 
 
 def _default_signature():
