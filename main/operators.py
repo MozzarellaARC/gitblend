@@ -143,7 +143,7 @@ class RestoreOperationMixin:
 class GITBLEND_OT_commit(bpy.types.Operator):
     bl_idname = "gitblend.commit"
     bl_label = "Commit Changes"
-    bl_description = "Copy the 'source' working collection into .gitblend as a snapshot named with the branch/message; log the message"
+    bl_description = "Copy the 'source' working collection into gitblend as a snapshot named with the branch/message; log the message"
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
@@ -178,10 +178,10 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 
         # Never rename the working collection; keep it as 'source'
 
-        # Require existing .gitblend Scene created via Initialize
-        dot_scene = bpy.data.scenes.get(".gitblend")
+        # Require existing gitblend Scene created via Initialize
+        dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
         if not dot_scene:
-            self.report({'ERROR'}, "'.gitblend' Scene does not exist. Click Initialize first.")
+            self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}
         dot_coll = dot_scene.collection
 
@@ -243,14 +243,14 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         props.commit_message = ""
         request_redraw()
 
-        self.report({'INFO'}, "Commit snapshot created in .gitblend")
+        self.report({'INFO'}, "Commit snapshot created in gitblend")
         return {'FINISHED'}
 
 
 class GITBLEND_OT_initialize(bpy.types.Operator):
     bl_idname = "gitblend.initialize"
     bl_label = "Initialize Git Blend"
-    bl_description = "Create .gitblend; ensure a 'source' working collection exists; create the first snapshot"
+    bl_description = "Create gitblend; ensure a 'source' working collection exists; create the first snapshot"
     bl_options = {'INTERNAL'}  # exclude from undo/redo and search
 
     def execute(self, context):
@@ -298,9 +298,9 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
     def invoke(self, context, event):
         # Ensure environment is valid before showing prompt
         scene = context.scene
-        has_gitblend = bpy.data.scenes.get(".gitblend") is not None
+        has_gitblend = (bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")) is not None
         if not has_gitblend:
-            self.report({'ERROR'}, "'.gitblend' Scene does not exist. Click Initialize first.")
+            self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}
 
         # Pre-fill a reasonable default
@@ -322,9 +322,9 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
             return {'CANCELLED'}
         # Require existing .gitblend collection
         scene = context.scene
-        has_gitblend = bpy.data.scenes.get(".gitblend") is not None
+        has_gitblend = (bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")) is not None
         if not has_gitblend:
-            self.report({'ERROR'}, "'.gitblend' Scene does not exist. Click Initialize first.")
+            self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}
 
         nm = (self.name or "").strip()
@@ -379,10 +379,10 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
             return {'CANCELLED'}
 
         scene = context.scene
-        # Ensure .gitblend exists
-        dot_scene = bpy.data.scenes.get(".gitblend")
+        # Ensure gitblend exists
+        dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
         if not dot_scene:
-            self.report({'ERROR'}, "'.gitblend' Scene does not exist. Click Initialize first.")
+            self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}
         dot_coll = dot_scene.collection
 
@@ -480,9 +480,9 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator, RestoreOperationMixin):
             return {'CANCELLED'}
 
         scene = context.scene
-        dot_scene = bpy.data.scenes.get(".gitblend")
+        dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
         if not dot_scene:
-            self.report({'ERROR'}, "'.gitblend' Scene does not exist. Click Initialize first.")
+            self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}
         dot_coll = dot_scene.collection
 
@@ -529,9 +529,9 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
             return {'CANCELLED'}
 
         scene = context.scene
-        dot_scene = bpy.data.scenes.get(".gitblend")
+        dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
         if not dot_scene:
-            self.report({'ERROR'}, "'.gitblend' Scene does not exist. Click Initialize first.")
+            self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}
         dot_coll = dot_scene.collection
 

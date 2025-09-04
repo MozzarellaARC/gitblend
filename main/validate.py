@@ -31,28 +31,42 @@ def exclude_collection_in_all_view_layers(scene: bpy.types.Scene, coll: bpy.type
 		if lc:
 			lc.exclude = True
 def _get_or_create_gitblend_scene() -> bpy.types.Scene:
-	"""Find or create a dedicated '.gitblend' Scene to hold snapshots."""
-	dot = bpy.data.scenes.get(".gitblend")
-	if dot:
-		return dot
+	"""Find or create a dedicated 'gitblend' Scene to hold snapshots (visible in UI).
+
+	Migration: if a legacy scene named '.gitblend' exists and 'gitblend' does not,
+	rename the legacy scene to 'gitblend'.
+	"""
+	# Prefer visible name without dot
+	scene_name = "gitblend"
+	s = bpy.data.scenes.get(scene_name)
+	if s:
+		return s
+	# Migrate legacy hidden scene name
+	legacy = bpy.data.scenes.get(".gitblend")
+	if legacy and bpy.data.scenes.get(scene_name) is None:
+		try:
+			legacy.name = scene_name
+			return legacy
+		except Exception:
+			pass
 	# Create a new scene; do not switch context here
 	try:
-		dot = bpy.data.scenes.new(".gitblend")
+		s = bpy.data.scenes.new(scene_name)
 	except Exception:
 		# Fallback: attempt a different unique name
-		base = ".gitblend"
+		base = "gitblend"
 		i = 1
 		while bpy.data.scenes.get(f"{base}-{i}") is not None:
 			i += 1
-		dot = bpy.data.scenes.new(f"{base}-{i}")
-	return dot
+		s = bpy.data.scenes.new(f"{base}-{i}")
+	return s
 
 
 def ensure_gitblend_collection(scene: bpy.types.Scene) -> bpy.types.Collection:
-	"""Back-compat helper: ensure and return the root collection of the '.gitblend' Scene.
+	"""Back-compat helper: ensure and return the root collection of the 'gitblend' Scene.
 
 	Note: Previously this created a hidden top-level collection named '.gitblend' under the current
-	scene. We now use a dedicated Scene to avoid confusion with working collections.
+	scene. We now use a dedicated Scene named 'gitblend' to avoid confusion with working collections.
 	"""
 	dot_scene = _get_or_create_gitblend_scene()
 	# Backward compatibility: migrate legacy top-level '.gitblend' collection if present
@@ -169,11 +183,11 @@ def _base_name_from_snapshot(name: str) -> str:
 
 
 def _list_branch_snapshots(scene: bpy.types.Scene, branch: str) -> List[bpy.types.Collection]:
-	"""All snapshot collections in the '.gitblend' Scene for a given branch.
+	"""All snapshot collections in the 'gitblend' Scene for a given branch.
 	Matches names starting with 'branch' (with or without '-<slug>') and ending with '_<uid>'.
 	Sorted by UID descending.
 	"""
-	dot_scene = bpy.data.scenes.get(".gitblend")
+	dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
 	if not dot_scene:
 		return []
 	dot_root = dot_scene.collection

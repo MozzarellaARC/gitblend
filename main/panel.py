@@ -47,7 +47,8 @@ class GITBLEND_Panel(bpy.types.Panel):
     def draw_header(self, context):
         layout = self.layout
         scene = context.scene
-        has_gitblend = bpy.data.scenes.get(".gitblend") is not None
+        # Detect gitblend presence for UI state
+        has_gitblend = (bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")) is not None
         layout.label(icon='CHECKMARK' if has_gitblend else 'ERROR')
 
     def draw(self, context):
@@ -58,8 +59,8 @@ class GITBLEND_Panel(bpy.types.Panel):
             layout.label(text="GITBLEND properties not registered.")
             return
 
-        # Detect .gitblend presence for UI state
-        has_gitblend = bpy.data.scenes.get(".gitblend") is not None
+        # Detect gitblend presence for UI state
+        has_gitblend = (bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")) is not None
 
         # Top row: Initialize left, current branch right
         row = layout.row(align=True)
@@ -68,7 +69,7 @@ class GITBLEND_Panel(bpy.types.Panel):
         row.alignment = 'RIGHT'
         row.label(text=f"Branch: {get_selected_branch(gitblend_props)}")
         if not has_gitblend:
-            layout.label(text="'.gitblend' Scene not found. Click Initialize.", icon='INFO')
+            layout.label(text="'gitblend' Scene not found. Click Initialize.", icon='INFO')
 
         # Commit (collapsible)
         box = layout.box()
