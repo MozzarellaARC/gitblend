@@ -136,7 +136,7 @@ def get_original_name(id_block) -> str:
     except Exception:
         pass
     name = getattr(id_block, "name", "") or ""
-    # Strip _<digits> or _<digits>-<digits> suffix
+    # Strip our own _<digits> or _<digits>-<digits> suffix (snapshot naming)
     m = re.search(r"_(\d{10,20})(?:-\d+)?$", name)
     return name[: m.start()] if m else name
 
@@ -254,10 +254,23 @@ def remove_object_safely(obj: bpy.types.Object) -> bool:
 # -----------------------------
 
 def _resolve_target_object(current: Optional[bpy.types.Object], resolver: Callable[[str], Optional[bpy.types.Object]]) -> Optional[bpy.types.Object]:
-    """Resolve a replacement for current object via its original base name."""
+    """Resolve a replacement for current object preferring exact name, then base/original name.
+
+    Order:
+    1) resolver(current.name)
+    2) resolver(get_original_name(current))
+    Fallback to current when no mapping found.
+    """
     try:
         if current is None:
             return None
+        # Prefer exact name (e.g., "Cube.001") when available
+        exact = getattr(current, "name", None)
+        if exact:
+            repl = resolver(str(exact))
+            if repl:
+                return repl
+        # Fallback to original/base name (e.g., strip our UID suffix), keeps behavior for snapshots
         base = get_original_name(current)
         repl = resolver(base)
         return repl or current
@@ -272,6 +285,42 @@ def remap_object_pointers(obj: bpy.types.Object, resolver: Callable[[str], Optio
     - Constraints: remap .target and any RNA Object pointers.
     - Drivers: remap variable targets whose id is an Object.
     """
+    # Determine numeric suffix of the owner object (e.g., ".001") to prefer same-suffix targets
+    suffix = ""
+    try:
+        nm = getattr(obj, "name", "") or ""
+        m = re.search(r"\.(\d{3,})$", nm)
+        if m:
+            suffix = m.group(0)  # includes leading dot
+    except Exception:
+        suffix = ""
+
+    def resolve_with_variants(target_obj: Optional[bpy.types.Object]) -> Optional[bpy.types.Object]:
+        """Prefer exact name, then base+owner-suffix, then base name."""
+        try:
+            if target_obj is None:
+                return None
+            # 1) exact
+            tname = getattr(target_obj, "name", "") or ""
+            if tname:
+                hit = resolver(tname)
+                if hit:
+                    return hit
+            # 2) base + owner suffix
+            base = get_original_name(target_obj) or tname
+            if suffix and base:
+                cand = f"{base}{suffix}"
+                hit = resolver(cand)
+                if hit:
+                    return hit
+            # 3) base only
+            if base:
+                hit = resolver(base)
+                if hit:
+                    return hit
+            return target_obj
+        except Exception:
+            return target_obj
     # Modifiers
     try:
         for m in getattr(obj, "modifiers", []) or []:
@@ -282,11 +331,37 @@ def remap_object_pointers(obj: bpy.types.Object, resolver: Callable[[str], Optio
                         if hasattr(m, ident):
                             cur = getattr(m, ident)
                             if isinstance(cur, bpy.types.Object):
-                                new = _resolve_target_object(cur, resolver)
+                                new = resolve_with_variants(cur)
                                 if new is not None and new is not cur:
                                     setattr(m, ident, new)
+                                    # Special-case Mirror: ensure toggle is enabled alongside pointer
+                                    if getattr(m, "type", None) == 'MIRROR' and ident == "mirror_object" and hasattr(m, "use_mirror_object"):
+                                        try:
+                                            m.use_mirror_object = True
+                                        except Exception:
+                                            pass
                     except Exception:
                         pass
+                # Extra Mirror pass: if Mirror modifier exists, re-resolve and force-enable pointer
+                try:
+                    if getattr(m, "type", None) == 'MIRROR':
+                        cur_mo = getattr(m, "mirror_object", None)
+                        if isinstance(cur_mo, bpy.types.Object):
+                            new_mo = resolve_with_variants(cur_mo)
+                            if new_mo is not None and new_mo is not cur_mo:
+                                try:
+                                    m.mirror_object = new_mo
+                                except Exception:
+                                    pass
+                        if hasattr(m, "use_mirror_object"):
+                            try:
+                                # Keep it on when we have a target
+                                if isinstance(getattr(m, "mirror_object", None), bpy.types.Object):
+                                    m.use_mirror_object = True
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
                 rna = getattr(m, "bl_rna", None)
                 if rna:
                     for prop in getattr(rna, "properties", []) or []:
@@ -296,7 +371,7 @@ def remap_object_pointers(obj: bpy.types.Object, resolver: Callable[[str], Optio
                                 continue
                             val = getattr(m, ident, None)
                             if isinstance(val, bpy.types.Object):
-                                new = _resolve_target_object(val, resolver)
+                                new = resolve_with_variants(val)
                                 if new is not None and new is not val:
                                     setattr(m, ident, new)
                         except Exception:
@@ -309,7 +384,7 @@ def remap_object_pointers(obj: bpy.types.Object, resolver: Callable[[str], Optio
                             for node in getattr(ng, "nodes", []) or []:
                                 try:
                                     if hasattr(node, "object") and isinstance(node.object, bpy.types.Object):
-                                        new = _resolve_target_object(node.object, resolver)
+                                        new = resolve_with_variants(node.object)
                                         if new is not None and new is not node.object:
                                             node.object = new
                                 except Exception:
@@ -319,7 +394,7 @@ def remap_object_pointers(obj: bpy.types.Object, resolver: Callable[[str], Optio
                                         if hasattr(sock, "default_value"):
                                             dv = sock.default_value
                                             if isinstance(dv, bpy.types.Object):
-                                                new = _resolve_target_object(dv, resolver)
+                                                new = resolve_with_variants(dv)
                                                 if new is not None and new is not dv:
                                                     sock.default_value = new
                                     except Exception:
@@ -336,7 +411,7 @@ def remap_object_pointers(obj: bpy.types.Object, resolver: Callable[[str], Optio
         for c in getattr(obj, "constraints", []) or []:
             try:
                 if hasattr(c, "target") and isinstance(c.target, bpy.types.Object):
-                    new = _resolve_target_object(c.target, resolver)
+                    new = resolve_with_variants(c.target)
                     if new is not None and new is not c.target:
                         c.target = new
                 rna = getattr(c, "bl_rna", None)
@@ -348,7 +423,7 @@ def remap_object_pointers(obj: bpy.types.Object, resolver: Callable[[str], Optio
                                 continue
                             val = getattr(c, ident, None)
                             if isinstance(val, bpy.types.Object):
-                                new = _resolve_target_object(val, resolver)
+                                new = resolve_with_variants(val)
                                 if new is not None and new is not val:
                                     setattr(c, ident, new)
                         except Exception:
@@ -370,7 +445,7 @@ def remap_object_pointers(obj: bpy.types.Object, resolver: Callable[[str], Optio
                             try:
                                 idref = getattr(targ, "id", None)
                                 if isinstance(idref, bpy.types.Object):
-                                    new = _resolve_target_object(idref, resolver)
+                                    new = resolve_with_variants(idref)
                                     if new is not None and new is not idref:
                                         targ.id = new
                             except Exception:
@@ -388,9 +463,13 @@ def remap_references_for_objects(new_dups: Dict[str, bpy.types.Object], existing
     """
     def resolver(name: str) -> Optional[bpy.types.Object]:
         try:
+            # Prefer exact-name mapping in new duplicates, then existing
             if name in new_dups:
                 return new_dups[name]
-            return existing_by_name.get(name)
+            obj = existing_by_name.get(name)
+            if obj:
+                return obj
+            return None
         except Exception:
             return None
 

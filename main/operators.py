@@ -81,7 +81,13 @@ class RestoreOperationMixin:
 
             try:
                 dup = duplicate_object_with_data(snap_obj)
+                # Temporary unique name during wiring; we'll rename after cleanup
                 dup.name = f"{nm}_restored"
+                # Preserve original base name metadata to aid remapping
+                try:
+                    dup["gitblend_orig_name"] = nm
+                except Exception:
+                    pass
             except Exception:
                 continue
 
@@ -117,11 +123,29 @@ class RestoreOperationMixin:
             except Exception:
                 pass
 
-        # Clean up old objects
-        for nm in desired_names:
-            curr = old_objs.get(nm)
-            if curr:
-                remove_object_safely(curr)
+        # Clean up old objects in a dependency-safe order: remove those without dependents first
+        # Perform a few passes to avoid dependency issues with modifiers/constraints
+        remaining = {nm: old_objs[nm] for nm in desired_names if nm in old_objs}
+        for _ in range(3):
+            if not remaining:
+                break
+            removed_any = False
+            for nm, obj in list(remaining.items()):
+                try:
+                    # If object has no users in its collections beyond itself, try removing
+                    if remove_object_safely(obj):
+                        remaining.pop(nm, None)
+                        removed_any = True
+                except Exception:
+                    continue
+            if not removed_any:
+                # Force remove the rest to avoid leaving duplicates behind
+                for nm, obj in list(remaining.items()):
+                    try:
+                        remove_object_safely(obj)
+                    except Exception:
+                        pass
+                remaining.clear()
 
         # Rename duplicates
         for nm, dup in new_dups.items():
@@ -129,6 +153,12 @@ class RestoreOperationMixin:
                 dup.name = nm
             except Exception:
                 pass
+
+        # Final pointer remap after renaming to ensure any temporary wiring resolves to final names
+        try:
+            remap_scene_pointers(source, new_dups)
+        except Exception:
+            pass
 
         restored = len(new_dups)
         skipped = max(0, len(desired_names) - restored)
