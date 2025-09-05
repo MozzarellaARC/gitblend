@@ -9,7 +9,7 @@ from .utils import (
     build_name_map,
     duplicate_object_with_data,
 	remap_references_for_objects,
-	compute_pointer_dependency_closure,
+	get_object_dependencies,
 )
 
 # Tolerances for float comparisons (relaxed slightly to avoid noise-based false positives)
@@ -620,8 +620,18 @@ def _create_diff_snapshot_internal(
 			if not same:
 				changed.add(nm)
 
-	# Dependency closure via utility (includes external tracking)
-	changed, external_deps = compute_pointer_dependency_closure(curr_objs, changed)
+	# Simple dependency expansion: include objects that changed objects depend on
+	expanded_changed = set(changed)
+	for obj_name in list(changed):
+		if obj_name in curr_objs:
+			obj = curr_objs[obj_name]
+			dependencies = get_object_dependencies(obj)
+			# Add dependencies that exist in current objects
+			for dep_name in dependencies:
+				if dep_name in curr_objs:
+					expanded_changed.add(dep_name)
+	
+	changed = expanded_changed
 
 	# Propagate change to descendants: if a parent is changed, all its children change
 	changed_stable = False
@@ -654,27 +664,6 @@ def _create_diff_snapshot_internal(
 	# Recurse into children collections; only create for subtrees with changes
 	for child in src.children:
 		_duplicate_collection_hierarchy_diff_recursive(child, new_coll, uid, name_to_new_obj, copied_names, changed)
-
-	# Include external dependency objects directly under the snapshot root (best-effort)
-	if external_deps:
-		for dep_name in sorted(external_deps):
-			try:
-				if dep_name in name_to_new_obj:
-					continue
-				dep_obj = bpy.data.objects.get(dep_name)
-				if not dep_obj:
-					continue
-				dup = duplicate_object_with_data(dep_obj)
-				dup.name = unique_obj_name(dep_obj.name, uid)
-				new_coll.objects.link(dup)
-				try:
-					dup["gitblend_orig_name"] = dep_obj.name
-				except Exception:
-					pass
-				name_to_new_obj[dep_obj.name] = dup
-				copied_names.add(dep_obj.name)
-			except Exception:
-				continue
 
 	# Fix parenting for newly copied objects only; linked ones already refer to linked parents (unchanged case)
 	for nm in copied_names:

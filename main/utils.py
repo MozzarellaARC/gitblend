@@ -250,362 +250,163 @@ def remove_object_safely(obj: bpy.types.Object) -> bool:
 
 
 # -----------------------------
-# Pointer remapping utilities
+# Pointer Remapping
 # -----------------------------
 
-class NameResolver:
-    """Reusable name->Object resolver that prefers primary map over fallback.
+def _find_replacement_object(target_name: str, new_objects: Dict[str, bpy.types.Object], 
+                           existing_objects: Dict[str, bpy.types.Object]) -> Optional[bpy.types.Object]:
+    """Find replacement object, preferring new objects over existing ones."""
+    if not target_name:
+        return None
+    
+    # Try new objects first (restored/duplicated objects)
+    if target_name in new_objects:
+        return new_objects[target_name]
+    
+    # Fall back to existing objects
+    if target_name in existing_objects:
+        return existing_objects[target_name]
+    
+    return None
 
-    Avoids recreating closures for each remap call.
-    """
-    def __init__(self, primary: Dict[str, bpy.types.Object], fallback: Dict[str, bpy.types.Object]):
-        self.primary = primary or {}
-        self.fallback = fallback or {}
 
-    def __call__(self, name: str) -> Optional[bpy.types.Object]:
+def remap_object_pointers(obj: bpy.types.Object, new_objects: Dict[str, bpy.types.Object], 
+                        existing_objects: Dict[str, bpy.types.Object]) -> None:
+    """Simplified pointer remapping focusing on the most common cases."""
+    
+    # Remap parent relationship
+    try:
+        if obj.parent:
+            parent_name = obj.parent.name
+            new_parent = _find_replacement_object(parent_name, new_objects, existing_objects)
+            if new_parent and new_parent != obj.parent:
+                obj.parent = new_parent
+    except Exception:
+        pass
+    
+    # Remap common modifier object references
+    try:
+        for modifier in obj.modifiers:
+            # Mirror modifier
+            if modifier.type == 'MIRROR' and hasattr(modifier, 'mirror_object'):
+                if modifier.mirror_object:
+                    target_name = modifier.mirror_object.name
+                    new_target = _find_replacement_object(target_name, new_objects, existing_objects)
+                    if new_target:
+                        modifier.mirror_object = new_target
+                        modifier.use_mirror_object = True
+            
+            # Array modifier
+            elif modifier.type == 'ARRAY' and hasattr(modifier, 'offset_object'):
+                if modifier.offset_object:
+                    target_name = modifier.offset_object.name
+                    new_target = _find_replacement_object(target_name, new_objects, existing_objects)
+                    if new_target:
+                        modifier.offset_object = new_target
+            
+            # Armature modifier
+            elif modifier.type == 'ARMATURE' and hasattr(modifier, 'object'):
+                if modifier.object:
+                    target_name = modifier.object.name
+                    new_target = _find_replacement_object(target_name, new_objects, existing_objects)
+                    if new_target:
+                        modifier.object = new_target
+            
+            # Curve modifier
+            elif modifier.type in ['CURVE', 'FOLLOW_PATH'] and hasattr(modifier, 'object'):
+                if modifier.object:
+                    target_name = modifier.object.name
+                    new_target = _find_replacement_object(target_name, new_objects, existing_objects)
+                    if new_target:
+                        modifier.object = new_target
+    except Exception:
+        pass
+    
+    # Remap constraint targets (simplified)
+    try:
+        for constraint in obj.constraints:
+            if hasattr(constraint, 'target') and constraint.target:
+                target_name = constraint.target.name
+                new_target = _find_replacement_object(target_name, new_objects, existing_objects)
+                if new_target:
+                    constraint.target = new_target
+    except Exception:
+        pass
+
+
+def remap_references_for_objects(new_objects: Dict[str, bpy.types.Object], 
+                               existing_objects: Dict[str, bpy.types.Object]) -> None:
+    """Remap object pointers on all provided objects (simplified)."""
+    
+    for obj in (new_objects or {}).values():
         try:
-            if not name:
-                return None
-            obj = self.primary.get(name)
-            if obj:
-                return obj
-            return self.fallback.get(name)
-        except Exception:
-            return None
-
-
-def _owner_suffix(owner_name: str) -> str:
-    try:
-        m = re.search(r"\.(\d{3,})$", owner_name or "")
-        return m.group(0) if m else ""
-    except Exception:
-        return ""
-
-
-def resolve_target_with_variants(owner_name: str, target_obj: Optional[bpy.types.Object], resolver: Callable[[str], Optional[bpy.types.Object]]) -> Optional[bpy.types.Object]:
-    """Prefer exact name, then base+owner-suffix, then base name.
-
-    owner_name: name of the object owning the pointer (used for suffix matching)
-    target_obj: current referenced object to be remapped
-    resolver: callable that maps a name to an Object (new_dups first, then existing)
-    """
-    try:
-        if target_obj is None:
-            return None
-        # 1) exact
-        tname = getattr(target_obj, "name", "") or ""
-        if tname:
-            hit = resolver(tname)
-            if hit:
-                return hit
-        # 2) base + owner's suffix (e.g., prefer Cube.001 for Sphere.001)
-        base = get_original_name(target_obj) or tname
-        suf = _owner_suffix(owner_name or "")
-        if suf and base:
-            cand = f"{base}{suf}"
-            hit = resolver(cand)
-            if hit:
-                return hit
-        # 3) base only
-        if base:
-            hit = resolver(base)
-            if hit:
-                return hit
-        return target_obj
-    except Exception:
-        return target_obj
-
-
-def remap_object_pointers(obj: bpy.types.Object, resolver: Callable[[str], Optional[bpy.types.Object]]) -> None:
-    """Remap modifier/constraint/driver object pointers using resolver(name)->Object.
-
-    - Modifiers: scan common attributes and all RNA properties; remap any Object value.
-    - Constraints: remap .target and any RNA Object pointers.
-    - Drivers: remap variable targets whose id is an Object.
-    """
-    owner_name = getattr(obj, "name", "") or ""
-    # Modifiers
-    try:
-        for m in getattr(obj, "modifiers", []) or []:
-            try:
-                # Known attributes first
-                for ident in ("object", "mirror_object", "offset_object", "target", "curve_object", "auxiliary_target"):
-                    try:
-                        if hasattr(m, ident):
-                            cur = getattr(m, ident)
-                            if isinstance(cur, bpy.types.Object):
-                                new = resolve_target_with_variants(owner_name, cur, resolver)
-                                if new is not None and new is not cur:
-                                    setattr(m, ident, new)
-                                    # Special-case Mirror: ensure toggle is enabled alongside pointer
-                                    if getattr(m, "type", None) == 'MIRROR' and ident == "mirror_object" and hasattr(m, "use_mirror_object"):
-                                        try:
-                                            m.use_mirror_object = True
-                                        except Exception:
-                                            pass
-                    except Exception:
-                        pass
-                # Mirror enforcement: ensure toggle is on when a mirror_object exists
-                try:
-                    if getattr(m, "type", None) == 'MIRROR' and hasattr(m, "use_mirror_object"):
-                        if isinstance(getattr(m, "mirror_object", None), bpy.types.Object):
-                            try:
-                                m.use_mirror_object = True
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
-                rna = getattr(m, "bl_rna", None)
-                if rna:
-                    for prop in getattr(rna, "properties", []) or []:
-                        try:
-                            ident = getattr(prop, "identifier", "")
-                            if not ident or ident in {"rna_type", "name"}:
-                                continue
-                            val = getattr(m, ident, None)
-                            if isinstance(val, bpy.types.Object):
-                                new = resolve_target_with_variants(owner_name, val, resolver)
-                                if new is not None and new is not val:
-                                    setattr(m, ident, new)
-                        except Exception:
-                            continue
-                # Geometry Nodes modifier: object-like inputs
-                try:
-                    if getattr(m, "type", None) == 'NODES':
-                        ng = getattr(m, "node_group", None)
-                        if ng:
-                            for node in getattr(ng, "nodes", []) or []:
-                                try:
-                                    if hasattr(node, "object") and isinstance(node.object, bpy.types.Object):
-                                        new = resolve_target_with_variants(owner_name, node.object, resolver)
-                                        if new is not None and new is not node.object:
-                                            node.object = new
-                                except Exception:
-                                    pass
-                                for sock in getattr(node, "inputs", []) or []:
-                                    try:
-                                        if hasattr(sock, "default_value"):
-                                            dv = sock.default_value
-                                            if isinstance(dv, bpy.types.Object):
-                                                new = resolve_target_with_variants(owner_name, dv, resolver)
-                                                if new is not None and new is not dv:
-                                                    sock.default_value = new
-                                    except Exception:
-                                        continue
-                except Exception:
-                    pass
-            except Exception:
-                continue
-    except Exception:
-        pass
-
-    # Constraints
-    try:
-        for c in getattr(obj, "constraints", []) or []:
-            try:
-                if hasattr(c, "target") and isinstance(c.target, bpy.types.Object):
-                    new = resolve_target_with_variants(owner_name, c.target, resolver)
-                    if new is not None and new is not c.target:
-                        c.target = new
-                rna = getattr(c, "bl_rna", None)
-                if rna:
-                    for prop in getattr(rna, "properties", []) or []:
-                        try:
-                            ident = getattr(prop, "identifier", "")
-                            if not ident or ident in {"rna_type", "name", "target"}:
-                                continue
-                            val = getattr(c, ident, None)
-                            if isinstance(val, bpy.types.Object):
-                                new = resolve_target_with_variants(owner_name, val, resolver)
-                                if new is not None and new is not val:
-                                    setattr(c, ident, new)
-                        except Exception:
-                            continue
-            except Exception:
-                continue
-    except Exception:
-        pass
-
-    # Drivers
-    try:
-        ad = getattr(obj, "animation_data", None)
-        if ad and ad.drivers:
-            for fc in ad.drivers:
-                try:
-                    drv = fc.driver
-                    for var in drv.variables:
-                        for targ in var.targets:
-                            try:
-                                idref = getattr(targ, "id", None)
-                                if isinstance(idref, bpy.types.Object):
-                                    new = resolve_target_with_variants(owner_name, idref, resolver)
-                                    if new is not None and new is not idref:
-                                        targ.id = new
-                            except Exception:
-                                continue
-                except Exception:
-                    continue
-    except Exception:
-        pass
-
-
-def remap_references_for_objects(new_dups: Dict[str, bpy.types.Object], existing_by_name: Dict[str, bpy.types.Object]) -> None:
-    """Remap object pointers on all provided objects.
-
-    Resolution priority: new_dups[name] first, else existing_by_name[name].
-    """
-    resolver = NameResolver(new_dups, existing_by_name)
-
-    for obj in (new_dups or {}).values():
-        try:
-            remap_object_pointers(obj, resolver)
+            remap_object_pointers(obj, new_objects, existing_objects)
         except Exception:
             continue
 
 
 # -----------------------------
-# Pointer dependency utilities
+# Dependency Detection
 # -----------------------------
 
-def pointer_targets(obj: bpy.types.Object) -> Set[str]:
-    """Return names of objects referenced by modifiers/constraints/drivers/geometry nodes on obj."""
-    out: Set[str] = set()
+def get_object_dependencies(obj: bpy.types.Object) -> Set[str]:
+    """Get names of objects that this object depends on (simplified version)."""
+    dependencies = set()
+    
+    # Parent dependency
     try:
-        # Modifiers
-        for m in getattr(obj, "modifiers", []) or []:
-            try:
-                # Known attributes
-                for ident in ("object", "mirror_object", "offset_object", "target", "curve_object", "auxiliary_target"):
-                    try:
-                        if hasattr(m, ident):
-                            tgt = getattr(m, ident)
-                            if isinstance(tgt, bpy.types.Object) and getattr(tgt, "name", ""):
-                                out.add(tgt.name)
-                    except Exception:
-                        pass
-                # Generic RNA value check
-                rna = getattr(m, "bl_rna", None)
-                if rna:
-                    for prop in getattr(rna, "properties", []) or []:
-                        try:
-                            ident = getattr(prop, "identifier", "")
-                            if not ident or ident in {"rna_type", "name"}:
-                                continue
-                            val = getattr(m, ident, None)
-                            if isinstance(val, bpy.types.Object) and getattr(val, "name", ""):
-                                out.add(val.name)
-                        except Exception:
-                            continue
-                # Geometry Nodes
-                try:
-                    if getattr(m, "type", None) == 'NODES':
-                        ng = getattr(m, "node_group", None)
-                        if ng:
-                            for node in getattr(ng, "nodes", []) or []:
-                                try:
-                                    if hasattr(node, "object") and isinstance(node.object, bpy.types.Object) and node.object.name:
-                                        out.add(node.object.name)
-                                except Exception:
-                                    pass
-                                for sock in getattr(node, "inputs", []) or []:
-                                    try:
-                                        if hasattr(sock, "default_value"):
-                                            dv = sock.default_value
-                                            if isinstance(dv, bpy.types.Object) and getattr(dv, "name", ""):
-                                                out.add(dv.name)
-                                    except Exception:
-                                        continue
-                except Exception:
-                    pass
-            except Exception:
-                continue
-        # Constraints
-        for c in getattr(obj, "constraints", []) or []:
-            try:
-                if hasattr(c, "target") and isinstance(c.target, bpy.types.Object) and getattr(c.target, "name", ""):
-                    out.add(c.target.name)
-                rna = getattr(c, "bl_rna", None)
-                if rna:
-                    for prop in getattr(rna, "properties", []) or []:
-                        try:
-                            ident = getattr(prop, "identifier", "")
-                            if not ident or ident in {"rna_type", "name", "target"}:
-                                continue
-                            val = getattr(c, ident, None)
-                            if isinstance(val, bpy.types.Object) and getattr(val, "name", ""):
-                                out.add(val.name)
-                        except Exception:
-                            continue
-            except Exception:
-                continue
-        # Drivers
-        ad = getattr(obj, "animation_data", None)
-        if ad and ad.drivers:
-            for fc in ad.drivers:
-                try:
-                    drv = fc.driver
-                    for var in drv.variables:
-                        for targ in var.targets:
-                            try:
-                                idref = getattr(targ, "id", None)
-                                if isinstance(idref, bpy.types.Object) and getattr(idref, "name", ""):
-                                    out.add(idref.name)
-                            except Exception:
-                                continue
-                except Exception:
-                    continue
+        if obj.parent:
+            dependencies.add(obj.parent.name)
     except Exception:
         pass
-    return out
-
-
-def compute_pointer_dependency_closure(curr_objs: Dict[str, bpy.types.Object], initial_changed: Set[str]) -> Tuple[Set[str], Set[str]]:
-    """Expand changed names to include referenced targets; also return targets not in curr_objs (external).
-
-    Returns (changed_names, external_deps).
-    """
-    changed: Set[str] = set(initial_changed)
-    external: Set[str] = set()
-    if not curr_objs:
-        return changed, external
-    names_in_src = set(curr_objs.keys())
-    stable = False
-    while not stable:
-        before = len(changed)
-        for nm in list(changed):
-            try:
-                obj = curr_objs.get(nm)
-                if not obj:
-                    continue
-                for dep in pointer_targets(obj):
-                    if dep in names_in_src:
-                        changed.add(dep)
-                    else:
-                        external.add(dep)
-            except Exception:
-                continue
-        stable = len(changed) == before
-    return changed, external
-
-
-def remap_scene_pointers(source: bpy.types.Collection, new_dups: Dict[str, bpy.types.Object]) -> None:
-    """Convenience: remap object pointers for new duplicates and other objects in a source collection."""
+    
+    # Modifier dependencies (most common cases)
     try:
-        existing_by_name = build_name_map(source, snapshot=False)
-        resolver = NameResolver(new_dups, existing_by_name)
-        # Remap new duplicates first
-        for obj in (new_dups or {}).values():
+        for modifier in obj.modifiers:
+            if modifier.type == 'MIRROR' and hasattr(modifier, 'mirror_object'):
+                if modifier.mirror_object:
+                    dependencies.add(modifier.mirror_object.name)
+            elif modifier.type == 'ARRAY' and hasattr(modifier, 'offset_object'):
+                if modifier.offset_object:
+                    dependencies.add(modifier.offset_object.name)
+            elif modifier.type == 'ARMATURE' and hasattr(modifier, 'object'):
+                if modifier.object:
+                    dependencies.add(modifier.object.name)
+            elif modifier.type in ['CURVE', 'FOLLOW_PATH'] and hasattr(modifier, 'object'):
+                if modifier.object:
+                    dependencies.add(modifier.object.name)
+    except Exception:
+        pass
+    
+    # Constraint dependencies
+    try:
+        for constraint in obj.constraints:
+            if hasattr(constraint, 'target') and constraint.target:
+                dependencies.add(constraint.target.name)
+    except Exception:
+        pass
+    
+    return dependencies
+
+
+def remap_scene_pointers(source: bpy.types.Collection, new_objects: Dict[str, bpy.types.Object]) -> None:
+    """Simplified scene pointer remapping."""
+    try:
+        existing_objects = build_name_map(source, snapshot=False)
+        
+        # Remap pointers in new objects
+        for obj in (new_objects or {}).values():
             try:
-                remap_object_pointers(obj, resolver)
+                remap_object_pointers(obj, new_objects, existing_objects)
             except Exception:
                 continue
-        # Then all other objects in the source collection
-        for name, obj in list(existing_by_name.items()):
-            if name in new_dups:
-                continue
-            try:
-                remap_object_pointers(obj, resolver)
-            except Exception:
-                pass
+        
+        # Remap pointers in existing objects (excluding the new ones to avoid double-processing)
+        for name, obj in list(existing_objects.items()):
+            if name not in new_objects:
+                try:
+                    remap_object_pointers(obj, new_objects, existing_objects)
+                except Exception:
+                    pass
     except Exception:
         pass
