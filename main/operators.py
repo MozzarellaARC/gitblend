@@ -29,7 +29,7 @@ from .index import (
     compute_collection_signature,
     derive_changed_set,
 )
-from .object_store import (
+from .cas import (
     create_cas_commit,
     get_latest_commit_objects,
     resolve_commit_by_uid,
@@ -578,7 +578,7 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
         if not tree_id:
             self.report({'WARNING'}, "Target commit lacks tree reference.")
             return {'CANCELLED'}
-        from .object_store import flatten_tree_to_objects
+        from .cas import flatten_tree_to_objects
         commit_map = flatten_tree_to_objects(tree_id)
         commit_objs = list(commit_map.values())
         snapshots = list_branch_snapshots_upto_uid(scene, branch, target_uid)

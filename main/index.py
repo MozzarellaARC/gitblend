@@ -3,8 +3,6 @@ from typing import Dict, List, Optional, Tuple, Any
 import bpy
 
 
-
-
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
 

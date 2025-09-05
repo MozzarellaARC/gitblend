@@ -3,7 +3,7 @@ import re
 from math import isclose
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 from .index import compute_collection_signature, derive_changed_set
-from .object_store import get_latest_commit_objects
+from .cas import get_latest_commit_objects
 from .utils import (
     iter_objects_recursive,
     build_name_map,
