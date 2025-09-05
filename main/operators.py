@@ -29,9 +29,8 @@ from .utils import (
 
 from .cas import (
     create_commit,
-    get_latest_commit_objects,
-    resolve_commit_by_uid,
-    list_branch_commits,
+    get_branch_commits,
+    find_commit_by_uid,
     read_commit,
     update_ref,
 )
@@ -58,15 +57,9 @@ class RestoreOperationMixin:
     
     def restore_objects_from_commit(self, source, commit_objs, snapshots, removed_msg_parts):
         """Common logic for restoring objects from a commit."""
-        # Handle simplified CAS format: commit_objs is now a list of object names (strings)
-        if commit_objs and isinstance(commit_objs[0], str):
-            # Simple format: just object names
-            desired_names = [name for name in commit_objs if name]
-            desired_parent = {}  # No parent info in simplified format
-        else:
-            # Legacy format: dictionary objects (backward compatibility)
-            desired_names = [o.get("name", "") for o in commit_objs if o.get("name")]
-            desired_parent = {o.get("name", ""): o.get("parent", "") for o in commit_objs if o.get("name")}
+        # commit_objs is a list of object names (strings)
+        desired_names = [name for name in commit_objs if name]
+        desired_parent = {}  # Parent info not stored in simplified format
 
         # Build maps
         src_map = build_name_map(source, snapshot=False)
@@ -212,7 +205,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         source = scene.collection
 
         # Require existing gitblend Scene created via Initialize
-        dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
+        dot_scene = bpy.data.scenes.get("gitblend")
         if not dot_scene:
             self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}
@@ -233,7 +226,14 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         curr_sigs, _coll_hash = compute_collection_signature(source)
         
         try:
-            latest = get_latest_commit_objects(sel)
+            commits = get_branch_commits(sel, limit=1)
+            if commits:
+                commit_id, commit_data = commits[0]
+                changed_objects = commit_data.get("changed_objects", [])
+                # Create simple object map for consistency with rest of code
+                latest = (commit_id, commit_data, {name: name for name in changed_objects})
+            else:
+                latest = None
         except Exception:
             latest = None
         
@@ -358,7 +358,7 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
     def invoke(self, context, event):
         # Ensure environment is valid before showing prompt
         scene = context.scene
-        has_gitblend = (bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")) is not None
+        has_gitblend = bpy.data.scenes.get("gitblend") is not None
         if not has_gitblend:
             self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}
@@ -380,9 +380,9 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
         if not props:
             self.report({'ERROR'}, "GITBLEND properties not found")
             return {'CANCELLED'}
-        # Require existing .gitblend collection
+        # Require existing gitblend collection
         scene = context.scene
-        has_gitblend = (bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")) is not None
+        has_gitblend = bpy.data.scenes.get("gitblend") is not None
         if not has_gitblend:
             self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}
@@ -440,7 +440,7 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
 
         scene = context.scene
         # Ensure gitblend exists
-        dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
+        dot_scene = bpy.data.scenes.get("gitblend")
         if not dot_scene:
             self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}
@@ -450,7 +450,7 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
         branch = get_selected_branch(props) if props else "main"
 
         # Identify last commit (head) from CAS
-        commits = list_branch_commits(branch)
+        commits = get_branch_commits(branch)
         if not commits:
             self.report({'INFO'}, f"No commits found for branch '{branch}'.")
             return {'CANCELLED'}
@@ -536,7 +536,7 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator, RestoreOperationMixin):
             return {'CANCELLED'}
 
         scene = context.scene
-        dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
+        dot_scene = bpy.data.scenes.get("gitblend")
         if not dot_scene:
             self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}
@@ -548,12 +548,13 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator, RestoreOperationMixin):
         # Restore into the scene's root collection
         source = scene.collection
 
-        latest = get_latest_commit_objects(branch)
-        if not latest:
+        commits = get_branch_commits(branch, limit=1)
+        if not commits:
             self.report({'INFO'}, f"No commit history for branch '{branch}'.")
             return {'CANCELLED'}
-        _cid, _commit, prev_objs = latest
-        commit_objs = list(prev_objs.values())
+        _cid, _commit = commits[0]
+        changed_objects = _commit.get("changed_objects", [])
+        commit_objs = changed_objects  # Now directly a list of object names
         snapshots = self._list_branch_snapshots(scene, branch)
 
         removed_msg_parts = []
@@ -582,7 +583,7 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
             return {'CANCELLED'}
 
         scene = context.scene
-        dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
+        dot_scene = bpy.data.scenes.get("gitblend")
         if not dot_scene:
             self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}
@@ -591,7 +592,7 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
         props = get_props(context)
         branch = get_selected_branch(props) if props else "main"
 
-        commits = list_branch_commits(branch)
+        commits = get_branch_commits(branch)
         if not commits:
             self.report({'INFO'}, f"No commit history for branch '{branch}'.")
             return {'CANCELLED'}
@@ -612,7 +613,7 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
             self.report({'WARNING'}, "Unable to resolve target commit UID.")
             return {'CANCELLED'}
         # Find the target commit by uid
-        resolved = resolve_commit_by_uid(branch, target_uid)
+        resolved = find_commit_by_uid(branch, target_uid)
         if not resolved:
             self.report({'WARNING'}, "Selected commit not found in index.")
             return {'CANCELLED'}

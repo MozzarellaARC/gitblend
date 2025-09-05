@@ -3,7 +3,7 @@ import re
 from math import isclose
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 from .signatures import compute_collection_signature, derive_changed_set
-from .cas import get_latest_commit_objects
+from .cas import get_branch_commits
 from .utils import (
     iter_objects_recursive,
     build_name_map,
@@ -32,25 +32,13 @@ def exclude_collection_in_all_view_layers(scene: bpy.types.Scene, coll: bpy.type
 		if lc:
 			lc.exclude = True
 def _get_or_create_gitblend_scene() -> bpy.types.Scene:
-	"""Find or create a dedicated 'gitblend' Scene to hold snapshots (visible in UI).
-
-	Migration: if a legacy scene named '.gitblend' exists and 'gitblend' does not,
-	rename the legacy scene to 'gitblend'.
-	"""
-	# Prefer visible name without dot
+	"""Find or create a dedicated 'gitblend' Scene to hold snapshots."""
 	scene_name = "gitblend"
 	s = bpy.data.scenes.get(scene_name)
 	if s:
 		return s
-	# Migrate legacy hidden scene name
-	legacy = bpy.data.scenes.get(".gitblend")
-	if legacy and bpy.data.scenes.get(scene_name) is None:
-		try:
-			legacy.name = scene_name
-			return legacy
-		except Exception:
-			pass
-	# Create a new scene; do not switch context here
+	
+	# Create a new scene
 	try:
 		s = bpy.data.scenes.new(scene_name)
 	except Exception:
@@ -156,7 +144,7 @@ def _list_branch_snapshots(scene: bpy.types.Scene, branch: str) -> List[bpy.type
 	Matches names starting with 'branch' (with or without '-<slug>') and ending with '_<uid>'.
 	Sorted by UID descending.
 	"""
-	dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
+	dot_scene = bpy.data.scenes.get("gitblend")
 	if not dot_scene:
 		return []
 	dot_root = dot_scene.collection
@@ -451,14 +439,14 @@ def commit_contains_previous_names(curr: bpy.types.Collection, prev: bpy.types.C
 def should_skip_commit(scene: bpy.types.Scene, curr: bpy.types.Collection, branch: str) -> Tuple[bool, str]:
 	"""Return (skip, reason).
 	Preferred fast path: compare current collection hash with the last commit's stored hash.
-	Fallback: compare against the latest on-disk snapshot in .gitblend.
+	Fallback: compare against the latest snapshot in gitblend.
 	"""
 	# Fast name-based detection using simplified CAS
 	index_reports_unchanged = False
 	try:
-		latest = get_latest_commit_objects(branch)
-		if latest:
-			_cid, _commit, prev_obj_names = latest
+		commits = get_branch_commits(branch, limit=1)
+		if commits:
+			_cid, commit = commits[0]
 			# Get current object names
 			curr_names = set()
 			for obj in iter_objects_recursive(curr):
@@ -466,7 +454,7 @@ def should_skip_commit(scene: bpy.types.Scene, curr: bpy.types.Collection, branc
 					curr_names.add(obj.name)
 			
 			# Simple comparison: if object names changed, something changed
-			prev_names = set(prev_obj_names.keys()) if prev_obj_names else set()
+			prev_names = set(commit.get("object_names", {}).keys()) if commit else set()
 			index_reports_unchanged = (curr_names == prev_names)
 	except Exception:
 		index_reports_unchanged = False
@@ -571,15 +559,6 @@ def _duplicate_collection_hierarchy_diff_recursive(
 	return new_coll
 
 
-def create_diff_snapshot(
-	src: bpy.types.Collection,
-	parent_dot: bpy.types.Collection,
-	uid: str,
-) -> Tuple[bpy.types.Collection, Dict[str, bpy.types.Object]]:
-	"""Backward-compatible wrapper: no previous snapshot or changed set provided."""
-	return _create_diff_snapshot_internal(src, parent_dot, uid, prev_snapshot=None, changed_names=None)
-
-
 def create_diff_snapshot_with_changes(
 	src: bpy.types.Collection,
 	parent_dot: bpy.types.Collection,
@@ -601,7 +580,7 @@ def _create_diff_snapshot_internal(
 	prev_snapshot: Optional[bpy.types.Collection],
 	changed_names: Optional[Set[str]] = None,
 ) -> Tuple[bpy.types.Collection, Dict[str, bpy.types.Object]]:
-	"""Internal helper to support both legacy and explicit-changes flows."""
+	"""Create differential snapshot with optional changed object names."""
 	prev_map: Dict[str, bpy.types.Object] = {}
 
 	curr_objs: Dict[str, bpy.types.Object] = {}

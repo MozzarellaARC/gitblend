@@ -63,9 +63,6 @@ def get_selected_branch(props) -> str:
     return (getattr(props, "gitblend_branch", "") or "").strip() or "main"
 
 
-# Legacy helpers removed: we now always operate on the active scene's root collection
-
-
 def log_change(props, message: str, branch: str | None = None) -> None:
     """Append a message to the change log safely with branch info."""
     try:

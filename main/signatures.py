@@ -343,7 +343,7 @@ def _get_uv_color_attributes_hash(mesh: bpy.types.Mesh) -> str:
                 ]
                 parts.append("|".join(color_data))
         
-        # Vertex colors (legacy, if still present)
+        # Vertex colors (older Blender versions)
         elif hasattr(mesh, "vertex_colors"):
             for vc in mesh.vertex_colors:
                 vc_data = [f"vertex_color:{vc.name}"]
@@ -852,7 +852,7 @@ def compute_object_signature(obj: bpy.types.Object) -> Dict:
         # Other/unknown types - ensure all fields exist
         pass
     
-    # Ensure all signature fields exist (for compatibility)
+    # Ensure all signature fields exist
     defaults = {
         "verts": 0, "edges": 0, "polygons": 0,
         "modifiers": "", "vgroups": "", "uv_meta": "",
@@ -997,6 +997,3 @@ def derive_changed_set(curr_objs: Dict[str, Dict], prev_objs: Dict[str, Dict]) -
 
     changed_list = sorted(changed_set)
     return (len(changed_list) > 0), changed_list
-
-
-## Deprecated JSON index helpers were removed in favor of content-addressed store APIs.

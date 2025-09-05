@@ -48,7 +48,7 @@ class GITBLEND_Panel(bpy.types.Panel):
         layout = self.layout
         scene = context.scene
         # Detect gitblend presence for UI state
-        has_gitblend = (bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")) is not None
+        has_gitblend = bpy.data.scenes.get("gitblend") is not None
         layout.label(icon='CHECKMARK' if has_gitblend else 'ERROR')
 
     def draw(self, context):
@@ -60,7 +60,7 @@ class GITBLEND_Panel(bpy.types.Panel):
             return
 
         # Detect gitblend presence for UI state
-        has_gitblend = (bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")) is not None
+        has_gitblend = bpy.data.scenes.get("gitblend") is not None
 
         # Top row: Initialize left, current branch right
         row = layout.row(align=True)
