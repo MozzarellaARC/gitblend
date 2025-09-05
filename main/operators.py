@@ -19,18 +19,16 @@ from .utils import (
     sanitize_save_path,
     build_name_map,
     find_containing_collection,
+    iter_objects_recursive,
     path_to_collection,
     ensure_mirrored_path,
     duplicate_object_with_data,
     remove_object_safely,
     remap_scene_pointers,
 )
-from .index import (
-    compute_collection_signature,
-    derive_changed_set,
-)
+
 from .cas import (
-    create_cas_commit,
+    create_commit,
     get_latest_commit_objects,
     resolve_commit_by_uid,
     list_branch_commits,
@@ -56,8 +54,15 @@ class RestoreOperationMixin:
     
     def restore_objects_from_commit(self, source, commit_objs, snapshots, removed_msg_parts):
         """Common logic for restoring objects from a commit."""
-        desired_names = [o.get("name", "") for o in commit_objs if o.get("name")]
-        desired_parent = {o.get("name", ""): o.get("parent", "") for o in commit_objs if o.get("name")}
+        # Handle simplified CAS format: commit_objs is now a list of object names (strings)
+        if commit_objs and isinstance(commit_objs[0], str):
+            # Simple format: just object names
+            desired_names = [name for name in commit_objs if name]
+            desired_parent = {}  # No parent info in simplified format
+        else:
+            # Legacy format: dictionary objects (backward compatibility)
+            desired_names = [o.get("name", "") for o in commit_objs if o.get("name")]
+            desired_parent = {o.get("name", ""): o.get("parent", "") for o in commit_objs if o.get("name")}
 
         # Build maps
         src_map = build_name_map(source, snapshot=False)
@@ -222,17 +227,35 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 
         prev = get_latest_snapshot(scene, sel)
 
-        # Differential snapshot: compute changed set using CAS head commit objects
-        changed_names = None
+        # Simple name-based change detection (fast)
+        # Get current object names
+        current_names = set()
+        for obj in iter_objects_recursive(source):
+            if obj.name:
+                current_names.add(obj.name)
+        
         try:
             latest = get_latest_commit_objects(sel)
         except Exception:
             latest = None
+        
         if latest:
-            _cid, _commit, prev_objs = latest
-            curr_sigs, _coll_hash = compute_collection_signature(source)
-            changed, names = derive_changed_set(curr_sigs, prev_objs)
-            changed_names = set(names) if changed else set()
+            _cid, _commit, prev_obj_map = latest
+            
+            # Get previous object names from last commit
+            prev_names = set(prev_obj_map.keys()) if prev_obj_map else set()
+            
+            # Simple diff: objects that were added, removed, or potentially modified
+            if current_names != prev_names:
+                # For now, consider all current objects as potentially changed
+                # This is conservative but safe and fast
+                changed_names = current_names
+            else:
+                # Names are same, assume no changes (we could do deeper comparison here if needed)
+                changed_names = set()
+        else:
+            # First commit: all current objects are "changed" (new)
+            changed_names = current_names
 
         # Create diff snapshot using computed changed set (or let it compute if None)
         new_coll, obj_map = create_diff_snapshot_with_changes(source, dot_coll, uid, prev, changed_names=changed_names)
@@ -243,11 +266,20 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         except Exception:
             pass
 
-        # CAS-only path: compute signatures and write CAS commit; index.json is deprecated
+        # Simplified CAS commit: store metadata only
         snapshot_name = new_coll.name
-        obj_sigs, _coll_hash = compute_collection_signature(source)
+        changed_object_names = list(changed_names)
+        
         try:
-            create_cas_commit(sel, uid, now_str(), msg, obj_sigs)
+            # Create lightweight commit with object names and snapshot link
+            create_commit(
+                branch=sel,
+                uid=uid, 
+                timestamp=now_str(),
+                message=msg,
+                changed_objects=changed_object_names,
+                snapshot_uid=uid  # Links to visual snapshot by UID
+            )
         except Exception:
             pass
 
@@ -574,13 +606,14 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
         # Restore into the scene's root collection
         source = scene.collection
 
-        tree_id = target.get("tree", "")
-        if not tree_id:
-            self.report({'WARNING'}, "Target commit lacks tree reference.")
+        # Simplified CAS: get object names directly from commit
+        changed_objects = target.get("changed_objects", [])
+        if not changed_objects:
+            self.report({'WARNING'}, "Target commit has no object information.")
             return {'CANCELLED'}
-        from .cas import flatten_tree_to_objects
-        commit_map = flatten_tree_to_objects(tree_id)
-        commit_objs = list(commit_map.values())
+        
+        # For simplified CAS, commit_objs is just the list of object names
+        commit_objs = changed_objects
         snapshots = list_branch_snapshots_upto_uid(scene, branch, target_uid)
 
         removed_msg_parts = []

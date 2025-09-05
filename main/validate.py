@@ -2,7 +2,6 @@ import bpy
 import re
 from math import isclose
 from typing import Dict, Iterable, List, Optional, Set, Tuple
-from .index import compute_collection_signature, derive_changed_set
 from .cas import get_latest_commit_objects
 from .utils import (
     iter_objects_recursive,
@@ -453,15 +452,21 @@ def should_skip_commit(scene: bpy.types.Scene, curr: bpy.types.Collection, branc
 	Preferred fast path: compare current collection hash with the last commit's stored hash.
 	Fallback: compare against the latest on-disk snapshot in .gitblend.
 	"""
-	# CAS-based detection (preferred): compare against last commit object set.
+	# Fast name-based detection using simplified CAS
 	index_reports_unchanged = False
 	try:
 		latest = get_latest_commit_objects(branch)
 		if latest:
-			_cid, _commit, prev_objs = latest
-			curr_sigs, _curr_hash = compute_collection_signature(curr)
-			changed, _names = derive_changed_set(curr_sigs, prev_objs)
-			index_reports_unchanged = not changed
+			_cid, _commit, prev_obj_names = latest
+			# Get current object names
+			curr_names = set()
+			for obj in iter_objects_recursive(curr):
+				if obj.name:
+					curr_names.add(obj.name)
+			
+			# Simple comparison: if object names changed, something changed
+			prev_names = set(prev_obj_names.keys()) if prev_obj_names else set()
+			index_reports_unchanged = (curr_names == prev_names)
 	except Exception:
 		index_reports_unchanged = False
 

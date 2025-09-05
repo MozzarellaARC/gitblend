@@ -1,11 +1,15 @@
+"""
+Simplified Content-Addressed Storage for Git Blend
+Focus: Lightweight commit metadata and fast history operations
+"""
 import os
 import json
 import hashlib
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Optional, List, Tuple
 
 
 def _project_root_dir() -> str:
-    # Avoid importing bpy here; rely on caller paths. Fallback to CWD.
+    """Get the project root directory."""
     try:
         import bpy  # type: ignore
         root = bpy.path.abspath("//") or os.getcwd()
@@ -15,161 +19,42 @@ def _project_root_dir() -> str:
 
 
 def _store_root() -> str:
+    """Get the .gitblend store root directory."""
     return os.path.join(_project_root_dir(), ".gitblend")
 
 
-def _objects_dir() -> str:
-    return os.path.join(_store_root(), "objects")
+def _commits_dir() -> str:
+    """Directory for commit metadata files."""
+    return os.path.join(_store_root(), "commits")
 
 
 def _refs_dir() -> str:
+    """Directory for branch references."""
     return os.path.join(_store_root(), "refs", "heads")
 
 
-def get_store_root() -> str:
-    """Public helper to retrieve the .gitblend store root folder."""
-    return _store_root()
-
-
 def _ensure_dirs():
-    os.makedirs(os.path.join(_objects_dir(), "blobs"), exist_ok=True)
-    os.makedirs(os.path.join(_objects_dir(), "trees"), exist_ok=True)
-    os.makedirs(os.path.join(_objects_dir(), "commits"), exist_ok=True)
+    """Create necessary directories."""
+    os.makedirs(_commits_dir(), exist_ok=True)
     os.makedirs(_refs_dir(), exist_ok=True)
 
 
 def _sha256_text(text: str) -> str:
+    """Generate SHA256 hash of text."""
     return hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
 
 
 def _canonical_dumps(data: Dict) -> str:
-    # Stable JSON for hashing
+    """Create canonical JSON string for consistent hashing."""
     return json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
-def _write_json_if_absent(path: str, data: Dict) -> None:
-    if os.path.exists(path):
-        return
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    try:
-        os.replace(tmp, path)
-    except Exception:
-        # Best-effort fallback
-        try:
-            os.remove(tmp)
-        except Exception:
-            pass
-
-
-def _blob_content_from_signature(sig: Dict) -> Dict:
-    """Select deterministic content fields from an object signature for the blob.
-    Excludes naming and collection placement (tree concern), keeps parent and all state fields.
-    """
-    # Keys to exclude from blob content (tree or transport concerns)
-    exclude = {"name", "collection_path"}
-    content = {k: sig[k] for k in sig.keys() if k not in exclude}
-    # Ensure a stable shape: add a version and type tag for future migrations
-    return {
-        "version": 1,
-        "type": "object-blob",
-        "data": content,
-    }
-
-
-def put_blob_from_signature(sig: Dict) -> Tuple[str, str]:
-    """Create a blob from a signature dict. Returns (blob_id, path)."""
-    _ensure_dirs()
-    payload = _blob_content_from_signature(sig)
-    s = _canonical_dumps(payload)
-    blob_id = _sha256_text(s)
-    path = os.path.join(_objects_dir(), "blobs", f"{blob_id}.json")
-    _write_json_if_absent(path, {"kind": "blob", "content": payload})
-    return blob_id, path
-
-
-class _TreeNode:
-    __slots__ = ("objects", "children")
-
-    def __init__(self):
-        self.objects: Dict[str, str] = {}  # object name -> blob_id
-        self.children: Dict[str, "_TreeNode"] = {}  # collection name -> node
-
-
-def _insert_into_tree(root: _TreeNode, coll_path: str, obj_name: str, blob_id: str) -> None:
-    node = root
-    parts = [p for p in (coll_path or "").split("|") if p]
-    for p in parts:
-        node = node.children.setdefault(p, _TreeNode())
-    # Within a collection node, names should be unique; last write wins
-    node.objects[obj_name] = blob_id
-
-
-def _flush_tree(node: _TreeNode) -> Tuple[str, Dict]:
-    """Write tree recursively. Returns (tree_id, tree_file_content)."""
-    # Flush children first to get their IDs
-    children_entries = {}
-    for name in sorted(node.children.keys()):
-        child = node.children[name]
-        child_id, _child_payload = _flush_tree(child)
-        children_entries[name] = child_id
-
-    # Sort objects by name for determinism
-    objects_entries = {k: node.objects[k] for k in sorted(node.objects.keys())}
-
-    content = {
-        "version": 1,
-        "type": "tree",
-        "objects": objects_entries,
-        "children": children_entries,
-    }
-    s = _canonical_dumps(content)
-    tree_id = _sha256_text(s)
-    path = os.path.join(_objects_dir(), "trees", f"{tree_id}.json")
-    _write_json_if_absent(path, {"kind": "tree", "content": content})
-    return tree_id, content
-
-
-def write_tree_from_signatures(obj_sigs: Dict[str, Dict]) -> Tuple[str, Dict[str, str]]:
-    """Create blobs and a tree from object signatures.
-    Returns (tree_id, name_to_blob_id).
-    """
-    _ensure_dirs()
-    root = _TreeNode()
-    mapping: Dict[str, str] = {}
-    for nm, sig in obj_sigs.items():
-        try:
-            blob_id, _ = put_blob_from_signature(sig)
-            mapping[nm] = blob_id
-            coll_path = sig.get("collection_path", "") or ""
-            _insert_into_tree(root, coll_path, nm, blob_id)
-        except Exception:
-            # Skip any object that fails to serialize
-            continue
-    tree_id, _ = _flush_tree(root)
-    return tree_id, mapping
-
-
-def read_ref(branch: str) -> Optional[str]:
-    try:
-        path = os.path.join(_refs_dir(), branch)
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                val = f.read().strip()
-                return val or None
-    except Exception:
-        pass
-    return None
-
-
-def update_ref(branch: str, commit_id: str) -> None:
-    _ensure_dirs()
-    path = os.path.join(_refs_dir(), branch)
+def _write_json_atomic(path: str, data: Dict) -> None:
+    """Write JSON file atomically using temporary file."""
     tmp = path + ".tmp"
     try:
         with open(tmp, "w", encoding="utf-8") as f:
-            f.write(commit_id)
+            json.dump(data, f, ensure_ascii=False, sort_keys=True, indent=2)
         os.replace(tmp, path)
     except Exception:
         try:
@@ -178,42 +63,8 @@ def update_ref(branch: str, commit_id: str) -> None:
             pass
 
 
-def write_commit(tree_id: str, uid: str, timestamp: str, message: str, parent: Optional[str] = None) -> str:
-    _ensure_dirs()
-    content = {
-        "version": 1,
-        "type": "commit",
-        "tree": tree_id,
-        "parents": [parent] if parent else [],
-        "uid": uid,
-        "timestamp": timestamp,
-        "message": message,
-    }
-    s = _canonical_dumps(content)
-    commit_id = _sha256_text(s)
-    path = os.path.join(_objects_dir(), "commits", f"{commit_id}.json")
-    _write_json_if_absent(path, {"kind": "commit", "content": content})
-    return commit_id
-
-
-def create_cas_commit(branch: str, uid: str, timestamp: str, message: str, obj_sigs: Dict[str, Dict]) -> Tuple[str, str]:
-    """High-level helper used by the operator: write blobs/trees/commit and update the branch ref.
-    Returns (commit_id, tree_id).
-    """
-    tree_id, _ = write_tree_from_signatures(obj_sigs)
-    parent = read_ref(branch)
-    commit_id = write_commit(tree_id, uid, timestamp, message, parent)
-    update_ref(branch, commit_id)
-    return commit_id, tree_id
-
-
-# ===================== Reading / Query helpers =====================
-
-def _objects_paths(kind: str, oid: str) -> str:
-    return os.path.join(_objects_dir(), kind, f"{oid}.json")
-
-
 def _read_json(path: str) -> Optional[Dict]:
+    """Read JSON file safely."""
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -221,108 +72,202 @@ def _read_json(path: str) -> Optional[Dict]:
         return None
 
 
-def read_commit(commit_id: str) -> Optional[Dict]:
-    p = _objects_paths("commits", commit_id)
-    data = _read_json(p)
-    if not data:
-        return None
-    return data.get("content") or data
+# ===================== Core Commit Operations =====================
 
-
-def read_tree(tree_id: str) -> Optional[Dict]:
-    p = _objects_paths("trees", tree_id)
-    data = _read_json(p)
-    if not data:
-        return None
-    return data.get("content") or data
-
-
-def read_blob(blob_id: str) -> Optional[Dict]:
-    p = _objects_paths("blobs", blob_id)
-    data = _read_json(p)
-    if not data:
-        return None
-    return data.get("content") or data
-
-
-def flatten_tree_to_objects(tree_id: str) -> Dict[str, Dict]:
-    """Return name->signature-like dicts reconstructed from the tree and blobs.
-    Adds 'name' and 'collection_path' so consumers can compare with current signatures.
+def create_commit(branch: str, uid: str, timestamp: str, message: str, 
+                 changed_objects: List[str], snapshot_uid: str) -> str:
     """
-    def walk(node_id: str, path_parts: List[str], out: Dict[str, Dict]):
-        node = read_tree(node_id)
-        if not node:
-            return
-        objects = node.get("objects", {}) or {}
-        for nm, bid in objects.items():
-            b = read_blob(bid)
-            if not b:
-                continue
-            data = dict(b.get("data", {}))
-            data["name"] = nm
-            data["collection_path"] = "|".join(path_parts)
-            out[nm] = data
-        children = node.get("children", {}) or {}
-        for cname in sorted(children.keys()):
-            walk(children[cname], path_parts + [cname], out)
+    Create a lightweight commit focused on metadata and history.
+    
+    Args:
+        branch: Branch name
+        uid: Unique timestamp identifier
+        timestamp: Human-readable timestamp
+        message: Commit message
+        changed_objects: List of object names that changed
+        snapshot_uid: UID linking to visual snapshot in Blender
+    
+    Returns:
+        commit_id: SHA256 hash of the commit
+    """
+    _ensure_dirs()
+    
+    # Get parent commit
+    parent = read_ref(branch)
+    
+    # Create lightweight commit metadata
+    commit_data = {
+        "version": "2.0",  # Simplified version
+        "uid": uid,
+        "timestamp": timestamp,
+        "message": message,
+        "branch": branch,
+        "parent": parent,
+        "changed_objects": sorted(changed_objects),
+        "snapshot_uid": snapshot_uid,  # Links to visual snapshot
+        "object_count": len(changed_objects)
+    }
+    
+    # Generate deterministic commit ID
+    commit_id = _sha256_text(_canonical_dumps(commit_data))
+    
+    # Store commit
+    commit_path = os.path.join(_commits_dir(), f"{commit_id}.json")
+    if not os.path.exists(commit_path):  # Only write if doesn't exist
+        _write_json_atomic(commit_path, commit_data)
+    
+    # Update branch reference
+    update_ref(branch, commit_id)
+    
+    return commit_id
 
-    out: Dict[str, Dict] = {}
-    walk(tree_id, [], out)
-    return out
 
-
-def get_branch_head_commit(branch: str) -> Optional[Tuple[str, Dict]]:
-    """Return (commit_id, commit_content) for branch head, if any."""
-    cid = read_ref(branch)
-    if not cid:
+def read_commit(commit_id: str) -> Optional[Dict]:
+    """Read commit by ID."""
+    if not commit_id:
         return None
-    c = read_commit(cid)
-    if not c:
+    commit_path = os.path.join(_commits_dir(), f"{commit_id}.json")
+    return _read_json(commit_path)
+
+
+def get_commit_objects(commit_id: str) -> List[str]:
+    """Get list of changed objects for a commit."""
+    commit = read_commit(commit_id)
+    if not commit:
+        return []
+    return commit.get("changed_objects", [])
+
+
+def get_commit_snapshot_uid(commit_id: str) -> Optional[str]:
+    """Get the snapshot UID linked to this commit."""
+    commit = read_commit(commit_id)
+    if not commit:
         return None
-    return cid, c
+    return commit.get("snapshot_uid")
 
 
-def get_latest_commit_objects(branch: str) -> Optional[Tuple[str, Dict, Dict[str, Dict]]]:
-    """Return (commit_id, commit_content, objs_map) for branch head."""
-    head = get_branch_head_commit(branch)
-    if not head:
-        return None
-    cid, commit = head
-    tree_id = commit.get("tree")
-    if not tree_id:
-        return None
-    objs = flatten_tree_to_objects(tree_id)
-    return cid, commit, objs
+# ===================== Branch References =====================
 
-
-def resolve_commit_by_uid(branch: str, uid: str) -> Optional[Tuple[str, Dict]]:
-    """Walk parents from branch head to find a commit with matching uid. Returns (id, content)."""
-    seen: set[str] = set()
-    cur = read_ref(branch)
-    while cur and cur not in seen:
-        seen.add(cur)
-        c = read_commit(cur)
-        if not c:
-            break
-        if str(c.get("uid", "")) == str(uid):
-            return cur, c
-        parents = c.get("parents", []) or []
-        cur = parents[0] if parents else None
+def read_ref(branch: str) -> Optional[str]:
+    """Read branch reference (HEAD commit ID)."""
+    try:
+        ref_path = os.path.join(_refs_dir(), branch)
+        if os.path.exists(ref_path):
+            with open(ref_path, "r", encoding="utf-8") as f:
+                return f.read().strip() or None
+    except Exception:
+        pass
     return None
 
 
-def list_branch_commits(branch: str, limit: int = 1000) -> List[Tuple[str, Dict]]:
-    """Return a linear list from head back to root (first parent), up to 'limit'."""
-    res: List[Tuple[str, Dict]] = []
-    seen: set[str] = set()
-    cur = read_ref(branch)
-    while cur and cur not in seen and len(res) < limit:
-        seen.add(cur)
-        c = read_commit(cur)
-        if not c:
-            break
-        res.append((cur, c))
-        parents = c.get("parents", []) or []
-        cur = parents[0] if parents else None
-    return res
+def update_ref(branch: str, commit_id: str) -> None:
+    """Update branch reference to point to commit."""
+    _ensure_dirs()
+    ref_path = os.path.join(_refs_dir(), branch)
+    tmp_path = ref_path + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(commit_id)
+        os.replace(tmp_path, ref_path)
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
 
+
+# ===================== History Operations =====================
+
+def get_branch_commits(branch: str, limit: int = 100) -> List[Tuple[str, Dict]]:
+    """
+    Get commit history for a branch (fast metadata operation).
+    
+    Returns:
+        List of (commit_id, commit_data) tuples in reverse chronological order
+    """
+    commits = []
+    seen = set()
+    current = read_ref(branch)
+    
+    while current and current not in seen and len(commits) < limit:
+        seen.add(current)
+        commit_data = read_commit(current)
+        if not commit_data:
+            break
+        
+        commits.append((current, commit_data))
+        current = commit_data.get("parent")
+    
+    return commits
+
+
+def get_commits_between(branch: str, from_uid: str, to_uid: str) -> List[Tuple[str, Dict]]:
+    """Get commits between two UIDs (exclusive of from_uid, inclusive of to_uid)."""
+    commits = get_branch_commits(branch)
+    result = []
+    found_to = False
+    
+    for commit_id, commit_data in commits:
+        commit_uid = commit_data.get("uid", "")
+        
+        if commit_uid == to_uid:
+            found_to = True
+            result.append((commit_id, commit_data))
+        elif found_to and commit_uid == from_uid:
+            break
+        elif found_to:
+            result.append((commit_id, commit_data))
+    
+    return result
+
+
+def find_commit_by_uid(branch: str, uid: str) -> Optional[Tuple[str, Dict]]:
+    """Find commit by UID in branch history."""
+    commits = get_branch_commits(branch)
+    for commit_id, commit_data in commits:
+        if commit_data.get("uid") == uid:
+            return (commit_id, commit_data)
+    return None
+
+
+def get_changed_objects_between_commits(branch: str, from_uid: str, to_uid: str) -> List[str]:
+    """Get all objects that changed between two commits (fast metadata operation)."""
+    commits = get_commits_between(branch, from_uid, to_uid)
+    changed = set()
+    
+    for _, commit_data in commits:
+        changed_objects = commit_data.get("changed_objects", [])
+        changed.update(changed_objects)
+    
+    return sorted(list(changed))
+
+
+# ===================== Backward Compatibility =====================
+
+def get_latest_commit_objects(branch: str) -> Optional[Tuple[str, Dict, Dict[str, str]]]:
+    """
+    Backward compatibility function.
+    Returns (commit_id, commit_data, object_names_map) where object_names_map
+    is a simple dict of {object_name: object_name} for compatibility.
+    """
+    commits = get_branch_commits(branch, limit=1)
+    if not commits:
+        return None
+    
+    commit_id, commit_data = commits[0]
+    changed_objects = commit_data.get("changed_objects", [])
+    
+    # Simple object map for compatibility
+    object_map = {name: name for name in changed_objects}
+    
+    return commit_id, commit_data, object_map
+
+
+def resolve_commit_by_uid(branch: str, uid: str) -> Optional[Tuple[str, Dict]]:
+    """Backward compatibility wrapper for find_commit_by_uid."""
+    return find_commit_by_uid(branch, uid)
+
+
+def list_branch_commits(branch: str, limit: int = 100) -> List[Tuple[str, Dict]]:
+    """Backward compatibility wrapper for get_branch_commits."""
+    return get_branch_commits(branch, limit)
