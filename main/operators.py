@@ -35,6 +35,10 @@ from .cas import (
     read_commit,
     update_ref,
 )
+from .index import (
+    compute_collection_signature,
+    derive_changed_set,
+)
 
 
 class RestoreOperationMixin:
@@ -227,12 +231,9 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 
         prev = get_latest_snapshot(scene, sel)
 
-        # Simple name-based change detection (fast)
-        # Get current object names
-        current_names = set()
-        for obj in iter_objects_recursive(source):
-            if obj.name:
-                current_names.add(obj.name)
+        # Hybrid change detection: detailed but efficient
+        # Compute current signatures for accurate change detection
+        curr_sigs, _coll_hash = compute_collection_signature(source)
         
         try:
             latest = get_latest_commit_objects(sel)
@@ -242,23 +243,41 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         if latest:
             _cid, _commit, prev_obj_map = latest
             
-            # Get previous object names from last commit
-            prev_names = set(prev_obj_map.keys()) if prev_obj_map else set()
-            
-            # Simple diff: objects that were added, removed, or potentially modified
-            if current_names != prev_names:
-                # For now, consider all current objects as potentially changed
-                # This is conservative but safe and fast
-                changed_names = current_names
+            # Get previous snapshot and compute its signatures for comparison
+            if prev:
+                try:
+                    prev_sigs, _ = compute_collection_signature(prev)
+                    # Use detailed change detection
+                    has_changes, changed_object_names = derive_changed_set(curr_sigs, prev_sigs)
+                    
+                    if not has_changes:
+                        self.report({"INFO"}, f"Nothing in {sel} changed: no commit required")
+                        return {"CANCELLED"}
+                except Exception:
+                    # Fall back to simple name-based comparison if signature computation fails
+                    curr_names = set(curr_sigs.keys())
+                    prev_names = set(prev_obj_map.keys())
+                    changed_object_names = list(curr_names.symmetric_difference(prev_names))
+                    if not changed_object_names:
+                        changed_object_names = list(curr_names)  # Conservative: assume all changed
             else:
-                # Names are same, assume no changes (we could do deeper comparison here if needed)
-                changed_names = set()
+                # No previous snapshot, use simple name comparison
+                curr_names = set(curr_sigs.keys())
+                prev_names = set(prev_obj_map.keys())
+                changed_object_names = list(curr_names) if curr_names != prev_names else []
+                if not changed_object_names:
+                    self.report({"INFO"}, f"Nothing in {sel} changed: no commit required")
+                    return {"CANCELLED"}
+                
         else:
             # First commit: all current objects are "changed" (new)
-            changed_names = current_names
+            changed_object_names = list(curr_sigs.keys())
+            
+        print(f"Changed objects: {changed_object_names}")
 
-        # Create diff snapshot using computed changed set (or let it compute if None)
-        new_coll, obj_map = create_diff_snapshot_with_changes(source, dot_coll, uid, prev, changed_names=changed_names)
+        # Create diff snapshot using computed changed set
+        changed_names_set = set(changed_object_names) if changed_object_names else set()
+        new_coll, obj_map = create_diff_snapshot_with_changes(source, dot_coll, uid, prev, changed_names=changed_names_set)
         # Rename snapshot collection to follow our branch/message naming convention (ensure unique)
         try:
             desired = unique_coll_name(snapshot_base_name, uid)
@@ -268,7 +287,6 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 
         # Simplified CAS commit: store metadata only
         snapshot_name = new_coll.name
-        changed_object_names = list(changed_names)
         
         try:
             # Create lightweight commit with object names and snapshot link
