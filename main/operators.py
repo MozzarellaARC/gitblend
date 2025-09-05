@@ -35,7 +35,7 @@ from .cas import (
     read_commit,
     update_ref,
 )
-from .index import (
+from .signatures import (
     compute_collection_signature,
     derive_changed_set,
 )
