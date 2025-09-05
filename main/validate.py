@@ -8,6 +8,8 @@ from .utils import (
     iter_objects_recursive,
     build_name_map,
     duplicate_object_with_data,
+)
+from .pointers import (
 	remap_references_for_objects,
 	get_object_dependencies,
 )

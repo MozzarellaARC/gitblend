@@ -24,6 +24,9 @@ from .utils import (
     ensure_mirrored_path,
     duplicate_object_with_data,
     remove_object_safely,
+)
+
+from .pointers import (
     remap_scene_pointers,
 )
 
