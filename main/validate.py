@@ -9,7 +9,7 @@ from .utils import (
     build_name_map,
     duplicate_object_with_data,
 )
-from .pointers import (
+from .utils_ptrs import (
 	remap_references_for_objects,
 	get_object_dependencies,
 )

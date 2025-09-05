@@ -26,7 +26,7 @@ from .utils import (
     remove_object_safely,
 )
 
-from .pointers import (
+from .utils_ptrs import (
     remap_scene_pointers,
 )
 
