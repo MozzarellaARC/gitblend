@@ -255,7 +255,8 @@ def remove_object_safely(obj: bpy.types.Object) -> bool:
 
 def _find_replacement_object(target_name: str, new_objects: Dict[str, bpy.types.Object], 
                            existing_objects: Dict[str, bpy.types.Object]) -> Optional[bpy.types.Object]:
-    """Find replacement object, preferring new objects over existing ones."""
+    """Find replacement object, preferring new objects over existing ones.
+    Also handles objects with gitblend_orig_name metadata."""
     if not target_name:
         return None
     
@@ -263,11 +264,48 @@ def _find_replacement_object(target_name: str, new_objects: Dict[str, bpy.types.
     if target_name in new_objects:
         return new_objects[target_name]
     
+    # Try to find by original name in new objects (for gitblend snapshot objects)
+    for obj in (new_objects or {}).values():
+        try:
+            orig_name = obj.get("gitblend_orig_name", "")
+            if orig_name and orig_name == target_name:
+                return obj
+        except Exception:
+            pass
+    
     # Fall back to existing objects
     if target_name in existing_objects:
         return existing_objects[target_name]
     
+    # Try to find by original name in existing objects
+    for obj in (existing_objects or {}).values():
+        try:
+            orig_name = obj.get("gitblend_orig_name", "")
+            if orig_name and orig_name == target_name:
+                return obj
+        except Exception:
+            pass
+    
+    # Last resort: strip snapshot suffixes and try again
+    base_target_name = get_original_name_from_string(target_name)
+    if base_target_name != target_name:
+        # Try the base name
+        if base_target_name in new_objects:
+            return new_objects[base_target_name]
+        if base_target_name in existing_objects:
+            return existing_objects[base_target_name]
+    
     return None
+
+
+def get_original_name_from_string(name: str) -> str:
+    """Extract original name by removing _<digits> suffixes."""
+    if not name:
+        return ""
+    # Remove snapshot naming suffixes like _20231201120000 or _20231201120000-1
+    import re
+    m = re.search(r"_(\d{10,20})(?:-\d+)?$", name)
+    return name[:m.start()] if m else name
 
 
 def remap_object_pointers(obj: bpy.types.Object, new_objects: Dict[str, bpy.types.Object], 
@@ -278,6 +316,14 @@ def remap_object_pointers(obj: bpy.types.Object, new_objects: Dict[str, bpy.type
     try:
         if obj.parent:
             parent_name = obj.parent.name
+            # Also try original name if it exists
+            try:
+                parent_orig_name = obj.parent.get("gitblend_orig_name", "")
+                if parent_orig_name:
+                    parent_name = parent_orig_name
+            except Exception:
+                pass
+            
             new_parent = _find_replacement_object(parent_name, new_objects, existing_objects)
             if new_parent and new_parent != obj.parent:
                 obj.parent = new_parent
@@ -290,7 +336,7 @@ def remap_object_pointers(obj: bpy.types.Object, new_objects: Dict[str, bpy.type
             # Mirror modifier
             if modifier.type == 'MIRROR' and hasattr(modifier, 'mirror_object'):
                 if modifier.mirror_object:
-                    target_name = modifier.mirror_object.name
+                    target_name = _get_reference_name(modifier.mirror_object)
                     new_target = _find_replacement_object(target_name, new_objects, existing_objects)
                     if new_target:
                         modifier.mirror_object = new_target
@@ -299,7 +345,7 @@ def remap_object_pointers(obj: bpy.types.Object, new_objects: Dict[str, bpy.type
             # Array modifier
             elif modifier.type == 'ARRAY' and hasattr(modifier, 'offset_object'):
                 if modifier.offset_object:
-                    target_name = modifier.offset_object.name
+                    target_name = _get_reference_name(modifier.offset_object)
                     new_target = _find_replacement_object(target_name, new_objects, existing_objects)
                     if new_target:
                         modifier.offset_object = new_target
@@ -307,7 +353,7 @@ def remap_object_pointers(obj: bpy.types.Object, new_objects: Dict[str, bpy.type
             # Armature modifier
             elif modifier.type == 'ARMATURE' and hasattr(modifier, 'object'):
                 if modifier.object:
-                    target_name = modifier.object.name
+                    target_name = _get_reference_name(modifier.object)
                     new_target = _find_replacement_object(target_name, new_objects, existing_objects)
                     if new_target:
                         modifier.object = new_target
@@ -315,7 +361,7 @@ def remap_object_pointers(obj: bpy.types.Object, new_objects: Dict[str, bpy.type
             # Curve modifier
             elif modifier.type in ['CURVE', 'FOLLOW_PATH'] and hasattr(modifier, 'object'):
                 if modifier.object:
-                    target_name = modifier.object.name
+                    target_name = _get_reference_name(modifier.object)
                     new_target = _find_replacement_object(target_name, new_objects, existing_objects)
                     if new_target:
                         modifier.object = new_target
@@ -326,12 +372,29 @@ def remap_object_pointers(obj: bpy.types.Object, new_objects: Dict[str, bpy.type
     try:
         for constraint in obj.constraints:
             if hasattr(constraint, 'target') and constraint.target:
-                target_name = constraint.target.name
+                target_name = _get_reference_name(constraint.target)
                 new_target = _find_replacement_object(target_name, new_objects, existing_objects)
                 if new_target:
                     constraint.target = new_target
     except Exception:
         pass
+
+
+def _get_reference_name(target_obj: bpy.types.Object) -> str:
+    """Get the best name to use for finding a replacement object."""
+    if not target_obj:
+        return ""
+    
+    # Try original name first (for gitblend snapshot objects)
+    try:
+        orig_name = target_obj.get("gitblend_orig_name", "")
+        if orig_name:
+            return orig_name
+    except Exception:
+        pass
+    
+    # Fall back to current name
+    return target_obj.name or ""
 
 
 def remap_references_for_objects(new_objects: Dict[str, bpy.types.Object], 

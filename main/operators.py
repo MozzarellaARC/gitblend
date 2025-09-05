@@ -123,10 +123,7 @@ class RestoreOperationMixin:
 
             new_dups[nm] = dup
 
-        # Remap pointers BEFORE deleting old ones
-        remap_scene_pointers(source, new_dups)
-
-        # Set parents
+        # Set parents FIRST (before any other remapping)
         for nm, dup in new_dups.items():
             pnm = desired_parent.get(nm, "")
             target_parent = new_dups.get(pnm) or src_map.get(pnm) if pnm else None
@@ -159,14 +156,14 @@ class RestoreOperationMixin:
                         pass
                 remaining.clear()
 
-        # Rename duplicates
+        # Rename duplicates to final names BEFORE remapping pointers
         for nm, dup in new_dups.items():
             try:
                 dup.name = nm
             except Exception:
                 pass
 
-        # Final pointer remap after renaming to ensure any temporary wiring resolves to final names
+        # FINAL pointer remap AFTER renaming - this ensures objects can find each other by final names
         try:
             remap_scene_pointers(source, new_dups)
         except Exception:
