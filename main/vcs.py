@@ -62,9 +62,26 @@ def try_pygit2_commit(branch: str, message: str, uid: str) -> Tuple[bool, str]:
         workdir = repo.workdir or repo_dir
         index_rel = _get_index_relpath(workdir)
 
-        # Stage index.json
+        # Stage index.json and CAS dirs if present
+        stage_items = [index_rel]
         try:
-            repo.index.add(index_rel)
+            # Try to include content-addressed store
+            for d in ("objects", "refs"):
+                p = os.path.join(workdir, d)
+                if os.path.exists(p):
+                    stage_items.append(d)
+        except Exception:
+            pass
+
+        try:
+            try:
+                repo.index.add_all(stage_items)
+            except Exception:
+                for it in stage_items:
+                    try:
+                        repo.index.add(it)
+                    except Exception:
+                        pass
             repo.index.write()
         except Exception as e:
             return False, f"stage_failed:{e}"

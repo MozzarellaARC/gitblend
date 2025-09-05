@@ -34,6 +34,7 @@ from .index import (
     get_latest_commit,
 )
 from .vcs import try_pygit2_commit
+from .object_store import create_cas_commit
 
 
 class RestoreOperationMixin:
@@ -244,7 +245,29 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         # Compute signatures after snapshot to record exact state
         obj_sigs, coll_hash = compute_collection_signature(source)
         index = load_index()
-        index = update_index_with_commit(index, sel, uid, now_str(), msg, snapshot_name, obj_sigs, coll_hash)
+        # Also write content-addressed objects (blobs/trees/commit) and record IDs alongside the legacy index
+        try:
+            cas_commit_id, cas_tree_id = create_cas_commit(sel, uid, now_str(), msg, obj_sigs)
+        except Exception:
+            cas_commit_id, cas_tree_id = "", ""
+        index = update_index_with_commit(
+            index,
+            sel,
+            uid,
+            now_str(),
+            msg,
+            snapshot_name,
+            obj_sigs,
+            coll_hash,
+        )
+        # Attach CAS pointers non-destructively for future use
+        try:
+            b = index.setdefault("branches", {}).setdefault(sel, {}).setdefault("commits", [])
+            if b:
+                b[-1]["cas_commit_id"] = cas_commit_id
+                b[-1]["cas_tree_id"] = cas_tree_id
+        except Exception:
+            pass
         save_index(index)
 
         # Optional: commit index.json to a local Git repo in .gitblend via pygit2
