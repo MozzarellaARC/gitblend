@@ -29,7 +29,6 @@ from .index import (
     compute_collection_signature,
     derive_changed_set,
 )
-from .vcs import try_pygit2_commit
 from .object_store import (
     create_cas_commit,
     get_latest_commit_objects,
@@ -249,13 +248,6 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         obj_sigs, _coll_hash = compute_collection_signature(source)
         try:
             create_cas_commit(sel, uid, now_str(), msg, obj_sigs)
-        except Exception:
-            pass
-
-        # Optional: commit index.json to a local Git repo in .gitblend via pygit2
-        try:
-            ok_git, reason = try_pygit2_commit(sel, msg, uid)
-            _ = (ok_git, reason)
         except Exception:
             pass
 
