@@ -1,32 +1,8 @@
-import os
 import hashlib
-import json
 from typing import Dict, List, Optional, Tuple, Any
 import bpy
 
 
-def _project_root_dir() -> str:
-    # Blender relative // points to the .blend directory
-    root = bpy.path.abspath("//") or os.getcwd()
-    return root
-
-
-def _index_dir() -> str:
-    return os.path.join(_project_root_dir(), ".gitblend")
-
-
-def get_index_path() -> str:
-    # Primary JSON index path (new format)
-    return os.path.join(_index_dir(), "index.json")
-
-
-def _legacy_index_toml_path() -> str:
-    # Legacy TOML index path (for backward compatibility reads)
-    return os.path.join(_index_dir(), "index.toml")
-
-
-def _ensure_index_dir():
-    os.makedirs(_index_dir(), exist_ok=True)
 
 
 def _sha256(text: str) -> str:
@@ -989,63 +965,6 @@ def _iter_collections_objects(coll: bpy.types.Collection):
         yield from _iter_collections_objects(c)
 
 
-def load_index() -> Dict:
-    """Load the Git Blend index, preferring JSON (new), falling back to legacy TOML.
-    If TOML is found and parsed, return its data without writing; save_index will persist as JSON on next write.
-    """
-    json_path = get_index_path()
-    if os.path.exists(json_path):
-        try:
-            with open(json_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception:
-            data = {"branches": {}}
-        if "branches" not in data or not isinstance(data.get("branches"), dict):
-            data["branches"] = {}
-        return data
-
-    # Fallback: legacy TOML read (best-effort)
-    toml_path = _legacy_index_toml_path()
-    if os.path.exists(toml_path):
-        try:
-            # Python 3.11+ stdlib tomllib (optional)
-            import tomllib  # type: ignore
-
-            with open(toml_path, "rb") as f:
-                data = tomllib.load(f)
-            if "branches" not in data or not isinstance(data.get("branches"), dict):
-                data["branches"] = {}
-            return data
-        except Exception:
-            pass
-    return {"branches": {}}
-
-
-def save_index(data: Dict) -> None:
-    """Save the index as pretty-printed JSON."""
-    _ensure_index_dir()
-    path = get_index_path()
-    # Ensure top-level structure validity
-    if not isinstance(data, dict):
-        data = {"branches": {}}
-    if "branches" not in data or not isinstance(data.get("branches"), dict):
-        data["branches"] = {}
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception:
-        # Best-effort; ignore write failures silently in addon context
-        pass
-
-
-def get_latest_commit(index: Dict, branch: str) -> Optional[Dict]:
-    b = (index.get("branches", {})).get(branch)
-    if not b:
-        return None
-    commits = b.get("commits", [])
-    if not commits:
-        return None
-    return commits[-1]
 
 
 def derive_changed_set(curr_objs: Dict[str, Dict], prev_objs: Dict[str, Dict]) -> Tuple[bool, List[str]]:
@@ -1082,20 +1001,4 @@ def derive_changed_set(curr_objs: Dict[str, Dict], prev_objs: Dict[str, Dict]) -
     return (len(changed_list) > 0), changed_list
 
 
-def update_index_with_commit(index: Dict, branch: str, uid: str, timestamp: str, message: str,
-                             snapshot_name: str, obj_sigs: Dict[str, Dict], collection_hash: str) -> Dict:
-    b = index.setdefault("branches", {}).setdefault(branch, {"head": {}, "commits": []})
-    commit_obj_list = []
-    for nm in sorted(obj_sigs.keys()):
-        commit_obj_list.append(obj_sigs[nm])
-    commit = {
-        "uid": uid,
-        "timestamp": timestamp,
-        "message": message,
-        "snapshot": snapshot_name,
-        "collection_hash": collection_hash,
-        "objects": commit_obj_list,
-    }
-    b["commits"].append(commit)
-    b["head"] = {"uid": uid, "snapshot": snapshot_name, "timestamp": timestamp}
-    return index
+## Deprecated JSON index helpers were removed in favor of content-addressed store APIs.

@@ -1,27 +1,17 @@
 import os
 from typing import Tuple
 
-# Lightweight, optional pygit2 integration for committing .gitblend/index.json
+# Lightweight, optional pygit2 integration for committing .gitblend store
 # This module is safe to import even if pygit2 isn't installed.
 
 
-def _get_index_dir() -> str:
+def _get_store_dir() -> str:
     try:
-        from .index import get_index_path
-        p = get_index_path()
-        return os.path.dirname(p)
+        from .object_store import get_store_root
+        return get_store_root()
     except Exception:
-        # Fallback to current working directory if index import fails
+        # Fallback to current working directory if store import fails
         return os.getcwd()
-
-
-def _get_index_relpath(workdir: str) -> str:
-    try:
-        from .index import get_index_path
-        p = get_index_path()
-        return os.path.relpath(p, workdir)
-    except Exception:
-        return "index.json"
 
 
 def _default_signature():
@@ -32,7 +22,7 @@ def _default_signature():
 
 
 def try_pygit2_commit(branch: str, message: str, uid: str) -> Tuple[bool, str]:
-    """Attempt to commit .gitblend/index.json using pygit2 on the given branch.
+    """Attempt to commit .gitblend store using pygit2 on the given branch.
 
     Returns (ok, reason). If pygit2 isn't available or an error occurs, returns (False, reason).
     This function never raises.
@@ -43,7 +33,7 @@ def try_pygit2_commit(branch: str, message: str, uid: str) -> Tuple[bool, str]:
         return False, "pygit2_not_available"
 
     try:
-        repo_dir = _get_index_dir()
+        repo_dir = _get_store_dir()
         os.makedirs(repo_dir, exist_ok=True)
 
         repo = None
@@ -60,10 +50,9 @@ def try_pygit2_commit(branch: str, message: str, uid: str) -> Tuple[bool, str]:
                 return False, f"init_failed:{e}"
 
         workdir = repo.workdir or repo_dir
-        index_rel = _get_index_relpath(workdir)
 
-        # Stage index.json and CAS dirs if present
-        stage_items = [index_rel]
+        # Stage CAS dirs if present
+        stage_items = []
         try:
             # Try to include content-addressed store
             for d in ("objects", "refs"):

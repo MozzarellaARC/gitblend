@@ -26,6 +26,11 @@ def _refs_dir() -> str:
     return os.path.join(_store_root(), "refs", "heads")
 
 
+def get_store_root() -> str:
+    """Public helper to retrieve the .gitblend store root folder."""
+    return _store_root()
+
+
 def _ensure_dirs():
     os.makedirs(os.path.join(_objects_dir(), "blobs"), exist_ok=True)
     os.makedirs(os.path.join(_objects_dir(), "trees"), exist_ok=True)
