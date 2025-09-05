@@ -1,7 +1,7 @@
 import os
 import json
 import hashlib
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 
 
 def _project_root_dir() -> str:
@@ -200,3 +200,124 @@ def create_cas_commit(branch: str, uid: str, timestamp: str, message: str, obj_s
     commit_id = write_commit(tree_id, uid, timestamp, message, parent)
     update_ref(branch, commit_id)
     return commit_id, tree_id
+
+
+# ===================== Reading / Query helpers =====================
+
+def _objects_paths(kind: str, oid: str) -> str:
+    return os.path.join(_objects_dir(), kind, f"{oid}.json")
+
+
+def _read_json(path: str) -> Optional[Dict]:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def read_commit(commit_id: str) -> Optional[Dict]:
+    p = _objects_paths("commits", commit_id)
+    data = _read_json(p)
+    if not data:
+        return None
+    return data.get("content") or data
+
+
+def read_tree(tree_id: str) -> Optional[Dict]:
+    p = _objects_paths("trees", tree_id)
+    data = _read_json(p)
+    if not data:
+        return None
+    return data.get("content") or data
+
+
+def read_blob(blob_id: str) -> Optional[Dict]:
+    p = _objects_paths("blobs", blob_id)
+    data = _read_json(p)
+    if not data:
+        return None
+    return data.get("content") or data
+
+
+def flatten_tree_to_objects(tree_id: str) -> Dict[str, Dict]:
+    """Return name->signature-like dicts reconstructed from the tree and blobs.
+    Adds 'name' and 'collection_path' so consumers can compare with current signatures.
+    """
+    def walk(node_id: str, path_parts: List[str], out: Dict[str, Dict]):
+        node = read_tree(node_id)
+        if not node:
+            return
+        objects = node.get("objects", {}) or {}
+        for nm, bid in objects.items():
+            b = read_blob(bid)
+            if not b:
+                continue
+            data = dict(b.get("data", {}))
+            data["name"] = nm
+            data["collection_path"] = "|".join(path_parts)
+            out[nm] = data
+        children = node.get("children", {}) or {}
+        for cname in sorted(children.keys()):
+            walk(children[cname], path_parts + [cname], out)
+
+    out: Dict[str, Dict] = {}
+    walk(tree_id, [], out)
+    return out
+
+
+def get_branch_head_commit(branch: str) -> Optional[Tuple[str, Dict]]:
+    """Return (commit_id, commit_content) for branch head, if any."""
+    cid = read_ref(branch)
+    if not cid:
+        return None
+    c = read_commit(cid)
+    if not c:
+        return None
+    return cid, c
+
+
+def get_latest_commit_objects(branch: str) -> Optional[Tuple[str, Dict, Dict[str, Dict]]]:
+    """Return (commit_id, commit_content, objs_map) for branch head."""
+    head = get_branch_head_commit(branch)
+    if not head:
+        return None
+    cid, commit = head
+    tree_id = commit.get("tree")
+    if not tree_id:
+        return None
+    objs = flatten_tree_to_objects(tree_id)
+    return cid, commit, objs
+
+
+def resolve_commit_by_uid(branch: str, uid: str) -> Optional[Tuple[str, Dict]]:
+    """Walk parents from branch head to find a commit with matching uid. Returns (id, content)."""
+    seen: set[str] = set()
+    cur = read_ref(branch)
+    while cur and cur not in seen:
+        seen.add(cur)
+        c = read_commit(cur)
+        if not c:
+            break
+        if str(c.get("uid", "")) == str(uid):
+            return cur, c
+        parents = c.get("parents", []) or []
+        cur = parents[0] if parents else None
+    return None
+
+
+def list_branch_commits(branch: str, limit: int = 1000) -> List[Tuple[str, Dict]]:
+    """Return a linear list from head back to root (first parent), up to 'limit'."""
+    res: List[Tuple[str, Dict]] = []
+    seen: set[str] = set()
+    cur = read_ref(branch)
+    while cur and cur not in seen and len(res) < limit:
+        seen.add(cur)
+        c = read_commit(cur)
+        if not c:
+            break
+        res.append((cur, c))
+        parents = c.get("parents", []) or []
+        cur = parents[0] if parents else None
+    return res
+

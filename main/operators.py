@@ -26,15 +26,18 @@ from .utils import (
     remap_scene_pointers,
 )
 from .index import (
-    load_index,
-    save_index,
     compute_collection_signature,
-    update_index_with_commit,
     derive_changed_set,
-    get_latest_commit,
 )
 from .vcs import try_pygit2_commit
-from .object_store import create_cas_commit
+from .object_store import (
+    create_cas_commit,
+    get_latest_commit_objects,
+    resolve_commit_by_uid,
+    list_branch_commits,
+    read_commit,
+    update_ref,
+)
 
 
 class RestoreOperationMixin:
@@ -220,13 +223,14 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 
         prev = get_latest_snapshot(scene, sel)
 
-        # Differential snapshot: compute changed set via index signatures to be robust to previous diff snapshots
-        index = load_index()
-        last = get_latest_commit(index, sel)
+        # Differential snapshot: compute changed set using CAS head commit objects
         changed_names = None
-        if last:
-            # Build prev objs dict from last commit entries
-            prev_objs = {o.get("name", ""): o for o in (last.get("objects", []) or []) if o.get("name")}
+        try:
+            latest = get_latest_commit_objects(sel)
+        except Exception:
+            latest = None
+        if latest:
+            _cid, _commit, prev_objs = latest
             curr_sigs, _coll_hash = compute_collection_signature(source)
             changed, names = derive_changed_set(curr_sigs, prev_objs)
             changed_names = set(names) if changed else set()
@@ -240,35 +244,13 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         except Exception:
             pass
 
-        # Update index (stored as JSON)
+        # CAS-only path: compute signatures and write CAS commit; index.json is deprecated
         snapshot_name = new_coll.name
-        # Compute signatures after snapshot to record exact state
-        obj_sigs, coll_hash = compute_collection_signature(source)
-        index = load_index()
-        # Also write content-addressed objects (blobs/trees/commit) and record IDs alongside the legacy index
+        obj_sigs, _coll_hash = compute_collection_signature(source)
         try:
-            cas_commit_id, cas_tree_id = create_cas_commit(sel, uid, now_str(), msg, obj_sigs)
-        except Exception:
-            cas_commit_id, cas_tree_id = "", ""
-        index = update_index_with_commit(
-            index,
-            sel,
-            uid,
-            now_str(),
-            msg,
-            snapshot_name,
-            obj_sigs,
-            coll_hash,
-        )
-        # Attach CAS pointers non-destructively for future use
-        try:
-            b = index.setdefault("branches", {}).setdefault(sel, {}).setdefault("commits", [])
-            if b:
-                b[-1]["cas_commit_id"] = cas_commit_id
-                b[-1]["cas_tree_id"] = cas_tree_id
+            create_cas_commit(sel, uid, now_str(), msg, obj_sigs)
         except Exception:
             pass
-        save_index(index)
 
         # Optional: commit index.json to a local Git repo in .gitblend via pygit2
         try:
@@ -428,15 +410,20 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
         props = get_props(context)
         branch = get_selected_branch(props) if props else "main"
 
-        index = load_index()
-        b = (index.get("branches", {})).get(branch)
-        if not b or not b.get("commits"):
+        # Identify last commit (head) from CAS
+        commits = list_branch_commits(branch)
+        if not commits:
             self.report({'INFO'}, f"No commits found for branch '{branch}'.")
             return {'CANCELLED'}
-
-        commits = b.get("commits", [])
-        last = commits[-1]
-        snap_name = last.get("snapshot", "")
+        # Head commit
+        last_id, last_commit = commits[0]
+        last_uid = str(last_commit.get('uid', ''))
+        snap_name = None
+        for c in list(dot_coll.children):
+            nm = c.name or ""
+            if last_uid and nm.endswith(last_uid):
+                snap_name = nm
+                break
 
         # Delete snapshot collection if present
         snap_coll = None
@@ -456,25 +443,18 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
                 # If removal fails, keep going but notify
                 self.report({'WARNING'}, f"Snapshot collection '{snap_name}' could not be fully removed.")
 
-        # Pop the commit and rewind head
-        commits.pop()
-        if commits:
-            prev = commits[-1]
-            b["head"] = {
-                "uid": prev.get("uid", ""),
-                "snapshot": prev.get("snapshot", ""),
-                "timestamp": prev.get("timestamp", ""),
-            }
-        else:
-            b["head"] = {}
-
-        save_index(index)
+        # Move branch ref to parent commit (undo head)
+        try:
+            c = read_commit(last_id)
+            parents = (c.get('parents', []) if c else []) or []
+            parent_id = parents[0] if parents else ""
+            update_ref(branch, parent_id)
+        except Exception:
+            pass
 
         # Pop from UI change log if available (remove most recent entry for this branch)
-        props = get_props(context)
         if props:
             try:
-                last_uid = last.get("uid", "")
                 # remove last matching branch entry; prefer matching UID
                 rm_idx = -1
                 for i in range(len(props.changes_log) - 1, -1, -1):
@@ -490,10 +470,8 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
 
         # Optionally restore working collection to the new HEAD commit state
         try:
-            remaining_commits = (b.get("commits", []) if b else [])
-            if remaining_commits:
-                # Reconstruct scene to match the latest commit after undo
-                bpy.ops.gitblend.discard_changes()
+            # Reconstruct scene to match the latest commit after undo
+            bpy.ops.gitblend.discard_changes()
         except Exception:
             pass
         request_redraw()
@@ -531,13 +509,12 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator, RestoreOperationMixin):
         # Restore into the scene's root collection
         source = scene.collection
 
-        index = load_index()
-        last = get_latest_commit(index, branch)
-        if not last:
+        latest = get_latest_commit_objects(branch)
+        if not latest:
             self.report({'INFO'}, f"No commit history for branch '{branch}'.")
             return {'CANCELLED'}
-
-        commit_objs = last.get("objects", []) or []
+        _cid, _commit, prev_objs = latest
+        commit_objs = list(prev_objs.values())
         snapshots = self._list_branch_snapshots(scene, branch)
 
         removed_msg_parts = []
@@ -575,9 +552,7 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
         props = get_props(context)
         branch = get_selected_branch(props) if props else "main"
 
-        index = load_index()
-        b = (index.get("branches", {})).get(branch) or {}
-        commits = b.get("commits", []) or []
+        commits = list_branch_commits(branch)
         if not commits:
             self.report({'INFO'}, f"No commit history for branch '{branch}'.")
             return {'CANCELLED'}
@@ -587,27 +562,33 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
         try:
             if props and 0 <= props.changes_log_index < len(props.changes_log):
                 selected = props.changes_log[props.changes_log_index]
-                # Ensure branch matches current filter
                 if (getattr(selected, "branch", "") or "").strip() == branch:
                     target_uid = getattr(selected, "uid", "") or ""
         except Exception:
             target_uid = ""
-        # Fallback to latest if no uid on selected (older entries)
-        if not target_uid:
-            target_uid = commits[-1].get("uid", "")
+        # Fallback to latest commit uid
+        if not target_uid and commits:
+            target_uid = commits[0][1].get("uid", "")
         if not target_uid:
             self.report({'WARNING'}, "Unable to resolve target commit UID.")
             return {'CANCELLED'}
         # Find the target commit by uid
-        target = next((c for c in commits if str(c.get("uid", "")) == str(target_uid)), None)
-        if not target:
+        resolved = resolve_commit_by_uid(branch, target_uid)
+        if not resolved:
             self.report({'WARNING'}, "Selected commit not found in index.")
             return {'CANCELLED'}
+        target_id, target = resolved
 
         # Restore into the scene's root collection
         source = scene.collection
 
-        commit_objs = target.get("objects", []) or []
+        tree_id = target.get("tree", "")
+        if not tree_id:
+            self.report({'WARNING'}, "Target commit lacks tree reference.")
+            return {'CANCELLED'}
+        from .object_store import flatten_tree_to_objects
+        commit_map = flatten_tree_to_objects(tree_id)
+        commit_objs = list(commit_map.values())
         snapshots = list_branch_snapshots_upto_uid(scene, branch, target_uid)
 
         removed_msg_parts = []
@@ -616,7 +597,7 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
         request_redraw()
         # Derive position for messaging
         try:
-            pos = next((i for i, c in enumerate(commits) if str(c.get("uid", "")) == str(target_uid)), -1)
+            pos = next((i for i, (_id, c) in enumerate(commits) if str(c.get("uid", "")) == str(target_uid)), -1)
         except Exception:
             pos = -1
         msg = f"Checked out commit {pos+1 if pos>=0 else '?'}/{len(commits)}"

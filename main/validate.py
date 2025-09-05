@@ -2,7 +2,8 @@ import bpy
 import re
 from math import isclose
 from typing import Dict, Iterable, List, Optional, Set, Tuple
-from .index import load_index, get_latest_commit, compute_collection_signature, derive_changed_set
+from .index import compute_collection_signature, derive_changed_set
+from .object_store import get_latest_commit_objects
 from .utils import (
     iter_objects_recursive,
     build_name_map,
@@ -452,23 +453,16 @@ def should_skip_commit(scene: bpy.types.Scene, curr: bpy.types.Collection, branc
 	Preferred fast path: compare current collection hash with the last commit's stored hash.
 	Fallback: compare against the latest on-disk snapshot in .gitblend.
 	"""
-	# Index-based detection (preferred): compare against last commit object set.
+	# CAS-based detection (preferred): compare against last commit object set.
 	index_reports_unchanged = False
 	try:
-		index = load_index()
-		last = get_latest_commit(index, branch)
-		if last:
-			curr_sigs, curr_hash = compute_collection_signature(curr)
-			prev_objs = {o.get("name", ""): o for o in (last.get("objects", []) or []) if o.get("name")}
-			# Quick win: if hashes match and objects identical, mark unchanged
-			if str(last.get("collection_hash", "")) == str(curr_hash):
-				index_reports_unchanged = True
-			else:
-				# Authoritative per-object diff using the index
-				changed, _names = derive_changed_set(curr_sigs, prev_objs)
-				index_reports_unchanged = not changed
+		latest = get_latest_commit_objects(branch)
+		if latest:
+			_cid, _commit, prev_objs = latest
+			curr_sigs, _curr_hash = compute_collection_signature(curr)
+			changed, _names = derive_changed_set(curr_sigs, prev_objs)
+			index_reports_unchanged = not changed
 	except Exception:
-		# If index isn't available or hashing fails, continue with snapshot comparison
 		index_reports_unchanged = False
 
 	# Fallback to snapshot-based comparison
