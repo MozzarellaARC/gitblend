@@ -1,82 +1,70 @@
-# Directory-agnostic Blender add-on packager
-# - Finds the nearest ancestor containing both __init__.py and blender_manifest.toml
-# - Reads id and version from blender_manifest.toml
-# - Creates dist/<id>-<version>.zip with only: __init__.py, blender_manifest.toml, and the main folder
-
 $ErrorActionPreference = 'Stop'
 
-function Find-AddonRoot {
-	param(
-		[string]$StartPath
-	)
-	$dir = (Resolve-Path -Path $StartPath).Path
-	if ((Get-Item $dir) -isnot [System.IO.DirectoryInfo]) {
-		$dir = (Get-Item $dir).Directory.FullName
-	}
-	while ($true) {
-		$initPath = Join-Path $dir '__init__.py'
-		$manifestPath = Join-Path $dir 'blender_manifest.toml'
-		if ((Test-Path -Path $initPath) -and (Test-Path -Path $manifestPath)) {
-			return $dir
-		}
-		$parent = [System.IO.Directory]::GetParent($dir)
-		if ($null -eq $parent) { break }
-		$dir = $parent.FullName
-	}
-	return $null
+# Resolve repo root to the folder containing this script
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location $ScriptDir
+
+$ManifestPath = Join-Path $ScriptDir 'blender_manifest.toml'
+if (!(Test-Path -LiteralPath $ManifestPath)) {
+	throw "blender_manifest.toml not found at $ManifestPath"
 }
+
+$manifestText = Get-Content -LiteralPath $ManifestPath -Raw
 
 function Get-TomlStringValue {
 	param(
-		[Parameter(Mandatory)] [string]$TomlContent,
-		[Parameter(Mandatory)] [string]$Key
+		[Parameter(Mandatory=$true)][string]$Text,
+		[Parameter(Mandatory=$true)][string]$Key
 	)
-	# Matches: key = "value" or key = 'value' at the start of a line
-	$pattern = '(?m)^\s*' + [Regex]::Escape($Key) + '\s*=\s*([''"])(?<val>.*?)\1\s*(?:#.*)?$'
-	$match = [Regex]::Match($TomlContent, $pattern)
-	if ($match.Success) { return $match.Groups['val'].Value.Trim() }
+	# Matches lines like: key = "value"
+	$escapedKey = [regex]::Escape($Key)
+	$pattern = '^\s*' + $escapedKey + '\s*=\s*"([^"]+)"'
+	$m = [regex]::Match($Text, $pattern, [System.Text.RegularExpressions.RegexOptions]::Multiline)
+	if ($m.Success) { return $m.Groups[1].Value }
 	return $null
 }
 
-try {
-	$start = Get-Location
-	$root = Find-AddonRoot -StartPath $start.Path
-	if (-not $root) {
-		throw "Could not find a directory containing both __init__.py and blender_manifest.toml starting from '$($start.Path)'."
-	}
+$id = Get-TomlStringValue -Text $manifestText -Key 'id'
+$version = Get-TomlStringValue -Text $manifestText -Key 'version'
 
-	$manifestPath = Join-Path $root 'blender_manifest.toml'
-	if (-not (Test-Path $manifestPath)) { throw "Missing blender_manifest.toml at '$root'" }
-	$toml = Get-Content -Path $manifestPath -Raw -ErrorAction Stop
-
-	$id = Get-TomlStringValue -TomlContent $toml -Key 'id'
-	$version = Get-TomlStringValue -TomlContent $toml -Key 'version'
-
-	if ([string]::IsNullOrWhiteSpace($id)) { throw "Could not parse 'id' from blender_manifest.toml" }
-	if ([string]::IsNullOrWhiteSpace($version)) { throw "Could not parse 'version' from blender_manifest.toml" }
-
-	# Output zip at the same level as blender_manifest.toml (project root)
-	$zipName = "$id-$version.zip"
-	$zipPath = Join-Path $root $zipName
-	if (Test-Path $zipPath) { Remove-Item -Path $zipPath -Force }
-
-	$items = @('blender_manifest.toml', '__init__.py')
-	$mainDir = Join-Path $root 'main'
-	if (Test-Path $mainDir) { $items += 'main' } else { Write-Host "Warning: 'main' folder not found at root; only top-level files will be packaged." -ForegroundColor Yellow }
-
-	Push-Location $root
-	try {
-		# Only include the specified paths from the root
-		Compress-Archive -Path $items -DestinationPath $zipPath
-	}
-	finally {
-		Pop-Location
-	}
-
-	Write-Host "Created: $zipPath" -ForegroundColor Green
+if ([string]::IsNullOrWhiteSpace($id)) {
+	throw "Unable to parse 'id' from blender_manifest.toml"
 }
-catch {
-	Write-Error $_
-	exit 1
+if ([string]::IsNullOrWhiteSpace($version)) {
+	throw "Unable to parse 'version' from blender_manifest.toml"
 }
+
+$zipName = "$id-$version.zip"
+
+## Always output to ./dist
+$destDir = Join-Path $ScriptDir 'dist'
+if (!(Test-Path -LiteralPath $destDir)) {
+	New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+}
+
+$destPath = Join-Path $destDir $zipName
+
+# Collect items to include
+$includeNames = @('locales', 'main', 'pref', 'utils', '__init__.py', 'blender_manifest.toml')
+$pathsToZip = @()
+foreach ($name in $includeNames) {
+	$p = Join-Path $ScriptDir $name
+	if (Test-Path -LiteralPath $p) {
+		$pathsToZip += $p
+	} else {
+		Write-Warning "Skipping missing item: $name"
+	}
+}
+
+if ($pathsToZip.Count -eq 0) {
+	throw "No files found to package."
+}
+
+if (Test-Path -LiteralPath $destPath) {
+	Remove-Item -LiteralPath $destPath -Force
+}
+
+Compress-Archive -LiteralPath $pathsToZip -DestinationPath $destPath -CompressionLevel Optimal
+
+Write-Host "Created package: $destPath"
 
