@@ -18,3 +18,6 @@ Purpose: Utilize Git like version control concepts within Blender, leveraging Gi
     - headless instance path `"C:\Program Files\Blender Foundation\Blender 4.2\blender.exe"`
     - headless instance appends selected object from current instance of Blender (not headless)
     - headless instance saves to a new `.blend` file
+
+## Specifics
+- bpy will aways available no matter what, do not try/except arround bpy

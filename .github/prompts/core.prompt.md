@@ -2,6 +2,7 @@
 mode: agent
 ---
 # Core Architecture
+- bpy is always available even in headless mode and even if any error occurs.
 - A git like vcs, that utilize git and git-lfs binaries.
 - There should be no stray properties
 - All properties should be stored inside PropertyGroup except for the properties unrelated to bpy

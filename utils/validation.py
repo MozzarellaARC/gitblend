@@ -4,10 +4,7 @@ import os
 import re
 from typing import Iterable, List
 
-try:
-    import bpy  # type: ignore
-except Exception:  # pragma: no cover - when imported headless without bpy
-    bpy = None  # type: ignore
+import bpy  # type: ignore
 
 
 class ValidationError(RuntimeError):
@@ -19,8 +16,6 @@ BLENDER_EXE_HINT = r"C:\\Program Files\\Blender Foundation\\Blender 4.2\\blender
 
 def require_saved_blend(context=None) -> str:
     """Ensure the current .blend is saved and return its directory path."""
-    if bpy is None:
-        raise ValidationError("bpy is not available in this context")
     current_file = bpy.data.filepath
     if not current_file:
         raise ValidationError("Please save the current .blend file first")
@@ -48,18 +43,6 @@ def get_headless_script(addon_root: str, script_name: str) -> str:
 
 
 def resolve_blender_exe() -> str:
-    """Resolve Blender executable path with a hint and bpy fallback."""
-    # Prefer the hint, then bpy.app.binary_path
-    if os.path.exists(BLENDER_EXE_HINT):
-        return BLENDER_EXE_HINT
-    try:
-        if bpy and getattr(bpy.app, 'binary_path', None):  # type: ignore[attr-defined]
-            path = bpy.app.binary_path  # type: ignore[attr-defined]
-            if path and os.path.exists(path):
-                return path
-    except Exception:
-        pass
-    # Last resort: return hint (will be checked by caller)
     return BLENDER_EXE_HINT
 
 
