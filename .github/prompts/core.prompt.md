@@ -13,3 +13,4 @@ mode: agent
 - All subpackages should have an __init__.py file where modules are registered and unregistered.
 - Do not register and unregister on the module level.
 - Do not use modal operators or timer based update handlers.
+- Blender doesn't allow partial export to .blend, we need to navigate Blender from the cli to bypass this limitation.

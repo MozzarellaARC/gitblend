@@ -29,3 +29,5 @@ Purpose: Utilize Git like version control concepts within Blender, leveraging Gi
 ## Confirmation
 - Any debugging related code must be asked and confirmed with me before being added.
 - Never ask for anything related to legacy code or deprecated libraries, just remove immediately.
+
+## Architecture
