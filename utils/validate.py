@@ -2,8 +2,8 @@ import bpy
 import re
 from math import isclose
 from typing import Dict, Iterable, List, Optional, Set, Tuple
-from .signatures import compute_collection_signature, derive_changed_set
-from .cas import get_branch_commits
+from ..main.signatures import compute_collection_signature, derive_changed_set
+from ..main.cas import get_branch_commits
 from .utils import (
     iter_objects_recursive,
     build_name_map,

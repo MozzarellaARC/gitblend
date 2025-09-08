@@ -1,5 +1,5 @@
 import bpy
-from .utils import get_selected_branch
+from ..utils.utils import get_selected_branch
 
 class GITBLEND_UL_ChangeLog(bpy.types.UIList):
     bl_idname = "GITBLEND_UL_ChangeLog"

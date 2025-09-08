@@ -21,10 +21,7 @@ def request_redraw() -> None:
                     area.tag_redraw()
                 except Exception:
                     pass
-    try:
-        bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-    except Exception:
-        pass
+    # Avoid timer-based redraws per project conventions
 
 
 def get_props(context) -> bpy.types.PropertyGroup | None:
