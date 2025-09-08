@@ -14,13 +14,11 @@ class GITBLEND_OT_commit(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        # 1) Collect selected objects
-        selected = list(context.selected_objects)
-        if not selected:
-            self.report({'WARNING'}, 'No objects selected to commit.')
+        # 1) Collect all objects in the active scene (full-scene commit)
+        object_names = [obj.name for obj in context.scene.objects]
+        if not object_names:
+            self.report({'WARNING'}, 'Scene has no objects to commit.')
             return {'CANCELLED'}
-
-        object_names = [obj.name for obj in selected]
 
         # 2) Create a temporary copy of the current .blend as source for appending
         tmp_dir = tempfile.mkdtemp(prefix="gitblend_")
@@ -139,5 +137,5 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         except Exception:
             pass
 
-        self.report({'INFO'}, f'Committed selected objects to {output_blend}')
+        self.report({'INFO'}, f'Committed scene diff to {output_blend}')
         return {'FINISHED'}

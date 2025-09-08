@@ -11,4 +11,4 @@ class GITBLEND_Panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         col = layout.column(align=True)
-        col.operator("gitblend.commit", text="Commit Selected", icon='FILE_TICK')
+        col.operator("gitblend.commit", text="Commit Scene", icon='FILE_TICK')
