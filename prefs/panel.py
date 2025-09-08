@@ -97,8 +97,6 @@ class GITBLEND_Panel(bpy.types.Panel):
 
         commits = _get_cached_log(dot_gitblend, max_count=15)
         has_msg = bool((getattr(context.scene, 'gitblend_commit_message', '') or '').strip())
-        if not has_msg:
-            col.label(text="Enter a commit message.", icon='INFO')
         if not commits:
             col.operator("gitblend.commit", text="Initialize Git Blend", icon='FILE_TICK')
         else:
