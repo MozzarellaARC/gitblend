@@ -16,7 +16,7 @@ from ..utils.validation import (
     get_user_commit_message,
 )
 
-BLENDER_EXE = r"C:\\Program Files\\Blender Foundation\\Blender 4.2\\blender.exe"
+# Blender executable resolution is centralized in utils.validation.resolve_blender_exe
 
 class GITBLEND_OT_commit(bpy.types.Operator):
     bl_idname = "gitblend.commit"
@@ -25,10 +25,10 @@ class GITBLEND_OT_commit(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        # 0) Require a non-empty commit message for better history hygiene
+        # 0) Require a non-empty commit message for better history hygiene (also for initialization)
         raw_msg = get_user_commit_message(context)
         if not raw_msg:
-            self.report({'ERROR'}, 'Commit message is required.')
+            self.report({'ERROR'}, 'Commit message is required (also for initialization).')
             return {'CANCELLED'}
 
         # 1) Collect all objects in the active scene (full-scene commit)

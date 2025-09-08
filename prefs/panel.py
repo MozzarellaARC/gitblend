@@ -79,29 +79,33 @@ class GITBLEND_Panel(bpy.types.Panel):
         dot_gitblend = get_dot_gitblend(working_root)
 
         if not is_repo(dot_gitblend):
-            # Always show a button: use commit as the initializer fallback
+            # Show message field even before initialization so user can provide a message
+            row = col.row(align=True)
+            row.prop(context.scene, "gitblend_commit_message", text="Commit message")
+            has_msg = bool((getattr(context.scene, 'gitblend_commit_message', '') or '').strip())
+            if not has_msg:
+                col.label(text="Enter a commit message.", icon='INFO')
             col.operator("gitblend.commit", text="Initialize Git Blend", icon='FILE_NEW')
-            col.label(text=f"Repo: {dot_gitblend}")
             return
 
         # Repo exists: message input, commit action and recent commits
         row = col.row(align=True)
-        row.prop(context.scene, "gitblend_commit_message", text="Message")
+        row.prop(context.scene, "gitblend_commit_message", text="Commit message")
 
         header = col.row(align=True)
         header.operator("gitblend.refresh", text="Refresh", icon='FILE_REFRESH')
 
         commits = _get_cached_log(dot_gitblend, max_count=15)
         has_msg = bool((getattr(context.scene, 'gitblend_commit_message', '') or '').strip())
+        if not has_msg:
+            col.label(text="Enter a commit message.", icon='INFO')
         if not commits:
-            b = col.operator("gitblend.commit", text="Initialize Git Blend", icon='FILE_TICK')
-            b.enabled = has_msg
+            col.operator("gitblend.commit", text="Initialize Git Blend", icon='FILE_TICK')
         else:
-            b = col.operator("gitblend.commit", text="Commit Scene", icon='FILE_TICK')
-            b.enabled = has_msg
+            col.operator("gitblend.commit", text="Commit Scene", icon='FILE_TICK')
 
         box = layout.box()
-        box.label(text="Recent Commits", icon='TEXT')
+        box.label(text="Recent commits", icon='TEXT')
         branch = _get_cached_branch(dot_gitblend) or ""
         if not commits:
             box.label(text=f"{branch} No commits yet.")

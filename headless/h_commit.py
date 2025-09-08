@@ -46,19 +46,36 @@ def get_utils_template_path() -> str:
     return os.path.join(addon_root, 'utils', 'template.blend')
 
 
+def _open_template_or_exit(template_path: str):
+    if not os.path.exists(template_path):
+        print(f"[git_blend] ERROR: Template not found: {template_path}")
+        sys.exit(1)
+    res = bpy.ops.wm.open_mainfile(filepath=template_path)
+    if res != {'FINISHED'}:
+        print(f"[git_blend] ERROR: Failed to open template: {template_path}")
+        sys.exit(1)
+
+
+def _save_output_or_exit(output_path: str):
+    try:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    except Exception:
+        pass
+    result = bpy.ops.wm.save_as_mainfile(filepath=output_path, copy=False)
+    if result != {'FINISHED'}:
+        print("[git_blend] ERROR: Failed to save output blend")
+        sys.exit(3)
+    if not os.path.exists(output_path):
+        print(f"[git_blend] ERROR: Save reported success but file missing: {output_path}")
+        sys.exit(4)
+
+
 def main():
     args = parse_args(sys.argv)
 
     # Open the template .blend from utils as the base file
     template_path = get_utils_template_path()
-    if not os.path.exists(template_path):
-        print(f"[git_blend] ERROR: Template not found: {template_path}")
-        sys.exit(1)
-
-    res = bpy.ops.wm.open_mainfile(filepath=template_path)
-    if res != {'FINISHED'}:
-        print(f"[git_blend] ERROR: Failed to open template: {template_path}")
-        sys.exit(1)
+    _open_template_or_exit(template_path)
 
     # Determine object sets via content hashing (delegated)
     current_names, current_hashes, added, removed, changed, to_import = decide_changes(
@@ -74,19 +91,7 @@ def main():
         print("[git_blend] ERROR: No objects imported; aborting save.")
         sys.exit(2)
 
-    # Ensure output directory exists (extra safety)
-    try:
-        os.makedirs(os.path.dirname(args.output), exist_ok=True)
-    except Exception:
-        pass
-
-    result = bpy.ops.wm.save_as_mainfile(filepath=args.output, copy=False)
-    if result != {'FINISHED'}:
-        print("[git_blend] ERROR: Failed to save output blend")
-        sys.exit(3)
-    if not os.path.exists(args.output):
-        print(f"[git_blend] ERROR: Save reported success but file missing: {args.output}")
-        sys.exit(4)
+    _save_output_or_exit(args.output)
 
     # Write manifest if requested
     if args.manifest:
