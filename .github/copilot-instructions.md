@@ -2,6 +2,9 @@
 
 Purpose: Utilize Git like version control concepts within Blender, leveraging Git and Git LFS for storage, while adhering to Blender's architecture and conventions.
 
+## Best practices for prompting
+- Check for prompts in `.github/prompts/` for specific guidelines.
+
 ## Big picture (read first)
 - Dual storage model (see ARCHITECTURE.md):
     - Scene duplicates for diffing snapshots
