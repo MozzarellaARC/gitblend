@@ -6,6 +6,11 @@ from .properties import (
 	GITBLEND_ChangeLogEntry,
 )
 
+from .panel import (
+	GITBLEND_UL_ChangeLog,
+	GITBLEND_Panel,
+)
+
 __all__ = (
 	"register_properties",
 	"unregister_properties",
@@ -34,11 +39,12 @@ def register_properties():
 	_safe_register(GITBLEND_ChangeLogEntry)
 	_safe_register(GITBLEND_StringItem)
 	_safe_register(GITBLEND_Properties)
-
+	_safe_register(GITBLEND_UL_ChangeLog)
+	_safe_register(GITBLEND_Panel)
+	
 	# Attach to Scene once
 	if not hasattr(bpy.types.Scene, "gitblend_props"):
 		bpy.types.Scene.gitblend_props = bpy.props.PointerProperty(type=GITBLEND_Properties)
-
 
 def unregister_properties():
 	# Remove Scene property first to drop references
@@ -48,6 +54,9 @@ def unregister_properties():
 		except Exception:
 			pass
 	# Unregister PropertyGroups (reverse order)
+ 
 	_safe_unregister(GITBLEND_Properties)
 	_safe_unregister(GITBLEND_StringItem)
 	_safe_unregister(GITBLEND_ChangeLogEntry)
+	_safe_unregister(GITBLEND_UL_ChangeLog)
+	_safe_unregister(GITBLEND_Panel)
