@@ -1,6 +1,7 @@
 import bpy  # type: ignore
 import sys
 import argparse
+import os
 
 
 def parse_args(argv):
@@ -17,11 +18,11 @@ def parse_args(argv):
     return parser.parse_args(argv)
 
 
-def ensure_empty_scene():
-    # Create a new empty scene to avoid startup primitives
-    # Using factory-startup should already be empty, but be defensive.
-    for obj in list(bpy.data.objects):
-        bpy.data.objects.remove(obj, do_unlink=True)
+def get_utils_template_path() -> str:
+    # This script is located in .../git_blend/main/headless_commit.py
+    # utils dir lives at .../git_blend/utils/template.blend
+    addon_root = os.path.dirname(os.path.dirname(__file__))
+    return os.path.join(addon_root, 'utils', 'template.blend')
 
 
 def append_objects(source_blend: str, object_names: list[str]):
@@ -44,7 +45,17 @@ def append_objects(source_blend: str, object_names: list[str]):
 
 def main():
     args = parse_args(sys.argv)
-    ensure_empty_scene()
+
+    # Open the template .blend from utils as the base file
+    template_path = get_utils_template_path()
+    if not os.path.exists(template_path):
+        print(f"[git_blend] ERROR: Template not found: {template_path}")
+        sys.exit(1)
+
+    res = bpy.ops.wm.open_mainfile(filepath=template_path)
+    if res != {'FINISHED'}:
+        print(f"[git_blend] ERROR: Failed to open template: {template_path}")
+        sys.exit(1)
 
     imported = append_objects(args.source, args.object)
     if not imported:
