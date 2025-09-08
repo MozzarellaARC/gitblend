@@ -2,6 +2,22 @@ import bpy  # type: ignore
 import hashlib
 
 
+def _fmt_f(v: float) -> bytes:
+    try:
+        return f"{float(v):.6f}".encode()
+    except Exception:
+        return b"0.000000"
+
+
+def _update_vec3(h, v):
+    try:
+        h.update(_fmt_f(v.x))
+        h.update(_fmt_f(v.y))
+        h.update(_fmt_f(v.z))
+    except Exception:
+        pass
+
+
 def list_objects_in_blend(blend_path: str) -> set[str]:
     names: set[str] = set()
     try:
@@ -34,9 +50,129 @@ def hash_mesh(me):
     try:
         h.update(str(len(me.vertices)).encode())
         for v in me.vertices:
-            h.update((f"{v.co.x:.6f},{v.co.y:.6f},{v.co.z:.6f}").encode())
+            _update_vec3(h, v.co)
         h.update(str(len(me.edges)).encode())
         h.update(str(len(me.polygons)).encode())
+    except Exception:
+        pass
+    return h.hexdigest()
+
+
+def hash_curve(cv) -> str:
+    h = hashlib.sha256()
+    try:
+        h.update(str(len(cv.splines)).encode())
+        for sp in cv.splines:
+            try:
+                h.update((sp.type or "").encode())
+                # generic spline props
+                for attr in ("use_cyclic_u", "use_cyclic_v", "resolution_u", "resolution_v", "order_u", "order_v"):
+                    try:
+                        h.update(str(getattr(sp, attr)).encode())
+                    except Exception:
+                        pass
+                if sp.type == 'BEZIER':
+                    for bp in sp.bezier_points:
+                        _update_vec3(h, bp.co)
+                        _update_vec3(h, bp.handle_left)
+                        _update_vec3(h, bp.handle_right)
+                        try:
+                            h.update(_fmt_f(bp.tilt))
+                            h.update(_fmt_f(bp.radius))
+                        except Exception:
+                            pass
+                else:
+                    for p in sp.points:
+                        _update_vec3(h, p.co)
+                        try:
+                            h.update(_fmt_f(getattr(p, 'tilt', 0.0)))
+                            h.update(_fmt_f(getattr(p, 'radius', 0.0)))
+                            h.update(_fmt_f(getattr(p, 'weight', 0.0)))
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return h.hexdigest()
+
+
+def hash_camera(cam) -> str:
+    h = hashlib.sha256()
+    try:
+        h.update((cam.type or "").encode())
+        for attr in ("lens", "sensor_width", "sensor_height", "shift_x", "shift_y", "clip_start", "clip_end", "ortho_scale"):
+            try:
+                h.update(_fmt_f(getattr(cam, attr)))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return h.hexdigest()
+
+
+def hash_light(lgt) -> str:
+    h = hashlib.sha256()
+    try:
+        h.update((lgt.type or "").encode())
+        try:
+            c = getattr(lgt, 'color', None)
+            if c is not None:
+                for v in c[:3]:
+                    h.update(_fmt_f(v))
+        except Exception:
+            pass
+        for attr in ("energy", "shadow_soft_size", "spot_size", "spot_blend", "shape", "size", "size_y"):
+            try:
+                v = getattr(lgt, attr)
+                if isinstance(v, (int, float)):
+                    h.update(_fmt_f(v))
+                else:
+                    h.update(str(v).encode())
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return h.hexdigest()
+
+
+def hash_armature(arm) -> str:
+    h = hashlib.sha256()
+    try:
+        names = sorted([b.name for b in arm.bones])
+        h.update(str(len(names)).encode())
+        for name in names:
+            try:
+                b = arm.bones.get(name)
+                if b is None:
+                    continue
+                h.update(name.encode())
+                h.update(((b.parent.name) if b.parent else "").encode())
+                _update_vec3(h, b.head_local)
+                _update_vec3(h, b.tail_local)
+                try:
+                    h.update(_fmt_f(b.roll))
+                except Exception:
+                    pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return h.hexdigest()
+
+
+def hash_empty(o) -> str:
+    h = hashlib.sha256()
+    try:
+        for attr in ("empty_display_type", "empty_display_size"):
+            try:
+                v = getattr(o, attr)
+                if isinstance(v, (int, float)):
+                    h.update(_fmt_f(v))
+                else:
+                    h.update(str(v).encode())
+            except Exception:
+                pass
     except Exception:
         pass
     return h.hexdigest()
@@ -47,17 +183,40 @@ def hash_object(o) -> str:
     try:
         h.update((o.type or "").encode())
         if hasattr(o, "location"):
-            h.update((f"{o.location.x:.6f},{o.location.y:.6f},{o.location.z:.6f}").encode())
+            _update_vec3(h, o.location)
         if hasattr(o, "scale"):
-            h.update((f"{o.scale.x:.6f},{o.scale.y:.6f},{o.scale.z:.6f}").encode())
+            _update_vec3(h, o.scale)
         if hasattr(o, "rotation_euler") and o.rotation_mode in {"XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX"}:
             e = o.rotation_euler
-            h.update((f"E:{e.x:.6f},{e.y:.6f},{e.z:.6f}").encode())
+            h.update(b"E:")
+            _update_vec3(h, e)
         elif hasattr(o, "rotation_quaternion"):
             q = o.rotation_quaternion
-            h.update((f"Q:{q.w:.6f},{q.x:.6f},{q.y:.6f},{q.z:.6f}").encode())
-        if o.type == 'MESH' and getattr(o, 'data', None) is not None:
-            h.update(hash_mesh(o.data).encode())
+            h.update(b"Q:")
+            try:
+                h.update(_fmt_f(q.w))
+                h.update(_fmt_f(q.x))
+                h.update(_fmt_f(q.y))
+                h.update(_fmt_f(q.z))
+            except Exception:
+                pass
+        # Type-specific data hashing
+        if getattr(o, 'data', None) is not None:
+            try:
+                if o.type == 'MESH' and getattr(o, 'data', None) is not None:
+                    h.update(hash_mesh(o.data).encode())
+                elif o.type == 'CURVE':
+                    h.update(hash_curve(o.data).encode())
+                elif o.type == 'CAMERA':
+                    h.update(hash_camera(o.data).encode())
+                elif o.type == 'LIGHT':
+                    h.update(hash_light(o.data).encode())
+                elif o.type == 'ARMATURE':
+                    h.update(hash_armature(o.data).encode())
+                elif o.type == 'EMPTY':
+                    h.update(hash_empty(o).encode())
+            except Exception:
+                pass
         try:
             mats = []
             if hasattr(o, 'material_slots') and o.material_slots:
@@ -98,9 +257,25 @@ def compute_hashes_for_blend(blend_path: str, object_names: list[str]) -> dict[s
                 else:
                     data_block = None
                 bpy.data.objects.remove(o, do_unlink=True)
-                if data_block is not None:
-                    if hasattr(bpy.data, 'meshes') and data_block.__class__.__name__ == 'Mesh' and data_block.users == 0:
-                        bpy.data.meshes.remove(data_block)
+                if data_block is not None and getattr(data_block, 'users', 0) == 0:
+                    try:
+                        t = data_block.__class__.__name__
+                        if t == 'Mesh' and hasattr(bpy.data, 'meshes'):
+                            bpy.data.meshes.remove(data_block)
+                        elif t == 'Curve' and hasattr(bpy.data, 'curves'):
+                            bpy.data.curves.remove(data_block)
+                        elif t == 'Camera' and hasattr(bpy.data, 'cameras'):
+                            bpy.data.cameras.remove(data_block)
+                        elif t == 'Light' and hasattr(bpy.data, 'lights'):
+                            bpy.data.lights.remove(data_block)
+                        elif t == 'Armature' and hasattr(bpy.data, 'armatures'):
+                            bpy.data.armatures.remove(data_block)
+                        elif t == 'Lattice' and hasattr(bpy.data, 'lattices'):
+                            bpy.data.lattices.remove(data_block)
+                        elif t == 'GreasePencil' and hasattr(bpy.data, 'grease_pencils'):
+                            bpy.data.grease_pencils.remove(data_block)
+                    except Exception:
+                        pass
             except Exception:
                 pass
     return hashes

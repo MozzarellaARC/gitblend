@@ -1,6 +1,23 @@
 import bpy  # type: ignore
 import json
+import os
 from .h_signatures import list_objects_in_blend, compute_hashes_for_blend
+
+
+def _load_prev_hashes_from_manifest(previous_blend: str) -> dict[str, str] | None:
+    try:
+        base, _ = os.path.splitext(previous_blend)
+        manifest_path = base + ".json"
+        if os.path.exists(manifest_path):
+            with open(manifest_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            hashes = data.get('hashes')
+            if isinstance(hashes, dict):
+                # coerce keys/values to str
+                return {str(k): str(v) for k, v in hashes.items()}
+    except Exception as e:
+        print(f"[git_blend] WARN: failed reading previous manifest: {e}")
+    return None
 
 
 def decide_changes(source_blend: str, previous_blend: str | None, explicit_objects: list[str] | None):
@@ -12,8 +29,14 @@ def decide_changes(source_blend: str, previous_blend: str | None, explicit_objec
     prev_names_set = set()
     prev_hashes: dict[str, str] = {}
     if previous_blend:
-        prev_names_set = set(list_objects_in_blend(previous_blend))
-        prev_hashes = compute_hashes_for_blend(previous_blend, sorted(list(prev_names_set)))
+        # Prefer manifest hashes for full-scene awareness when baseline is a diff
+        manifest_hashes = _load_prev_hashes_from_manifest(previous_blend)
+        if manifest_hashes:
+            prev_hashes = manifest_hashes
+            prev_names_set = set(prev_hashes.keys())
+        else:
+            prev_names_set = set(list_objects_in_blend(previous_blend))
+            prev_hashes = compute_hashes_for_blend(previous_blend, sorted(list(prev_names_set)))
 
     current_hashes = compute_hashes_for_blend(source_blend, current_names)
 
