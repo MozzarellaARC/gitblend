@@ -29,6 +29,7 @@ from .utils import (
 from ..utils.utils_ptrs import (
     remap_scene_pointers,
 )
+from .blend_io import export_snapshot_blend
 
 from .cas import (
     create_commit,
@@ -285,18 +286,27 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         except Exception:
             pass
 
-        # Simplified CAS commit: store metadata only
-        snapshot_name = new_coll.name
-        
+        # Export a .blend snapshot for Git LFS
         try:
-            # Create lightweight commit with object names and snapshot link
+            ok, project_dir, _ = sanitize_save_path()
+            blend_path, blend_sha = (None, None)
+            if ok:
+                blend_path, blend_sha = export_snapshot_blend(project_dir, sel, uid)
+        except Exception:
+            blend_path, blend_sha = (None, None)
+
+        # Simplified CAS commit: store metadata + optional blend info
+        snapshot_name = new_coll.name
+        try:
             create_commit(
                 branch=sel,
-                uid=uid, 
+                uid=uid,
                 timestamp=now_str(),
                 message=msg,
                 changed_objects=changed_object_names,
-                snapshot_uid=uid  # Links to visual snapshot by UID
+                snapshot_uid=uid,  # Links to visual snapshot by UID
+                blend_path=blend_path,
+                blend_sha256=blend_sha,
             )
         except Exception:
             pass

@@ -75,7 +75,8 @@ def _read_json(path: str) -> Optional[Dict]:
 # ===================== Core Commit Operations =====================
 
 def create_commit(branch: str, uid: str, timestamp: str, message: str, 
-                 changed_objects: List[str], snapshot_uid: str) -> str:
+                 changed_objects: List[str], snapshot_uid: str,
+                 blend_path: Optional[str] = None, blend_sha256: Optional[str] = None) -> str:
     """
     Create a lightweight commit focused on metadata and history.
     
@@ -104,8 +105,11 @@ def create_commit(branch: str, uid: str, timestamp: str, message: str,
         "branch": branch,
         "parent": parent,
         "changed_objects": sorted(changed_objects),
-        "snapshot_uid": snapshot_uid,  # Links to visual snapshot
-        "object_count": len(changed_objects)
+    "snapshot_uid": snapshot_uid,  # Links to visual snapshot
+    "object_count": len(changed_objects),
+    # Optional binary snapshot exported for Git LFS
+    "blend_path": blend_path or "",
+    "blend_sha256": blend_sha256 or "",
     }
     
     # Generate deterministic commit ID
