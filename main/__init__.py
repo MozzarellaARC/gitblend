@@ -8,6 +8,7 @@ from .operators import (
     GITBLEND_OT_undo_commit,
     GITBLEND_OT_discard_changes,
     GITBLEND_OT_checkout_log,
+    GITBLEND_OT_append_objects,
 )
 
 __all__ = (
@@ -23,6 +24,7 @@ def register_main():
     bpy.utils.register_class(GITBLEND_OT_undo_commit)
     bpy.utils.register_class(GITBLEND_OT_discard_changes)
     bpy.utils.register_class(GITBLEND_OT_checkout_log)
+    bpy.utils.register_class(GITBLEND_OT_append_objects)
 
 
 def unregister_main():
@@ -34,5 +36,9 @@ def unregister_main():
     bpy.utils.unregister_class(GITBLEND_OT_commit)
     try:
         bpy.utils.unregister_class(GITBLEND_OT_checkout_log)
+    except RuntimeError:
+        pass
+    try:
+        bpy.utils.unregister_class(GITBLEND_OT_append_objects)
     except RuntimeError:
         pass

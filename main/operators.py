@@ -29,7 +29,6 @@ from .utils import (
 from ..utils.utils_ptrs import (
     remap_scene_pointers,
 )
-from .blend_io import export_snapshot_blend
 
 from .cas import (
     create_commit,
@@ -42,6 +41,7 @@ from .signatures import (
     compute_collection_signature,
     derive_changed_set,
 )
+from .blend_io import append_objects_from_blend, save_blend, export_snapshot_blend, open_base_blend
 
 
 class RestoreOperationMixin:
@@ -666,6 +666,57 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
         return {'FINISHED'}
 
 
+class GITBLEND_OT_append_objects(bpy.types.Operator):
+    bl_idname = "gitblend.append_objects"
+    bl_label = "Append Objects From .blend"
+    bl_description = "Append specified objects from a source .blend into the current file and save"
+    bl_options = {'INTERNAL'}
+
+    base: bpy.props.StringProperty(name="Base .blend", description="Optional base .blend to open first (headless workflows)", subtype='FILE_PATH', default="")
+    source: bpy.props.StringProperty(name="Source .blend", description="Path to the .blend to append from", subtype='FILE_PATH', default="")
+    object_names: bpy.props.StringProperty(name="Objects", description="Comma-separated object names to append", default="")
+    collection: bpy.props.StringProperty(name="Collection", description="Destination collection (created if needed)", default="")
+    save_as: bpy.props.StringProperty(name="Save As", description="Optional path to save resulting .blend", subtype='FILE_PATH', default="")
+
+    def execute(self, context):
+        props = getattr(context.scene, "gitblend_props", None)
+        # Fallback to panel props when operator args are not supplied (e.g., button without parameters)
+        base = (self.base or getattr(props, "io_base_blend", "") or "").strip()
+        src = (self.source or getattr(props, "io_source_blend", "") or "").strip()
+        obj_names_str = (self.object_names or getattr(props, "io_object_names", "") or "")
+        coll = (self.collection or getattr(props, "io_collection", "") or "").strip()
+        save_as = (self.save_as or getattr(props, "io_save_as", "") or "").strip()
+        names = [n.strip() for n in obj_names_str.split(',') if n.strip()]
+
+        if not src:
+            self.report({'ERROR'}, "Provide source .blend path")
+            return {'CANCELLED'}
+        if not names:
+            self.report({'ERROR'}, "Provide object names (comma-separated)")
+            return {'CANCELLED'}
+
+        try:
+            # Optional: open a base file first (useful for CLI to avoid touching the UI file)
+            if base:
+                open_base_blend(base)
+            appended, missing = append_objects_from_blend(src, names, (coll or None))
+        except Exception as e:
+            self.report({'ERROR'}, f"Append failed: {e}")
+            return {'CANCELLED'}
+
+        try:
+            out = save_blend(save_as or None)
+        except Exception as e:
+            self.report({'ERROR'}, f"Save failed: {e}")
+            return {'CANCELLED'}
+
+        msg = f"Appended: {', '.join(appended) if appended else 'none'}; Saved: {out}"
+        if missing:
+            msg += f"; Missing: {', '.join(missing)}"
+        self.report({'INFO'}, msg)
+        return {'FINISHED'}
+
+
 def register_operators():
     bpy.utils.register_class(GITBLEND_OT_commit)
     bpy.utils.register_class(GITBLEND_OT_initialize)
@@ -674,6 +725,7 @@ def register_operators():
     bpy.utils.register_class(GITBLEND_OT_undo_commit)
     bpy.utils.register_class(GITBLEND_OT_discard_changes)
     bpy.utils.register_class(GITBLEND_OT_checkout_log)
+    bpy.utils.register_class(GITBLEND_OT_append_objects)
 
 
 def unregister_operators():
@@ -685,5 +737,9 @@ def unregister_operators():
     bpy.utils.unregister_class(GITBLEND_OT_commit)
     try:
         bpy.utils.unregister_class(GITBLEND_OT_checkout_log)
+    except RuntimeError:
+        pass
+    try:
+        bpy.utils.unregister_class(GITBLEND_OT_append_objects)
     except RuntimeError:
         pass

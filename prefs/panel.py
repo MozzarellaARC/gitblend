@@ -90,6 +90,27 @@ class GITBLEND_Panel(bpy.types.Panel):
             row.operator("gitblend.undo_commit", text="Undo", icon='LOOP_BACK')
             row.operator("gitblend.discard_changes", text="Discard", icon='X')
 
+        # Append/IO (collapsible)
+        box = layout.box()
+        header = box.row()
+        header.prop(gitblend_props, "ui_show_io", icon='TRIA_DOWN' if gitblend_props.ui_show_io else 'TRIA_RIGHT', icon_only=True, emboss=False)
+        header.label(text="Append / IO")
+        if gitblend_props.ui_show_io:
+            col = box.column(align=False)
+            col.prop(gitblend_props, "io_base_blend")
+            col.prop(gitblend_props, "io_source_blend")
+            col.prop(gitblend_props, "io_object_names")
+            col.prop(gitblend_props, "io_collection")
+            col.prop(gitblend_props, "io_save_as")
+            col.separator()
+            row = col.row(align=True)
+            op = row.operator("gitblend.append_objects", text="Append Objects", icon='APPEND_BLEND')
+            op.base = gitblend_props.io_base_blend
+            op.source = gitblend_props.io_source_blend
+            op.object_names = gitblend_props.io_object_names
+            op.collection = gitblend_props.io_collection
+            op.save_as = gitblend_props.io_save_as
+
         # Branches (collapsible)
         box = layout.box()
         header = box.row()

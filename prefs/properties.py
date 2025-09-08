@@ -96,4 +96,39 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
         description="Expand or collapse the Change Log section",
     )
 
+    # IO / Append (for headless or UI-driven append)
+    ui_show_io: bpy.props.BoolProperty(
+        name="Show Append/IO",
+        default=False,
+        description="Expand or collapse the Append/IO section",
+    )
+    io_base_blend: bpy.props.StringProperty(
+        name="Base .blend",
+        description="Optional base .blend to open first (headless workflows)",
+        subtype='FILE_PATH',
+        default="",
+    )
+    io_source_blend: bpy.props.StringProperty(
+        name="Source .blend",
+        description="Path to the .blend file to append from",
+        subtype='FILE_PATH',
+        default="",
+    )
+    io_object_names: bpy.props.StringProperty(
+        name="Objects",
+        description="Comma-separated object names to append",
+        default="",
+    )
+    io_collection: bpy.props.StringProperty(
+        name="Collection",
+        description="Destination collection (created if needed). Leave empty to use Scene collection",
+        default="",
+    )
+    io_save_as: bpy.props.StringProperty(
+        name="Save As",
+        description="Optional output .blend path. Leave empty to save in place",
+        subtype='FILE_PATH',
+        default="",
+    )
+
 
