@@ -41,10 +41,31 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             return {'CANCELLED'}
         working_root = os.path.dirname(current_file)
         dot_gitblend = os.path.join(working_root, '.gitblend')
-        commits_dir = os.path.join(dot_gitblend, 'commits')
-        os.makedirs(commits_dir, exist_ok=True)
+        # Use a diffs directory to store delta .blends and manifests
+        diffs_dir = os.path.join(dot_gitblend, 'diffs')
+        os.makedirs(diffs_dir, exist_ok=True)
         stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_blend = os.path.join(commits_dir, f'commit_{stamp}.blend')
+        output_blend = os.path.join(diffs_dir, f'diff_{stamp}.blend')
+        manifest_path = os.path.join(diffs_dir, f'diff_{stamp}.json')
+
+        # Find the most recent prior diff or commit as a baseline
+        previous_path = None
+        candidates = []
+        # Prefer diffs (more recent runs), fall back to commits if present
+        commits_dir = os.path.join(dot_gitblend, 'commits')
+        try:
+            if os.path.isdir(diffs_dir):
+                for f in os.listdir(diffs_dir):
+                    if f.lower().endswith('.blend'):
+                        candidates.append(os.path.join(diffs_dir, f))
+            if os.path.isdir(commits_dir):
+                for f in os.listdir(commits_dir):
+                    if f.lower().endswith('.blend'):
+                        candidates.append(os.path.join(commits_dir, f))
+            if candidates:
+                previous_path = max(candidates, key=lambda p: os.path.getmtime(p))
+        except Exception:
+            previous_path = None
 
         # 4) Build path to headless script
         headless_script = os.path.join(os.path.dirname(__file__), 'headless_commit.py')
@@ -71,7 +92,10 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             "--",
             "--source", source_blend,
             "--output", output_blend,
+            "--manifest", manifest_path,
         ]
+        if previous_path and os.path.exists(previous_path):
+            cmd.extend(["--previous", previous_path])
         for name in object_names:
             cmd.extend(["--object", name])
 
@@ -82,21 +106,24 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             return {'CANCELLED'}
 
         if proc.returncode != 0:
-            # Surface a small portion of stderr for debugging
-            tail = proc.stderr.strip().splitlines()[-10:]
-            self.report({'ERROR'}, f'Headless commit failed (code {proc.returncode}). ' + " | ".join(tail))
+            # Surface a small portion of both stderr and stdout for debugging
+            err_tail = (proc.stderr or "").strip().splitlines()[-10:]
+            out_tail = (proc.stdout or "").strip().splitlines()[-10:]
+            details = " | ".join([*out_tail, *err_tail])
+            self.report({'ERROR'}, f'Headless commit failed (code {proc.returncode}). {details}')
             return {'CANCELLED'}
 
         if not os.path.exists(output_blend):
             self.report({'ERROR'}, 'Commit output file was not created.')
             return {'CANCELLED'}
 
-        # 6) Git + LFS: ensure repo and commit the new artifact inside .gitblend
+        # 6) Git + LFS: ensure repo and commit the new artifacts inside .gitblend
         try:
             ensure_repo(dot_gitblend)
             rel_output = os.path.relpath(output_blend, start=dot_gitblend)
-            msg = f"feat(git-blend): add {os.path.basename(output_blend)}"
-            add_and_commit(dot_gitblend, [rel_output], msg)
+            rel_manifest = os.path.relpath(manifest_path, start=dot_gitblend)
+            msg = f"feat(git-blend): diff {os.path.basename(output_blend)}"
+            add_and_commit(dot_gitblend, [rel_output, rel_manifest], msg)
         except GitError as ge:
             self.report({'WARNING'}, f'Git/LFS step failed: {ge}')
         except Exception as ge:

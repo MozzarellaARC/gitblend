@@ -2,6 +2,7 @@ import bpy  # type: ignore
 import sys
 import argparse
 import os
+import json
 
 
 def parse_args(argv):
@@ -13,8 +14,10 @@ def parse_args(argv):
 
     parser = argparse.ArgumentParser(description="Git Blend headless commit")
     parser.add_argument("--source", required=True, help="Path to source .blend for appending")
-    parser.add_argument("--output", required=True, help="Path to write the new .blend file")
+    parser.add_argument("--output", required=True, help="Path to write the new .blend file (diff blend)")
     parser.add_argument("--object", action="append", default=[], help="Object name to append (repeatable)")
+    parser.add_argument("--previous", required=False, help="Path to previous baseline .blend for diff")
+    parser.add_argument("--manifest", required=False, help="Path to write diff manifest JSON")
     return parser.parse_args(argv)
 
 
@@ -43,6 +46,16 @@ def append_objects(source_blend: str, object_names: list[str]):
     return imported
 
 
+def list_objects_in_blend(blend_path: str) -> set[str]:
+    names: set[str] = set()
+    try:
+        with bpy.data.libraries.load(blend_path, link=True) as (data_from, _data_to):
+            names.update(data_from.objects)
+    except Exception as e:
+        print(f"[git_blend] WARN: failed to list objects from {blend_path}: {e}")
+    return names
+
+
 def main():
     args = parse_args(sys.argv)
 
@@ -57,7 +70,17 @@ def main():
         print(f"[git_blend] ERROR: Failed to open template: {template_path}")
         sys.exit(1)
 
-    imported = append_objects(args.source, args.object)
+    # Determine object set to import using previous baseline if available
+    if args.previous and os.path.exists(args.previous):
+        prev_names = list_objects_in_blend(args.previous)
+    else:
+        prev_names = set()
+
+    requested = set(args.object or [])
+    added_or_changed = sorted(list(requested - prev_names)) if prev_names else sorted(list(requested))
+    removed = sorted(list(prev_names - requested)) if prev_names else []
+
+    imported = append_objects(args.source, added_or_changed)
     if not imported:
         print("[git_blend] ERROR: No objects imported; aborting save.")
         sys.exit(2)
@@ -66,6 +89,22 @@ def main():
     if result != {'FINISHED'}:
         print("[git_blend] ERROR: Failed to save output blend")
         sys.exit(3)
+
+    # Write manifest if requested
+    if args.manifest:
+        try:
+            manifest = {
+                "base": args.previous or None,
+                "output": args.output,
+                "template": template_path,
+                "requested": sorted(list(requested)),
+                "imported": imported,
+                "removed_vs_base": removed,
+            }
+            with open(args.manifest, "w", encoding="utf-8") as f:
+                json.dump(manifest, f, indent=2)
+        except Exception as e:
+            print(f"[git_blend] WARN: Failed to write manifest: {e}")
 
     print(f"[git_blend] OK: saved {args.output} with objects: {', '.join(imported)}")
 
