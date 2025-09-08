@@ -171,3 +171,12 @@ def get_log(repo_dir: str, max_count: int = 20) -> List[dict]:
         except Exception:
             continue
     return commits
+
+
+def get_current_branch(repo_dir: str) -> str | None:
+    if not is_repo(repo_dir) or not git_available():
+        return None
+    p = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=repo_dir)
+    if p.returncode != 0:
+        return None
+    return (p.stdout or "").strip() or None

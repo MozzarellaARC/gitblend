@@ -1,7 +1,7 @@
 import bpy # type: ignore
 import os
 import time
-from ..utils.git_utils import is_repo, get_log
+from ..utils.git_utils import is_repo, get_log, get_current_branch
 _GB_LOG_CACHE = {"path": "", "entries": [], "ts": 0.0}
 
 
@@ -41,7 +41,9 @@ class GITBLEND_Panel(bpy.types.Panel):
             col.label(text=f"Repo: {dot_gitblend}")
             return
 
-        # Repo exists: show commit action and recent commits
+        # Repo exists: message input, commit action and recent commits
+        row = col.row(align=True)
+        row.prop(context.scene, "gitblend_commit_message", text="Message")
         commits = _get_cached_log(dot_gitblend, max_count=15)
         if not commits:
             col.operator("gitblend.commit", text="Initialize Git Blend", icon='FILE_TICK')
@@ -50,10 +52,12 @@ class GITBLEND_Panel(bpy.types.Panel):
 
         box = layout.box()
         box.label(text="Recent Commits", icon='TEXT')
+        branch = get_current_branch(dot_gitblend) or ""
         if not commits:
-            box.label(text="No commits yet.")
+            box.label(text=f"{branch} No commits yet.")
         else:
             for c in commits:
                 row = box.row(align=True)
                 row.label(text=c.get('date', ''))
+                row.label(text=branch)
                 row.label(text=c.get('subject', ''))

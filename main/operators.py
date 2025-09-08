@@ -121,8 +121,21 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             ensure_repo(dot_gitblend)
             rel_output = os.path.relpath(output_blend, start=dot_gitblend)
             rel_manifest = os.path.relpath(manifest_path, start=dot_gitblend)
-            msg = f"feat(git-blend): diff {os.path.basename(output_blend)}"
+            # Use UI-provided commit message when available, otherwise fallback
+            try:
+                user_msg = getattr(context.scene, 'gitblend_commit_message', '') or ''
+                user_msg = user_msg.strip()
+            except Exception:
+                user_msg = ''
+            default_msg = f"feat(git-blend): diff {os.path.basename(output_blend)}"
+            msg = user_msg if user_msg else default_msg
             add_and_commit(dot_gitblend, [rel_output, rel_manifest], msg)
+            # Best effort: clear the message after a successful commit
+            try:
+                if hasattr(context.scene, 'gitblend_commit_message'):
+                    context.scene.gitblend_commit_message = ''
+            except Exception:
+                pass
         except GitError as ge:
             self.report({'WARNING'}, f'Git/LFS step failed: {ge}')
         except Exception as ge:
