@@ -1,4 +1,4 @@
-import bpy
+import bpy # type: ignore
 from ..utils.utils import get_selected_branch
 
 class GITBLEND_UL_ChangeLog(bpy.types.UIList):

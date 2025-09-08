@@ -1,4 +1,4 @@
-import bpy
+import bpy # type: ignore # type: ignore
 from ..utils.validate import (
     ensure_gitblend_collection,
     slugify,

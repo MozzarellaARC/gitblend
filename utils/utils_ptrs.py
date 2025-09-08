@@ -9,7 +9,7 @@ objects from snapshots or handle duplicates, we need to update these references 
 point to the correct objects in the current context.
 """
 
-import bpy
+import bpy # type: ignore
 import re
 from typing import Dict, Optional, Set
 from .utils import build_name_map, iter_objects_recursive

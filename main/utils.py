@@ -1,4 +1,4 @@
-import bpy
+import bpy # type: ignore # type: ignore
 import os
 from datetime import datetime
 import re

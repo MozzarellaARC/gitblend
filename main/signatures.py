@@ -1,6 +1,6 @@
 import hashlib
 from typing import Dict, List, Optional, Tuple, Any
-import bpy
+import bpy # type: ignore # type: ignore
 
 
 def _sha256(text: str) -> str:

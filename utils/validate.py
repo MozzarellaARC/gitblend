@@ -1,4 +1,4 @@
-import bpy
+import bpy # type: ignore
 import re
 from math import isclose
 from typing import Dict, Iterable, List, Optional, Set, Tuple

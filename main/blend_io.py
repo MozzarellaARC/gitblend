@@ -29,7 +29,7 @@ def export_snapshot_blend(project_dir: str, branch: str, uid: str) -> Tuple[Opti
     Returns (abs_path, sha256) if successful, (None, None) otherwise.
     """
     try:
-        import bpy  # type: ignore
+        import bpy # type: ignore  # type: ignore
     except Exception:
         return None, None
 
@@ -54,4 +54,4 @@ def export_snapshot_blend(project_dir: str, branch: str, uid: str) -> Tuple[Opti
         digest = None
 
     return abs_path, digest
-import bpy
+import bpy # type: ignore

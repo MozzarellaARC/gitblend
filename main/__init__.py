@@ -1,4 +1,4 @@
-import bpy
+import bpy # type: ignore # type: ignore
 
 from .operators import (
     GITBLEND_OT_commit,

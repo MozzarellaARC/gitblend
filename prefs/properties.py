@@ -1,4 +1,4 @@
-import bpy
+import bpy # type: ignore
 
 
 class GITBLEND_ChangeLogEntry(bpy.types.PropertyGroup):

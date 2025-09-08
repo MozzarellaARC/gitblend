@@ -11,7 +11,7 @@ from typing import Dict, Optional, List, Tuple
 def _project_root_dir() -> str:
     """Get the project root directory."""
     try:
-        import bpy  # type: ignore
+        import bpy # type: ignore  # type: ignore
         root = bpy.path.abspath("//") or os.getcwd()
         return root
     except Exception:
