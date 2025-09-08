@@ -68,7 +68,9 @@ def main():
     )
 
     imported = append_objects(args.source, to_import)
-    if not imported and not added and not changed:
+    # If nothing is imported and there are no additions/changes, but there are removals,
+    # we still want to save a diff so the manifest captures the removals.
+    if not imported and not added and not changed and not removed:
         print("[git_blend] ERROR: No objects imported; aborting save.")
         sys.exit(2)
 
@@ -108,4 +110,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+        import sys as _sys
+        _sys.exit(0)
+    except SystemExit as _e:
+        raise
+    except Exception as _e:
+        print(f"[git_blend] ERROR: Unexpected: {_e}")
+        import sys as _sys
+        _sys.exit(1)

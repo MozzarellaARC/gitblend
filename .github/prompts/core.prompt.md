@@ -15,3 +15,5 @@ mode: agent
 - Do not use modal operators or timer based update handlers.
 - Do not use realtime tracking in any situation whatsoever.
 - All diff io should not use a full scene copy.
+- Use validation.py to handle common safeguards and checks.
+- Use git_utils.py to handle all git and git-lfs related operations.

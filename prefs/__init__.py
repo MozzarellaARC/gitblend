@@ -6,6 +6,7 @@ from .properties import (
 
 from .panel import (
 	GITBLEND_Panel,
+	GITBLEND_OT_refresh,
 )
 
 __all__ = (
@@ -16,6 +17,7 @@ __all__ = (
 def register_properties():
 	bpy.utils.register_class(GITBLEND_Properties)
 	bpy.utils.register_class(GITBLEND_Panel)
+	bpy.utils.register_class(GITBLEND_OT_refresh)
 	# Scene-level commit message so the panel can bind reliably
 	try:
 		import bpy as _bpy  # type: ignore
@@ -28,6 +30,7 @@ def register_properties():
 		pass
 
 def unregister_properties():
+	bpy.utils.unregister_class(GITBLEND_OT_refresh)
 	bpy.utils.unregister_class(GITBLEND_Panel)
 	bpy.utils.unregister_class(GITBLEND_Properties)
 	# Remove Scene property if present

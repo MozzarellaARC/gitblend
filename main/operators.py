@@ -4,6 +4,16 @@ import subprocess
 import tempfile
 from datetime import datetime
 from ..utils.git_utils import ensure_repo, add_and_commit, GitError
+from ..utils.validation import (
+    require_saved_blend,
+    get_dot_gitblend,
+    ensure_dir,
+    get_addon_root,
+    get_headless_script,
+    resolve_blender_exe,
+    sanitize_commit_message,
+    normalize_object_names,
+)
 
 BLENDER_EXE = r"C:\\Program Files\\Blender Foundation\\Blender 4.2\\blender.exe"
 
@@ -15,7 +25,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 
     def execute(self, context):
         # 1) Collect all objects in the active scene (full-scene commit)
-        object_names = [obj.name for obj in context.scene.objects]
+        object_names = normalize_object_names([obj.name for obj in context.scene.objects])
         if not object_names:
             self.report({'WARNING'}, 'Scene has no objects to commit.')
             return {'CANCELLED'}
@@ -33,15 +43,15 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             return {'CANCELLED'}
 
         # 3) Determine working repo root from current .blend and output path under .gitblend/commits
-        current_file = bpy.data.filepath
-        if not current_file:
-            self.report({'ERROR'}, 'Please save the current .blend file before committing.')
+        try:
+            working_root = require_saved_blend(context)
+        except Exception as e:
+            self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
-        working_root = os.path.dirname(current_file)
-        dot_gitblend = os.path.join(working_root, '.gitblend')
+        dot_gitblend = get_dot_gitblend(working_root)
         # Use a diffs directory to store delta .blends and manifests
         diffs_dir = os.path.join(dot_gitblend, 'diffs')
-        os.makedirs(diffs_dir, exist_ok=True)
+        ensure_dir(diffs_dir)
         stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_blend = os.path.join(diffs_dir, f'diff_{stamp}.blend')
         manifest_path = os.path.join(diffs_dir, f'diff_{stamp}.json')
@@ -66,18 +76,14 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             previous_path = None
 
         # 4) Build path to headless script (moved under headless/ per structure)
-        addon_root = os.path.dirname(os.path.dirname(__file__))
-        headless_script = os.path.join(addon_root, 'headless', 'h_commit.py')
-        if not os.path.exists(headless_script):
-            self.report({'ERROR'}, f'Headless script missing: {headless_script}')
+        addon_root = get_addon_root(__file__)
+        try:
+            headless_script = get_headless_script(addon_root, 'h_commit.py')
+        except Exception as e:
+            self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
 
-        blender_exe = BLENDER_EXE
-        if not os.path.exists(blender_exe):
-            try:
-                blender_exe = bpy.app.binary_path  # type: ignore[attr-defined]
-            except Exception:
-                blender_exe = BLENDER_EXE
+        blender_exe = resolve_blender_exe()
         if not os.path.exists(blender_exe):
             self.report({'ERROR'}, f'Blender executable not found: {blender_exe}')
             return {'CANCELLED'}
@@ -104,6 +110,23 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             self.report({'ERROR'}, f'Failed to launch headless Blender: {e}')
             return {'CANCELLED'}
 
+        if proc.returncode == 2:
+            # Headless script signals: no objects to import (no changes)
+            try:
+                if hasattr(context.scene, 'gitblend_commit_message'):
+                    context.scene.gitblend_commit_message = ''
+            except Exception:
+                pass
+            # Best-effort cleanup of temp files
+            try:
+                if os.path.exists(source_blend):
+                    os.remove(source_blend)
+                os.rmdir(tmp_dir)
+            except Exception:
+                pass
+            self.report({'INFO'}, 'No changes detected. Nothing to commit.')
+            return {'FINISHED'}
+
         if proc.returncode != 0:
             # Surface a small portion of both stderr and stdout for debugging
             err_tail = (proc.stderr or "").strip().splitlines()[-10:]
@@ -124,11 +147,10 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             # Use UI-provided commit message when available, otherwise fallback
             try:
                 user_msg = getattr(context.scene, 'gitblend_commit_message', '') or ''
-                user_msg = user_msg.strip()
             except Exception:
                 user_msg = ''
             default_msg = f"feat(git-blend): diff {os.path.basename(output_blend)}"
-            msg = user_msg if user_msg else default_msg
+            msg = sanitize_commit_message(user_msg, default_msg)
             add_and_commit(dot_gitblend, [rel_output, rel_manifest], msg)
             # Best effort: clear the message after a successful commit
             try:
@@ -152,4 +174,10 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             pass
 
         self.report({'INFO'}, f'Committed scene diff to {output_blend}')
+        # Best-effort: refresh panel caches so history updates immediately
+        try:
+            from ..prefs.panel import _force_refresh  # type: ignore
+            _force_refresh(dot_gitblend)
+        except Exception:
+            pass
         return {'FINISHED'}
