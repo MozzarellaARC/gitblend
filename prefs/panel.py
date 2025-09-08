@@ -92,10 +92,13 @@ class GITBLEND_Panel(bpy.types.Panel):
         header.operator("gitblend.refresh", text="Refresh", icon='FILE_REFRESH')
 
         commits = _get_cached_log(dot_gitblend, max_count=15)
+        has_msg = bool((getattr(context.scene, 'gitblend_commit_message', '') or '').strip())
         if not commits:
-            col.operator("gitblend.commit", text="Initialize Git Blend", icon='FILE_TICK')
+            b = col.operator("gitblend.commit", text="Initialize Git Blend", icon='FILE_TICK')
+            b.enabled = has_msg
         else:
-            col.operator("gitblend.commit", text="Commit Scene", icon='FILE_TICK')
+            b = col.operator("gitblend.commit", text="Commit Scene", icon='FILE_TICK')
+            b.enabled = has_msg
 
         box = layout.box()
         box.label(text="Recent Commits", icon='TEXT')

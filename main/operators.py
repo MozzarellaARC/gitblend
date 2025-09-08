@@ -13,6 +13,7 @@ from ..utils.validation import (
     resolve_blender_exe,
     sanitize_commit_message,
     normalize_object_names,
+    get_user_commit_message,
 )
 
 BLENDER_EXE = r"C:\\Program Files\\Blender Foundation\\Blender 4.2\\blender.exe"
@@ -24,6 +25,12 @@ class GITBLEND_OT_commit(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
+        # 0) Require a non-empty commit message for better history hygiene
+        raw_msg = get_user_commit_message(context)
+        if not raw_msg:
+            self.report({'ERROR'}, 'Commit message is required.')
+            return {'CANCELLED'}
+
         # 1) Collect all objects in the active scene (full-scene commit)
         object_names = normalize_object_names([obj.name for obj in context.scene.objects])
         if not object_names:
@@ -145,10 +152,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             rel_output = os.path.relpath(output_blend, start=dot_gitblend)
             rel_manifest = os.path.relpath(manifest_path, start=dot_gitblend)
             # Use UI-provided commit message when available, otherwise fallback
-            try:
-                user_msg = getattr(context.scene, 'gitblend_commit_message', '') or ''
-            except Exception:
-                user_msg = ''
+            user_msg = raw_msg
             default_msg = f"feat(git-blend): diff {os.path.basename(output_blend)}"
             msg = sanitize_commit_message(user_msg, default_msg)
             add_and_commit(dot_gitblend, [rel_output, rel_manifest], msg)

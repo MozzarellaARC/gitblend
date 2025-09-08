@@ -88,3 +88,12 @@ def normalize_object_names(names: Iterable[str]) -> List[str]:
         out.append(n)
     out.sort()
     return out
+
+
+def get_user_commit_message(context) -> str:
+    """Return the trimmed commit message from Scene.gitblend_commit_message or empty string."""
+    try:
+        msg = getattr(context.scene, 'gitblend_commit_message', '') or ''
+        return msg.strip()
+    except Exception:
+        return ''
