@@ -16,22 +16,25 @@ mode: agent
             - ui.prompt.md
     - .vscode/
         - ...
+    - headless/
+        - __init__.py
+        - h_commit.py
+        - h_diffing.py
+        - h_signatures.py
     - main/
         - __init__.py
-        - main/
-            - __init__.py
-            - operators.py
-        - pref/
-            - __init__.py
-            - properties.py
-            - preferences.py
-            - panel.py
-        - ui/
-            - __init__.py
-            - main_panel.py
-        - utils/
-            - __init__.py
-            - ...
+        - operators.py
+    - pref/
+        - __init__.py
+        - properties.py
+        - preferences.py
+        - panel.py
+    - ui/
+        - __init__.py
+        - main_panel.py
+    - utils/
+        - __init__.py
+        - ...
 
 # Working .blend Structure
 - ***working repo***
