@@ -34,7 +34,9 @@ mode: agent
         - main_panel.py
     - utils/
         - __init__.py
-        - ...
+        - git_utils.py
+        - template.blend
+        - ... etc.
 
 # Working .blend Structure
 - ***working repo***

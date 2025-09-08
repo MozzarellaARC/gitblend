@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 from typing import Iterable, List
+from datetime import datetime
 
 
 # Explicit paths per structure.prompt.md, with PATH fallback
@@ -58,6 +59,13 @@ def git_available() -> bool:
 
 def lfs_available() -> bool:
     return _resolve_lfs_path() is not None
+
+
+def is_repo(repo_dir: str) -> bool:
+    try:
+        return os.path.isdir(os.path.join(repo_dir, ".git"))
+    except Exception:
+        return False
 
 
 def ensure_repo(repo_dir: str) -> None:
@@ -138,3 +146,28 @@ def ensure_ignore(repo_dir: str, lines: Iterable[str]) -> None:
     if updated:
         _run_git(["add", ".gitignore"], cwd=repo_dir)
         _run_git(["commit", "-m", "chore(git-blend): update .gitignore"], cwd=repo_dir)
+
+
+def get_log(repo_dir: str, max_count: int = 20) -> List[dict]:
+    """Return a list of commits by date desc with keys: hash, timestamp, date, subject."""
+    if not is_repo(repo_dir) or not git_available():
+        return []
+    fmt = "%H\t%ct\t%s"
+    p = _run_git(["log", f"-n{max_count}", f"--pretty=format:{fmt}"], cwd=repo_dir)
+    if p.returncode != 0:
+        return []
+    out = p.stdout or ""
+    commits: List[dict] = []
+    for line in out.splitlines():
+        try:
+            h, ts, subj = line.split("\t", 2)
+            ts_i = int(ts)
+            commits.append({
+                "hash": h,
+                "timestamp": ts_i,
+                "date": datetime.fromtimestamp(ts_i).isoformat(timespec='seconds'),
+                "subject": subj.strip(),
+            })
+        except Exception:
+            continue
+    return commits

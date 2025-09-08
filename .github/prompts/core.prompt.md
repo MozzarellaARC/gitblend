@@ -13,4 +13,5 @@ mode: agent
 - All subpackages should have an __init__.py file where modules are registered and unregistered.
 - Do not register and unregister on the module level.
 - Do not use modal operators or timer based update handlers.
+- Do not use realtime tracking in any situation whatsoever.
 - All diff io should not use a full scene copy.
