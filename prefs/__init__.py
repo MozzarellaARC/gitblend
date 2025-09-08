@@ -1,28 +1,53 @@
 import bpy
-from ..prefs.properties import (
-    GITBLEND_StringItem,
-    GITBLEND_ChangeLogEntry,
-    GITBLEND_Properties,
+
+from .properties import (
+	GITBLEND_Properties,
+	GITBLEND_StringItem,
+	GITBLEND_ChangeLogEntry,
 )
 
 __all__ = (
-    "register_properties",
-    "unregister_properties",
+	"register_properties",
+	"unregister_properties",
 )
 
+
+def _safe_register(cls):
+	try:
+		bpy.utils.register_class(cls)
+	except ValueError:
+		# Already registered; ignore to prevent noisy errors during dev reloads
+		pass
+
+
+def _safe_unregister(cls):
+	try:
+		bpy.utils.unregister_class(cls)
+	except RuntimeError:
+		pass
+	except ValueError:
+		pass
+
+
 def register_properties():
-    bpy.utils.register_class(GITBLEND_StringItem)
-    bpy.utils.register_class(GITBLEND_ChangeLogEntry)
-    bpy.utils.register_class(GITBLEND_Properties)
-    bpy.types.Scene.gitblend_props = bpy.props.PointerProperty(type=GITBLEND_Properties)
+	# Register PropertyGroups first
+	_safe_register(GITBLEND_ChangeLogEntry)
+	_safe_register(GITBLEND_StringItem)
+	_safe_register(GITBLEND_Properties)
+
+	# Attach to Scene once
+	if not hasattr(bpy.types.Scene, "gitblend_props"):
+		bpy.types.Scene.gitblend_props = bpy.props.PointerProperty(type=GITBLEND_Properties)
 
 
 def unregister_properties():
-    if hasattr(bpy.types.Scene, "gitblend_props"):
-        del bpy.types.Scene.gitblend_props
-    # Unregister in reverse order of registration to honor dependencies
-    for cls in (GITBLEND_Properties, GITBLEND_ChangeLogEntry, GITBLEND_StringItem):
-        try:
-            bpy.utils.unregister_class(cls)
-        except RuntimeError:
-            pass
+	# Remove Scene property first to drop references
+	if hasattr(bpy.types.Scene, "gitblend_props"):
+		try:
+			del bpy.types.Scene.gitblend_props
+		except Exception:
+			pass
+	# Unregister PropertyGroups (reverse order)
+	_safe_unregister(GITBLEND_Properties)
+	_safe_unregister(GITBLEND_StringItem)
+	_safe_unregister(GITBLEND_ChangeLogEntry)

@@ -8,7 +8,7 @@ from ..utils.validate import (
     unique_coll_name,
     list_branch_snapshots_upto_uid,
 )
-from ..utils.utils import (
+from .utils import (
     now_str,
     request_redraw,
     get_props,
@@ -273,7 +273,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             # First commit: all current objects are "changed" (new)
             changed_object_names = list(curr_sigs.keys())
             
-    # Debug logging removed per project conventions
+        print(f"Changed objects: {changed_object_names}")
 
         # Create diff snapshot using computed changed set
         changed_names_set = set(changed_object_names) if changed_object_names else set()
@@ -654,3 +654,26 @@ class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
             msg += f", {', '.join(removed_msg_parts)}"
         self.report({'INFO'}, msg)
         return {'FINISHED'}
+
+
+def register_operators():
+    bpy.utils.register_class(GITBLEND_OT_commit)
+    bpy.utils.register_class(GITBLEND_OT_initialize)
+    bpy.utils.register_class(GITBLEND_OT_string_add)
+    bpy.utils.register_class(GITBLEND_OT_string_remove)
+    bpy.utils.register_class(GITBLEND_OT_undo_commit)
+    bpy.utils.register_class(GITBLEND_OT_discard_changes)
+    bpy.utils.register_class(GITBLEND_OT_checkout_log)
+
+
+def unregister_operators():
+    bpy.utils.unregister_class(GITBLEND_OT_discard_changes)
+    bpy.utils.unregister_class(GITBLEND_OT_undo_commit)
+    bpy.utils.unregister_class(GITBLEND_OT_string_remove)
+    bpy.utils.unregister_class(GITBLEND_OT_string_add)
+    bpy.utils.unregister_class(GITBLEND_OT_initialize)
+    bpy.utils.unregister_class(GITBLEND_OT_commit)
+    try:
+        bpy.utils.unregister_class(GITBLEND_OT_checkout_log)
+    except RuntimeError:
+        pass

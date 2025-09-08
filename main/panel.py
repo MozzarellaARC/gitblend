@@ -121,17 +121,3 @@ class GITBLEND_Panel(bpy.types.Panel):
                     "changes_log_index",
                     rows=7,
                 )
-
-def register_panel():
-    bpy.utils.register_class(GITBLEND_UL_ChangeLog)
-    bpy.utils.register_class(GITBLEND_Panel)
-
-def unregister_panel():
-    try:
-        bpy.utils.unregister_class(GITBLEND_Panel)
-    except RuntimeError:
-        pass
-    try:
-        bpy.utils.unregister_class(GITBLEND_UL_ChangeLog)
-    except RuntimeError:
-        pass
