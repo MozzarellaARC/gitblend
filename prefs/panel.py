@@ -96,7 +96,7 @@ class GITBLEND_Panel(bpy.types.Panel):
         header.prop(gitblend_props, "ui_show_branches", icon='TRIA_DOWN' if gitblend_props.ui_show_branches else 'TRIA_RIGHT', icon_only=True, emboss=False)
         header.label(text="Branches")
         if gitblend_props.ui_show_branches:
-            row = box.row(align=True)
+            row = box.row(align=False)
             row.prop(gitblend_props, "selected_string", text="")
             sub = row.row(align=True)
             sub.enabled = has_gitblend
