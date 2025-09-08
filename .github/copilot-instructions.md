@@ -2,6 +2,14 @@
 
 Purpose: Utilize Git like version control concepts within Blender, leveraging Git and Git LFS for storage, while adhering to Blender's architecture and conventions.
 
+## Project Structure
+- look at structure.prompt.md
+
+## Core Architecture
+- look at core.prompt.md
+
+## UI Architecture
+- look at ui.prompt.md
 
 ## Diff Architecture
 - Commit operates from a headless instance of Blender

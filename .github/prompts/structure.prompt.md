@@ -1,7 +1,7 @@
 ---
 mode: agent
 ---
-# Project Structure
+# Addon Project Structure
 - parent
     - __init__.py
     - blender_manifest.toml
@@ -28,3 +28,12 @@ mode: agent
         - utils/
             - __init__.py
             - ...
+
+# Working .blend Structure
+- ***working repo***
+    - .gitblend/
+        - template.blend
+        - .git/
+        - .gitattributes
+        - .gitignore
+        - ... etc.
