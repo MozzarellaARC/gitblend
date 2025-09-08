@@ -3,6 +3,7 @@ import os
 import subprocess
 import tempfile
 from datetime import datetime
+from ..utils.git_utils import ensure_repo, add_and_commit, GitError
 
 BLENDER_EXE = r"C:\\Program Files\\Blender Foundation\\Blender 4.2\\blender.exe"
 
@@ -89,6 +90,17 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         if not os.path.exists(output_blend):
             self.report({'ERROR'}, 'Commit output file was not created.')
             return {'CANCELLED'}
+
+        # 6) Git + LFS: ensure repo and commit the new artifact inside .gitblend
+        try:
+            ensure_repo(dot_gitblend)
+            rel_output = os.path.relpath(output_blend, start=dot_gitblend)
+            msg = f"feat(git-blend): add {os.path.basename(output_blend)}"
+            add_and_commit(dot_gitblend, [rel_output], msg)
+        except GitError as ge:
+            self.report({'WARNING'}, f'Git/LFS step failed: {ge}')
+        except Exception as ge:
+            self.report({'WARNING'}, f'Git/LFS unexpected error: {ge}')
 
         # Best-effort cleanup of temp files
         try:
