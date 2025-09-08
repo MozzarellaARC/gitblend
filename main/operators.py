@@ -66,7 +66,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             previous_path = None
 
         # 4) Build path to headless script
-        headless_script = os.path.join(os.path.dirname(__file__), 'headless_commit.py')
+        headless_script = os.path.join(os.path.dirname(__file__), 'h_commit.py')
         if not os.path.exists(headless_script):
             self.report({'ERROR'}, f'Headless script missing: {headless_script}')
             return {'CANCELLED'}
