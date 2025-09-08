@@ -40,7 +40,6 @@ mode: agent
 - ***working repo***
     current.blend
     - .gitblend/
-        - template.blend
         - .git/
         - .gitattributes
         - .gitignore
