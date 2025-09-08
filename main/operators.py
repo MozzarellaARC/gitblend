@@ -46,20 +46,20 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         output_blend = os.path.join(diffs_dir, f'diff_{stamp}.blend')
         manifest_path = os.path.join(diffs_dir, f'diff_{stamp}.json')
 
-        # Find the most recent prior diff or commit as a baseline
+        # Find the most recent prior full commit first, then fall back to a diff as baseline
         previous_path = None
         candidates = []
-        # Prefer diffs (more recent runs), fall back to commits if present
+        # Prefer commits (more stable baseline), fall back to diffs
         commits_dir = os.path.join(dot_gitblend, 'commits')
         try:
-            if os.path.isdir(diffs_dir):
-                for f in os.listdir(diffs_dir):
-                    if f.lower().endswith('.blend'):
-                        candidates.append(os.path.join(diffs_dir, f))
             if os.path.isdir(commits_dir):
                 for f in os.listdir(commits_dir):
                     if f.lower().endswith('.blend'):
                         candidates.append(os.path.join(commits_dir, f))
+            if not candidates and os.path.isdir(diffs_dir):
+                for f in os.listdir(diffs_dir):
+                    if f.lower().endswith('.blend'):
+                        candidates.append(os.path.join(diffs_dir, f))
             if candidates:
                 previous_path = max(candidates, key=lambda p: os.path.getmtime(p))
         except Exception:
