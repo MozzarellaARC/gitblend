@@ -31,6 +31,7 @@ mode: agent
 
 # Working .blend Structure
 - ***working repo***
+    current.blend
     - .gitblend/
         - template.blend
         - .git/

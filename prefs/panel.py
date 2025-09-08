@@ -9,4 +9,6 @@ class GITBLEND_Panel(bpy.types.Panel):
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
-        pass
+        layout = self.layout
+        col = layout.column(align=True)
+        col.operator("gitblend.commit", text="Commit Selected", icon='FILE_TICK')
