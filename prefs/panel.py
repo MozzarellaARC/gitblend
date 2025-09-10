@@ -42,10 +42,9 @@ class GITBLEND_UL_ChangeLog(bpy.types.UIList):
 class GITBLEND_Panel(bpy.types.Panel):
     bl_idname = "GB_PT_main_panel"
     bl_label = "Git Blend"
-    bl_category = "Git Blend"
+    bl_category = ".gitblend"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
         layout = self.layout
