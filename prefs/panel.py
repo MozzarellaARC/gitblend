@@ -99,8 +99,8 @@ class GITBLEND_Panel(bpy.types.Panel):
             row.prop(props, "selected_string", text="")
             sub = row.row(align=True)
             sub.enabled = has_gitblend
-            sub.operator("gitblend.string_add", text="", icon='ADD')
-            sub.operator("gitblend.string_remove", text="", icon='REMOVE')
+            sub.operator("gitblend.branch_add", text="", icon='ADD')
+            sub.operator("gitblend.branch_remove", text="", icon='REMOVE')
 
         box = layout.box()
         header = box.row()

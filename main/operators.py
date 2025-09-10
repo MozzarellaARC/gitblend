@@ -205,9 +205,9 @@ class RestoreOperationMixin:
 
         return restored, skipped
 
-class GITBLEND_OT_string_add(bpy.types.Operator):
-    bl_idname = "gitblend.string_add"
-    bl_label = "Add String Item"
+class GITBLEND_OT_branch_add(bpy.types.Operator):
+    bl_idname = "gitblend.branch_add"
+    bl_label = "Add Branch"
     bl_description = "Add a new item to the string list"
     # Remove UNDO so adding a branch doesn't affect Blender's undo stack
     bl_options = {'REGISTER'}
@@ -261,9 +261,9 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class GITBLEND_OT_string_remove(bpy.types.Operator):
-    bl_idname = "gitblend.string_remove"
-    bl_label = "Remove String Item"
+class GITBLEND_OT_branch_remove(bpy.types.Operator):
+    bl_idname = "gitblend.branch_remove"
+    bl_label = "Remove Branch"
     bl_description = "Remove the selected item from the string list"
     bl_options = {'REGISTER'}  # no undo entry
     index: bpy.props.IntProperty(default=-1)
