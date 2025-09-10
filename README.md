@@ -2,6 +2,9 @@
 ## Blender Git like version control
 Made for Blender 4.2 to 4.5
 
+Available in: <br>
+***[Gumroad](https://mozzarellaarc.gumroad.com/l/gitblend)***
+
 ### Change Logs
 1.0.3:
 - Switched from .toml to .json version tree parsing
