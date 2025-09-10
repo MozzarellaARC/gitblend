@@ -36,7 +36,7 @@ if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
 # Gather files excluding patterns
 $excludes = @(
-    '.git', '.vscode', '__pycache__', '.github', '.gitignore', 'README.md', 'dist', '*.zip',
+    '.git', '.vscode', '__pycache__', '.github', '.gitignore', 'README.md', 'dist', '*.zip'
 )
 
 $projectRootPath = $projectRoot.Path
