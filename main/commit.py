@@ -1,16 +1,32 @@
 import bpy
-from ..utils import (get_props, sanitize_save_path, get_selected_branch,
-                    slugify, now_str, should_skip_commit,
-                    unique_coll_name, compute_collection_signature,
-                    derive_changed_set, create_diff_snapshot_with_changes,
-                    create_cas_commit, log_change,
-                    set_dropdown_selection, ensure_enum_contains,
-                    request_redraw)
 
-from ..utils.validate import (get_latest_snapshot, 
-                              get_latest_commit_objects,
-                              ensure_gitblend_collection
-                              )
+# Refactored imports: functions were split between utils.utils, utils.validate, index, and cas.
+from ..utils.utils import (
+    get_props,
+    sanitize_save_path,
+    get_selected_branch,
+    now_str,
+    log_change,
+    set_dropdown_selection,
+    ensure_enum_contains,
+    request_redraw,
+)
+from ..utils.validate import (
+    slugify,
+    unique_coll_name,
+    should_skip_commit,
+    create_diff_snapshot_with_changes,
+    get_latest_snapshot,
+    get_latest_commit_objects,
+    ensure_gitblend_collection,
+)
+from .index import (
+    compute_collection_signature,
+    derive_changed_set,
+)
+from .cas import (
+    create_cas_commit,
+)
 
 class GITBLEND_OT_commit(bpy.types.Operator):
     bl_idname = "gitblend.commit"

@@ -1,12 +1,18 @@
 import bpy
-from ..utils.validate import (list_branch_commits, 
-                              resolve_commit_by_uid, 
-                              list_branch_snapshots_upto_uid
-                              )
-from ..utils.utils import (get_props, 
-                           get_selected_branch,
-                           sanitize_save_path,
-                           request_redraw,
+
+# Corrected imports: commit/branch history helpers live in cas.py; snapshot listing stays in validate.
+from ..utils.validate import (
+    list_branch_snapshots_upto_uid,
+)
+from ..utils.utils import (
+    get_props,
+    get_selected_branch,
+    sanitize_save_path,
+    request_redraw,
+)
+from .cas import (
+    list_branch_commits,
+    resolve_commit_by_uid,
 )
 
 from .operators import RestoreOperationMixin

@@ -12,14 +12,15 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 
-import main
 from . import main as main_module
 from . import prefs as prefs_module
 
 def register():
-	main_module.register_operators()
 	prefs_module.register_properties()
+	prefs_module.register_panel()
+	main_module.register_operators()
 
 def unregister():
 	main_module.unregister_operators()
+	prefs_module.unregister_panel()
 	prefs_module.unregister_properties()

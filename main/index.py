@@ -997,6 +997,3 @@ def derive_changed_set(curr_objs: Dict[str, Dict], prev_objs: Dict[str, Dict]) -
 
     changed_list = sorted(changed_set)
     return (len(changed_list) > 0), changed_list
-
-
-## Deprecated JSON index helpers were removed in favor of content-addressed store APIs.
