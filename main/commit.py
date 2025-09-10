@@ -141,19 +141,79 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
         props = get_props(context)
         if props and not (props.commit_message or "").strip():
             props.commit_message = "Initialize"
-        # Ensure the default/selected branch exists in the enum and is selected
+        # Detect existing gitblend scene -> sync mode instead of forcing new commit
+        existing_scene = bpy.data.scenes.get(SCENE_DIR) or bpy.data.scenes.get(HIDDEN_SCENE_DIR)
+        if existing_scene is not None:
+            # Sync: rebuild branches list from refs, and rebuild change log for selected branch
+            if props:
+                try:
+                    # Clear current branch list (string_items)
+                    while len(props.string_items) > 0:
+                        props.string_items.remove(0)
+                except Exception:
+                    pass
+                # Discover branches from refs directory (.gitblend/refs/heads)
+                try:
+                    import os
+                    from .cas import get_store_root, list_branch_commits
+                    heads_dir = os.path.join(get_store_root(), "refs", "heads")
+                    branch_names = []
+                    if os.path.isdir(heads_dir):
+                        for fn in os.listdir(heads_dir):
+                            if fn.startswith('.'):
+                                continue
+                            branch_names.append(fn)
+                    # Always ensure at least 'main'
+                    if not branch_names:
+                        branch_names = [getattr(props, "gitblend_branch", "main") or "main"]
+                    for b in sorted(set(branch_names)):
+                        ensure_enum_contains(props, b)
+                    # Select current stored branch or first
+                    desired = (getattr(props, "gitblend_branch", "") or "").strip()
+                    if not desired or desired not in { (it.name or "") for it in props.string_items }:
+                        desired = branch_names[0]
+                    try:
+                        sel_idx = next((i for i, it in enumerate(props.string_items) if (it.name or "") == desired), 0)
+                    except Exception:
+                        sel_idx = 0
+                    set_dropdown_selection(props, sel_idx)
+                    # Rebuild change log for selected branch from CAS commits
+                    try:
+                        # Clear change log
+                        while len(props.changes_log) > 0:
+                            props.changes_log.remove(0)
+                    except Exception:
+                        pass
+                    active_branch = desired
+                    try:
+                        commits = list_branch_commits(active_branch)
+                    except Exception:
+                        commits = []
+                    for cid, c in reversed(commits):  # old->new so UI index 0 becomes latest when selecting
+                        try:
+                            entry = props.changes_log.add()
+                            entry.timestamp = c.get("timestamp", "")
+                            entry.message = c.get("message", "")
+                            entry.branch = active_branch
+                            entry.uid = c.get("uid", "")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                request_redraw()
+            self.report({'INFO'}, "gitblend scene exists; project synchronized (branches and log rebuilt)")
+            return {'FINISHED'}
+
+        # Fresh initialization path: create scene and perform initial commit
+        ensure_gitblend_collection(context.scene)
         if props:
             branch = (getattr(props, "gitblend_branch", "") or "main").strip() or "main"
             ensure_enum_contains(props, branch)
-            # Select the branch we just ensured exists
             try:
                 idx = next((i for i, it in enumerate(props.string_items) if (it.name or "").strip().lower() == branch.lower()), -1)
             except Exception:
                 idx = -1
             if idx >= 0:
                 set_dropdown_selection(props, idx)
-            request_redraw()
-        # Ensure gitblend (Scene) exists up-front for user feedback in UI
-        ensure_gitblend_collection(context.scene)
-        # Delegate to the Commit operator; first commit will initialize automatically
+        request_redraw()
         return bpy.ops.gitblend.commit()
