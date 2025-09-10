@@ -1,4 +1,4 @@
-import bpy
+import bpy  # type: ignore
 
 # Refactored imports: functions were split between utils.utils, utils.validate, index, and cas.
 from ..utils.utils import (
@@ -35,7 +35,8 @@ class GITBLEND_OT_commit(bpy.types.Operator):
     bl_idname = "gitblend.commit"
     bl_label = "Commit Changes"
     bl_description = "Copy the scene's root collection into gitblend as a snapshot named with the branch/message; log the message"
-    bl_options = {'REGISTER', 'UNDO'}
+    # Removed 'UNDO' so this operator never pushes an undo step (we also return FINISHED on success)
+    bl_options = {'REGISTER'}
 
     def execute(self, context):
         props = get_props(context)
@@ -119,16 +120,16 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             pass
         props.commit_message = ""
         request_redraw()
-
         self.report({'INFO'}, "Commit snapshot created in gitblend")
-        return {'CANCELLED'}
+        return {'FINISHED'}
 
 
 class GITBLEND_OT_initialize(bpy.types.Operator):
     bl_idname = "gitblend.initialize"
     bl_label = "Initialize Git Blend"
     bl_description = "Create gitblend; ensure a 'source' working collection exists; create the first snapshot"
-    bl_options = {'REGISTER', 'UNDO'}  # exclude from undo/redo and search
+    # No UNDO: initialization should not create an undo entry
+    bl_options = {'REGISTER'}  # exclude from undo/redo stack
 
     def execute(self, context):
         # Require the .blend file to be saved and not at drive root
@@ -202,7 +203,7 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
                     pass
                 request_redraw()
             self.report({'INFO'}, "gitblend scene exists; project synchronized (branches and log rebuilt)")
-            return {'CANCELLED'}
+            return {'FINISHED'}
 
         # Fresh initialization path: create scene and perform initial commit
         ensure_gitblend_collection(context.scene)
@@ -216,4 +217,5 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
             if idx >= 0:
                 set_dropdown_selection(props, idx)
         request_redraw()
+        # Return underlying commit result (expected to be {'FINISHED'} on success now)
         return bpy.ops.gitblend.commit()

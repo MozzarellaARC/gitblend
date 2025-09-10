@@ -1,4 +1,4 @@
-import bpy
+import bpy  # type: ignore
 
 # Corrected imports: commit/branch history helpers live in cas.py; snapshot listing stays in validate.
 from ..utils.validate import (
@@ -24,7 +24,7 @@ class GITBLEND_OT_checkout(bpy.types.Operator, RestoreOperationMixin):
     bl_idname = "gitblend.checkout_log"
     bl_label = "Checkout Log Entry"
     bl_description = "Restore the working collection to the state up to the selected log entry"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {'REGISTER'}  # avoid creating undo entries
 
     def execute(self, context):
         ok, _proj, err = sanitize_save_path()
@@ -99,4 +99,4 @@ class GITBLEND_OT_checkout(bpy.types.Operator, RestoreOperationMixin):
         if removed_msg_parts:
             msg += f", {', '.join(removed_msg_parts)}"
         self.report({'INFO'}, msg)
-        return {'CANCELLED'}
+        return {'FINISHED'}

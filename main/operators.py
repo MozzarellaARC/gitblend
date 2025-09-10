@@ -1,4 +1,4 @@
-import bpy
+import bpy  # type: ignore
 
 from ..utils.utils import (
     request_redraw,
@@ -209,7 +209,8 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
     bl_idname = "gitblend.string_add"
     bl_label = "Add String Item"
     bl_description = "Add a new item to the string list"
-    bl_options = {'REGISTER', 'UNDO'}
+    # Remove UNDO so adding a branch doesn't affect Blender's undo stack
+    bl_options = {'REGISTER'}
 
     name: bpy.props.StringProperty(name="Branch name", description="Name of the new branch", default="")
 
@@ -239,7 +240,6 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
             self.report({'ERROR'}, "GITBLEND properties not found")
             return {'CANCELLED'}
         # Require existing .gitblend collection
-        scene = context.scene
         has_gitblend = (bpy.data.scenes.get(SCENE_DIR) or bpy.data.scenes.get(HIDDEN_SCENE_DIR)) is not None
         if not has_gitblend:
             self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
@@ -253,19 +253,19 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
         if any((it.name or "").strip().lower() == nm.lower() for it in props.string_items):
             self.report({'ERROR'}, f"Branch '{nm}' already exists.")
             return {'CANCELLED'}
-
+        # Add and select the new branch
         item = props.string_items.add()
         item.name = nm
         set_dropdown_selection(props, len(props.string_items) - 1)
         request_redraw()
-        return {'CANCELLED'}
+        return {'FINISHED'}
 
 
 class GITBLEND_OT_string_remove(bpy.types.Operator):
     bl_idname = "gitblend.string_remove"
     bl_label = "Remove String Item"
     bl_description = "Remove the selected item from the string list"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {'REGISTER'}  # no undo entry
     index: bpy.props.IntProperty(default=-1)
 
     def execute(self, context):
@@ -278,7 +278,7 @@ class GITBLEND_OT_string_remove(bpy.types.Operator):
             props.string_items.remove(idx)
             set_dropdown_selection(props, idx)
             request_redraw()
-            return {'CANCELLED'}
+            return {'FINISHED'}
         else:
             self.report({'WARNING'}, "No item selected")
             return {'CANCELLED'}
@@ -287,7 +287,7 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
     bl_idname = "gitblend.undo_commit"
     bl_label = "Undo Last Commit"
     bl_description = "Remove the latest commit for the selected branch and delete its snapshot"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {'REGISTER'}  # do not record in undo stack
 
     def execute(self, context):
         # Validate environment
@@ -369,17 +369,17 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
             bpy.ops.gitblend.discard_changes()
         except Exception:
             pass
-        
+
         request_redraw()
         self.report({'INFO'}, f"Undid last commit on '{branch}'.")
-        return {'CANCELLED'}
+        return {'FINISHED'}
 
 
 class GITBLEND_OT_discard_changes(bpy.types.Operator, RestoreOperationMixin):
     bl_idname = "gitblend.discard_changes"
     bl_label = "Discard Changes"
     bl_description = "Restore objects from the latest snapshot back into the working collection (for that branch)"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {'REGISTER'}  # not part of undo stack
 
     def _list_branch_snapshots(self, scene, branch):
         """Mirror logic from validate._list_branch_snapshots but locally"""
@@ -423,7 +423,7 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator, RestoreOperationMixin):
         if removed_msg_parts:
             msg += f", {', '.join(removed_msg_parts)}"
         self.report({'INFO'}, msg)
-        return {'CANCELLED'}
+        return {'FINISHED'}
 
 
 
