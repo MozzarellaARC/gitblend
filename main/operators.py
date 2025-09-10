@@ -46,6 +46,15 @@ class RestoreOperationMixin:
         """Common logic for restoring objects from a commit."""
         desired_names = [o.get("name", "") for o in commit_objs if o.get("name")]
         desired_parent = {o.get("name", ""): o.get("parent", "") for o in commit_objs if o.get("name")}
+        # Collect desired collection path segment names from commit object metadata so we can prune stale collections
+        desired_collection_names = set()
+        for co in commit_objs:
+            cp = co.get("collection_path", "") or ""
+            if not cp:
+                continue
+            for seg in cp.split("|"):
+                if seg:
+                    desired_collection_names.add(seg)
 
         # Build maps
         src_map = build_name_map(source, snapshot=False)
@@ -156,6 +165,43 @@ class RestoreOperationMixin:
 
         if removed_extras:
             removed_msg_parts.append(f"removed {removed_extras} extra")
+
+        # -----------------------------
+        # Prune now-empty collections not present in the target commit
+        # -----------------------------
+        def prune_empty_collections(parent_coll):
+            removed = 0
+            # Work on a static list since we may unlink during iteration
+            for child in list(parent_coll.children):
+                removed += prune_empty_collections(child)
+                # Skip if child still has children or objects
+                if child.objects or child.children:
+                    continue
+                # Keep collection if its name is part of desired collection path set
+                # (intermediate path segments or leaf collections that still exist logically)
+                if child.name in desired_collection_names:
+                    continue
+                # Unlink from all parents that reference it (defensive: though typical hierarchy has one parent)
+                try:
+                    for uc in list(child.users_collection):
+                        try:
+                            uc.children.unlink(child)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                # Remove the collection datablock
+                try:
+                    bpy.data.collections.remove(child, do_unlink=True)
+                    removed += 1
+                except Exception:
+                    # If removal fails, ignore and continue
+                    pass
+            return removed
+
+        pruned_count = prune_empty_collections(source)
+        if pruned_count:
+            removed_msg_parts.append(f"removed {pruned_count} collection{'s' if pruned_count != 1 else ''}")
 
         return restored, skipped
 
