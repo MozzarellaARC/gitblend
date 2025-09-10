@@ -12,16 +12,13 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 
-from .prefs.properties import register_properties, unregister_properties
 from .main.operators import register_operators, unregister_operators
-from .prefs.panel import register_panel, unregister_panel
+from . import prefs as prefs_module
 
 def register():
-	register_properties()
 	register_operators()
-	register_panel()
-	
+	prefs_module.register_properties()
+
 def unregister():
-	unregister_panel()
 	unregister_operators()
-	unregister_properties()
+	prefs_module.unregister_properties()
