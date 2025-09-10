@@ -35,7 +35,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
     bl_idname = "gitblend.commit"
     bl_label = "Commit Changes"
     bl_description = "Copy the scene's root collection into gitblend as a snapshot named with the branch/message; log the message"
-    bl_options = {'INTERNAL'}
+    bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         props = get_props(context)
@@ -121,14 +121,14 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         request_redraw()
 
         self.report({'INFO'}, "Commit snapshot created in gitblend")
-        return {'FINISHED'}
+        return {'CANCELLED'}
 
 
 class GITBLEND_OT_initialize(bpy.types.Operator):
     bl_idname = "gitblend.initialize"
     bl_label = "Initialize Git Blend"
     bl_description = "Create gitblend; ensure a 'source' working collection exists; create the first snapshot"
-    bl_options = {'INTERNAL'}  # exclude from undo/redo and search
+    bl_options = {'REGISTER', 'UNDO'}  # exclude from undo/redo and search
 
     def execute(self, context):
         # Require the .blend file to be saved and not at drive root
@@ -202,7 +202,7 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
                     pass
                 request_redraw()
             self.report({'INFO'}, "gitblend scene exists; project synchronized (branches and log rebuilt)")
-            return {'FINISHED'}
+            return {'CANCELLED'}
 
         # Fresh initialization path: create scene and perform initial commit
         ensure_gitblend_collection(context.scene)
