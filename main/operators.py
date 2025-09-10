@@ -1,5 +1,5 @@
 import bpy
-from .validate import (
+from ..utils.validate import (
     ensure_gitblend_collection,
     slugify,
     get_latest_snapshot,
@@ -8,7 +8,7 @@ from .validate import (
     unique_coll_name,
     list_branch_snapshots_upto_uid,
 )
-from .utils import (
+from ..utils.utils import (
     now_str,
     request_redraw,
     get_props,
@@ -479,7 +479,7 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator, RestoreOperationMixin):
 
     def _list_branch_snapshots(self, scene, branch):
         """Mirror logic from validate._list_branch_snapshots but locally"""
-        from .validate import _list_branch_snapshots
+        from ..utils.validate import _list_branch_snapshots
         return _list_branch_snapshots(scene, branch)
 
     def execute(self, context):

@@ -12,9 +12,9 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 
-from .main.properties import register_properties, unregister_properties
+from .prefs.properties import register_properties, unregister_properties
 from .main.operators import register_operators, unregister_operators
-from .main.panel import register_panel, unregister_panel
+from .prefs.panel import register_panel, unregister_panel
 
 def register():
 	register_properties()
