@@ -1,6 +1,7 @@
 import bpy
-from .utils import get_selected_branch
-from .validate import get_dotgitblend_collection
+from ..utils.utils import get_selected_branch
+
+from ..prefs.properties import SCENE_DIR, HIDDEN_SCENE_DIR
 
 
 class GITBLEND_UL_ChangeLog(bpy.types.UIList):
@@ -8,13 +9,35 @@ class GITBLEND_UL_ChangeLog(bpy.types.UIList):
 
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index=0):
         if self.layout_type in {"DEFAULT", "COMPACT"}:
-            msg = getattr(item, "message", "") or "<no message>"
+            # Show: <date> <branch> <commit-message>
+            msg = (getattr(item, "message", "") or "").strip() or "<no message>"
             ts = getattr(item, "timestamp", "?")
-            layout.label(text=f"{index + 1}. {ts} - {msg}")
+            # Extract date only
+            try:
+                date_only = ts.split()[0] if isinstance(ts, str) and ts else str(ts)
+            except Exception:
+                date_only = str(ts)
+            br = (getattr(item, "branch", "") or "").strip() or "main"
+            layout.label(text=f"{date_only} {br} {msg}")
         elif self.layout_type == "GRID":
             layout.alignment = 'CENTER'
             layout.label(text=str(index + 1))
 
+
+    def filter_items(self, context, data, propname):
+        # Filter to show only entries for the current branch
+        items = getattr(data, propname, [])
+        try:
+            current_branch = get_selected_branch(data)
+        except Exception:
+            current_branch = "main"
+        flt_flags = [0] * len(items)
+        bf = self.bitflag_filter_item
+        for i, it in enumerate(items):
+            br = (getattr(it, "branch", "") or "").strip() or "main"
+            if br == current_branch:
+                flt_flags[i] = bf
+        return flt_flags, []
 
 class GITBLEND_Panel(bpy.types.Panel):
     bl_idname = "GB_PT_main_panel"
@@ -27,7 +50,8 @@ class GITBLEND_Panel(bpy.types.Panel):
     def draw_header(self, context):
         layout = self.layout
         scene = context.scene
-        has_gitblend = get_dotgitblend_collection(scene) is not None
+        # Detect gitblend presence for UI state
+        has_gitblend = (bpy.data.scenes.get(SCENE_DIR) or bpy.data.scenes.get(HIDDEN_SCENE_DIR)) is not None
         layout.label(icon='CHECKMARK' if has_gitblend else 'ERROR')
 
     def draw(self, context):
@@ -38,7 +62,8 @@ class GITBLEND_Panel(bpy.types.Panel):
             layout.label(text="GITBLEND properties not registered.")
             return
 
-        has_gitblend = get_dotgitblend_collection(scene) is not None
+        # Detect gitblend presence for UI state
+        has_gitblend = (bpy.data.scenes.get(SCENE_DIR) or bpy.data.scenes.get(HIDDEN_SCENE_DIR)) is not None
 
         row = layout.row(align=True)
         row.operator("gitblend.initialize", text="Initialize", icon='FILE_NEW')
@@ -46,7 +71,7 @@ class GITBLEND_Panel(bpy.types.Panel):
         row.alignment = 'RIGHT'
         row.label(text=f"Branch: {get_selected_branch(props)}")
         if not has_gitblend:
-            layout.label(text="'.gitblend' not found. Click Initialize.", icon='INFO')
+            layout.label(text="'gitblend' Scene not found. Click Initialize.", icon='INFO')
 
         box = layout.box()
         header = box.row()
@@ -95,19 +120,3 @@ class GITBLEND_Panel(bpy.types.Panel):
                     "changes_log_index",
                     rows=7,
                 )
-
-
-def register_panel():
-    bpy.utils.register_class(GITBLEND_UL_ChangeLog)
-    bpy.utils.register_class(GITBLEND_Panel)
-
-
-def unregister_panel():
-    try:
-        bpy.utils.unregister_class(GITBLEND_Panel)
-    except RuntimeError:
-        pass
-    try:
-        bpy.utils.unregister_class(GITBLEND_UL_ChangeLog)
-    except RuntimeError:
-        pass

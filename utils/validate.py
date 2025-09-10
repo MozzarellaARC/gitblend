@@ -1,9 +1,19 @@
 import bpy
 import re
 from math import isclose
-from typing import Dict, Optional, Set, Tuple, Iterable, List
-from .utils import sanitize_save_path, get_props, request_redraw
-from .index import load_index, get_latest_commit, compute_collection_signature, derive_changed_set
+from typing import Dict, Iterable, List, Optional, Set, Tuple
+from ..main.index import compute_collection_signature, derive_changed_set
+from ..main.cas import get_latest_commit_objects
+from .utils import (
+    iter_objects_recursive,
+    build_name_map,
+    duplicate_object_with_data,
+	remap_references_for_objects,
+	get_object_dependencies,
+)
+
+from ..prefs.properties import SCENE_DIR, HIDDEN_SCENE_DIR
+
 
 # Tolerances for float comparisons (relaxed slightly to avoid noise-based false positives)
 EPS = 1e-5
@@ -297,17 +307,42 @@ def exclude_collection_in_all_view_layers(scene: bpy.types.Scene, coll: bpy.type
 		lc = find_layer_collection(vl.layer_collection, coll)
 		if lc:
 			lc.exclude = True
+def _get_or_create_gitblend_scene() -> bpy.types.Scene:
+	"""Find or create a dedicated 'gitblend' Scene to hold snapshots (visible in UI).
+
+	Migration: if a legacy scene named '.gitblend' exists and 'gitblend' does not,
+	rename the legacy scene to 'gitblend'.
+	"""
+	# Prefer visible name without dot
+	scene_name = SCENE_DIR
+	s = bpy.data.scenes.get(scene_name)
+	if s:
+		return s
+	# Migrate legacy hidden scene name
+	legacy = bpy.data.scenes.get(HIDDEN_SCENE_DIR)
+	if legacy and bpy.data.scenes.get(scene_name) is None:
+		try:
+			legacy.name = scene_name
+			return legacy
+		except Exception:
+			pass
+	# Create a new scene; do not switch context here
+	try:
+		s = bpy.data.scenes.new(scene_name)
+	except Exception:
+		# Fallback: attempt a different unique name
+		base = SCENE_DIR
+		i = 1
+		while bpy.data.scenes.get(f"{base}-{i}") is not None:
+			i += 1
+		s = bpy.data.scenes.new(f"{base}-{i}")
+	return s
+
 
 def ensure_gitblend_collection(scene: bpy.types.Scene) -> bpy.types.Collection:
-	"""Find or create the hidden .gitblend collection under the scene root."""
-	root = scene.collection
-	for c in root.children:
-		if c.name == ".gitblend":
-			return c
-	coll = bpy.data.collections.new(".gitblend")
-	root.children.link(coll)
-	exclude_collection_in_all_view_layers(scene, coll)
-	return coll
+	"""Return the root collection of the 'gitblend' Scene (creates the Scene if missing)."""
+	dot_scene = _get_or_create_gitblend_scene()
+	return dot_scene.collection
 
 def slugify(text: str, max_len: int = 50) -> str:
 	s = (text or "").strip().lower()
@@ -336,6 +371,39 @@ def unique_obj_name(base: str, uid: str) -> str:
 	return f"{base_uid}-{i}"
 
 
+def duplicate_collection_hierarchy(src: bpy.types.Collection, parent: bpy.types.Collection, uid: str,
+								   obj_map: dict[bpy.types.Object, bpy.types.Object] | None = None) -> bpy.types.Collection:
+	"""Duplicate a collection tree under parent. Returns the new collection. Populates obj_map if provided."""
+
+	if obj_map is None:
+		obj_map = {}
+	new_name = unique_coll_name(src.name, uid)
+	new_coll = bpy.data.collections.new(new_name)
+	parent.children.link(new_coll)
+	# store metadata for easier matching later
+	try:
+		new_coll["gitblend_uid"] = uid
+		new_coll["gitblend_orig_name"] = src.name
+	except Exception:
+		pass
+
+	for obj in src.objects:
+		dup = duplicate_object_with_data(obj)
+		dup.name = unique_obj_name(obj.name, uid)
+		new_coll.objects.link(dup)
+		# store original name for robust comparisons
+		try:
+			dup["gitblend_orig_name"] = obj.name
+		except Exception:
+			pass
+		obj_map[obj] = dup
+
+	for child in src.children:
+		duplicate_collection_hierarchy(child, new_coll, uid, obj_map)
+
+	return new_coll
+
+
 def remap_parenting(obj_map: dict[bpy.types.Object, bpy.types.Object]) -> None:
 	"""DEPRECATED: No longer used; parenting is handled during diff snapshot creation."""
 	for _orig, _dup in list(obj_map.items()):
@@ -354,6 +422,38 @@ def _base_name_from_snapshot(name: str) -> str:
     if m:
         return name[: m.start()]
     return name
+
+
+def _list_branch_snapshots(scene: bpy.types.Scene, branch: str) -> List[bpy.types.Collection]:
+	"""All snapshot collections in the 'gitblend' Scene for a given branch.
+	Matches names starting with 'branch' (with or without '-<slug>') and ending with '_<uid>'.
+	Sorted by UID descending.
+	"""
+	dot_scene = bpy.data.scenes.get(SCENE_DIR) or bpy.data.scenes.get(HIDDEN_SCENE_DIR)
+	if not dot_scene:
+		return []
+	dot_root = dot_scene.collection
+
+	items: List[Tuple[str, bpy.types.Collection]] = []
+	for c in dot_root.children:
+		nm = c.name or ""
+		if not nm.startswith(branch):
+			continue
+		m = _UID_RE.search(nm)
+		uid = m.group(1) if m else ""
+		if not uid:
+			continue
+		items.append((uid, c))
+
+	items.sort(key=lambda t: t[0], reverse=True)
+	return [c for _, c in items]
+
+
+def list_branch_snapshots_upto_uid(scene: bpy.types.Scene, branch: str, max_uid: str) -> List[bpy.types.Collection]:
+    """Get branch snapshots up to and including the specified UID."""
+    all_snapshots = _list_branch_snapshots(scene, branch)
+    return [s for uid, s in [((_UID_RE.search(s.name or "").group(1) if _UID_RE.search(s.name or "") else ""), s) 
+                              for s in all_snapshots] if uid and uid <= max_uid]
 
 
 def get_latest_snapshot(scene: bpy.types.Scene, branch: str) -> Optional[bpy.types.Collection]:
@@ -710,23 +810,16 @@ def should_skip_commit(scene: bpy.types.Scene, curr: bpy.types.Collection, branc
 	Preferred fast path: compare current collection hash with the last commit's stored hash.
 	Fallback: compare against the latest on-disk snapshot in .gitblend.
 	"""
-	# Index-based detection (preferred): compare against last commit object set.
+	# CAS-based detection (preferred): compare against last commit object set.
 	index_reports_unchanged = False
 	try:
-		index = load_index()
-		last = get_latest_commit(index, branch)
-		if last:
-			curr_sigs, curr_hash = compute_collection_signature(curr)
-			prev_objs = {o.get("name", ""): o for o in (last.get("objects", []) or []) if o.get("name")}
-			# Quick win: if hashes match and objects identical, mark unchanged
-			if str(last.get("collection_hash", "")) == str(curr_hash):
-				index_reports_unchanged = True
-			else:
-				# Authoritative per-object diff using the index
-				changed, _names = derive_changed_set(curr_sigs, prev_objs)
-				index_reports_unchanged = not changed
+		latest = get_latest_commit_objects(branch)
+		if latest:
+			_cid, _commit, prev_objs = latest
+			curr_sigs, _curr_hash = compute_collection_signature(curr)
+			changed, _names = derive_changed_set(curr_sigs, prev_objs)
+			index_reports_unchanged = not changed
 	except Exception:
-		# If index isn't available or hashing fails, continue with snapshot comparison
 		index_reports_unchanged = False
 
 	# Fallback to snapshot-based comparison
@@ -795,7 +888,6 @@ def _duplicate_collection_hierarchy_diff_recursive(
 	Pure-delta: unchanged objects are omitted. Populates name_to_new_obj with newly copied objects by original name.
 	copied_names records which original names were duplicated (to fix parenting later).
 	"""
-	# Skip creating a collection if its subtree has no changed objects
 	def _subtree_has_changes(coll: bpy.types.Collection) -> bool:
 		for o in iter_objects_recursive(coll):
 			if (o.name or "") in changed:
@@ -814,12 +906,7 @@ def _duplicate_collection_hierarchy_diff_recursive(
 			continue
 		if name not in changed:
 			continue
-		dup = obj.copy()
-		if getattr(obj, "data", None) is not None:
-			try:
-				dup.data = obj.data.copy()
-			except Exception:
-				pass
+		dup = duplicate_object_with_data(obj)
 		dup.name = unique_obj_name(obj.name, uid)
 		new_coll.objects.link(dup)
 		try:
@@ -869,7 +956,6 @@ def _create_diff_snapshot_internal(
 	"""Internal helper to support both legacy and explicit-changes flows."""
 	prev_map: Dict[str, bpy.types.Object] = {}
 
-	# Build current object map and parent map
 	curr_objs: Dict[str, bpy.types.Object] = {}
 	parent_of: Dict[str, Optional[str]] = {}
 	for o in iter_objects_recursive(src):
@@ -879,10 +965,8 @@ def _create_diff_snapshot_internal(
 		curr_objs[nm] = o
 		parent_of[nm] = o.parent.name if o.parent else None
 
-	# Initial changed set: use provided names if any; otherwise compute by object-wise comparison
 	changed: Set[str] = set(changed_names or [])
 	if not changed:
-		# Only build previous map if we need to compute diffs
 		if prev_snapshot is not None:
 			prev_map = build_name_map(prev_snapshot, snapshot=True)
 		for nm, o in curr_objs.items():
@@ -893,6 +977,19 @@ def _create_diff_snapshot_internal(
 			same, _ = objects_identical(o, prev_o)
 			if not same:
 				changed.add(nm)
+
+	# Simple dependency expansion: include objects that changed objects depend on
+	expanded_changed = set(changed)
+	for obj_name in list(changed):
+		if obj_name in curr_objs:
+			obj = curr_objs[obj_name]
+			dependencies = get_object_dependencies(obj)
+			# Add dependencies that exist in current objects
+			for dep_name in dependencies:
+				if dep_name in curr_objs:
+					expanded_changed.add(dep_name)
+	
+	changed = expanded_changed
 
 	# Propagate change to descendants: if a parent is changed, all its children change
 	changed_stable = False
@@ -912,12 +1009,7 @@ def _create_diff_snapshot_internal(
 		name = obj.name or ""
 		if not name or name not in changed:
 			continue
-		dup = obj.copy()
-		if getattr(obj, "data", None) is not None:
-			try:
-				dup.data = obj.data.copy()
-			except Exception:
-				pass
+		dup = duplicate_object_with_data(obj)
 		dup.name = unique_obj_name(obj.name, uid)
 		new_coll.objects.link(dup)
 		try:
@@ -946,245 +1038,12 @@ def _create_diff_snapshot_internal(
 				except Exception:
 					pass
 
+	# Remap pointers INSIDE the snapshot duplicates to point to duplicated targets (manual-copy behavior)
+	try:
+		# Fallback resolver map: current source objects by original name
+		existing_by_name = {nm: obj for nm, obj in curr_objs.items()}
+		remap_references_for_objects(name_to_new_obj, existing_by_name)
+	except Exception:
+		pass
+
 	return new_coll, name_to_new_obj
-
-
-##############################################
-# SnapshotManager API (moved from manager_snapshot)
-##############################################
-
-class SnapshotManager:
-	"""Manages snapshot operations with reusable methods."""
-
-	@staticmethod
-	def find_snapshot_object_and_destination(
-		name: str,
-		snapshot_roots: List[bpy.types.Collection],
-		source_coll: bpy.types.Collection
-	) -> Tuple[Optional[bpy.types.Object], bpy.types.Collection]:
-		"""Find an object by name in snapshots and determine its destination collection.
-
-		Args:
-			name: Object name to find
-			snapshot_roots: List of snapshot collections to search (newest first)
-			source_coll: Source collection to mirror structure under
-
-		Returns:
-			Tuple of (found_object, destination_collection)
-		"""
-		for root in snapshot_roots:
-			name_map = build_name_map(root, snapshot=True)
-			obj = name_map.get(name)
-			if obj is None:
-				continue
-
-			# Find containing collection and mirror path
-			containing_coll = find_containing_collection(root, obj)
-			if containing_coll:
-				path = path_to_collection(root, containing_coll)
-				dest = ensure_mirrored_collection_path(source_coll, path) if path else source_coll
-			else:
-				dest = source_coll
-
-			return obj, dest
-
-		return None, source_coll
-
-	# NOTE: Differential snapshot creation is implemented by create_diff_snapshot/create_diff_snapshot_with_changes.
-	# The previous SnapshotManager.create_differential_snapshot and helpers duplicated that logic and were removed.
-
-	@staticmethod
-	def _fix_object_parenting(
-		copied_names: Set[str],
-		name_to_new_obj: Dict[str, bpy.types.Object],
-		parent_of: Dict[str, Optional[str]]
-	) -> None:
-		"""Fix parent relationships for copied objects."""
-		for name in copied_names:
-			dup = name_to_new_obj.get(name)
-			if not dup:
-				continue
-
-			parent_name = parent_of.get(name)
-			if not parent_name:
-				try:
-					dup.parent = None
-				except Exception:
-					pass
-				continue
-
-			target_parent = name_to_new_obj.get(parent_name)
-			if target_parent:
-				try:
-					dup.parent = target_parent
-				except Exception:
-					pass
-			else:
-				try:
-					dup.parent = None
-				except Exception:
-					pass
-
-	@staticmethod
-	def restore_objects_from_snapshots(
-		desired_objects: List[Dict],
-		source_coll: bpy.types.Collection,
-		snapshot_roots: List[bpy.types.Collection]
-	) -> Tuple[int, int, int]:
-		"""Restore objects from snapshots to match desired state.
-
-		Args:
-			desired_objects: List of object data from commit
-			source_coll: Source collection to restore into
-			snapshot_roots: Snapshot collections to search for objects
-
-		Returns:
-			Tuple of (restored_count, skipped_count, removed_count)
-		"""
-		desired_names = [obj.get("name", "") for obj in desired_objects if obj.get("name")]
-		desired_parent = {obj.get("name", ""): obj.get("parent", "") for obj in desired_objects if obj.get("name")}
-
-		# Get current objects
-		current_map = build_name_map(source_coll, snapshot=False)
-
-		# Remove objects not in desired set
-		removed_count = 0
-		for name, obj in list(current_map.items()):
-			if name not in desired_names:
-				if unlink_and_remove_object(obj):
-					removed_count += 1
-
-		# Rebuild current map after removals
-		current_map = build_name_map(source_coll, snapshot=False)
-
-		# Restore desired objects
-		new_objects: Dict[str, bpy.types.Object] = {}
-		old_objects: Dict[str, bpy.types.Object] = {}
-
-		for name in desired_names:
-			snap_obj, dest_coll = SnapshotManager.find_snapshot_object_and_destination(
-				name, snapshot_roots, source_coll
-			)
-
-			if not snap_obj:
-				continue
-
-			# Create duplicate
-			dup = copy_object_with_data(snap_obj, "restored")
-			current_obj = current_map.get(name)
-
-			if current_obj:
-				old_objects[name] = current_obj
-
-			# Link to destination
-			try:
-				dest_coll.objects.link(dup)
-			except Exception:
-				# Fallback to source collection
-				try:
-					source_coll.objects.link(dup)
-				except Exception:
-					continue
-
-			new_objects[name] = dup
-
-		# Set up parenting
-		SnapshotManager._fix_object_parenting(
-			set(new_objects.keys()), new_objects, desired_parent
-		)
-
-		# Remove old objects
-		for name in desired_names:
-			old_obj = old_objects.get(name)
-			if old_obj:
-				unlink_and_remove_object(old_obj)
-
-		# Rename restored objects to final names
-		for name, dup in new_objects.items():
-			try:
-				dup.name = name
-			except Exception:
-				pass
-
-		restored_count = len(new_objects)
-		skipped_count = max(0, len(desired_names) - restored_count)
-
-		return restored_count, skipped_count, removed_count
-
-
-##############################################
-# Base operator mixins (moved from operator_base)
-##############################################
-
-
-
-class GitBlendOperatorMixin:
-	"""Mixin class providing common functionality for GitBlend operators."""
-
-	def validate_environment(self, context) -> tuple[bool, str]:
-		"""Validate that the environment is ready for GitBlend operations.
-
-		Returns:
-			Tuple of (is_valid, error_message)
-		"""
-		# Check if file is saved in valid location
-		ok, _, err = sanitize_save_path()
-		if not ok:
-			return False, err
-
-		# Check if .gitblend collection exists
-		scene = context.scene
-		if not get_dotgitblend_collection(scene):
-			return False, "'.gitblend' collection does not exist. Click Initialize first."
-
-		return True, ""
-
-	def get_props_or_fail(self, context):
-		"""Get GitBlend properties or report error and return None."""
-		props = get_props(context)
-		if not props:
-			self.report({'ERROR'}, "GITBLEND properties not found")
-			return None
-		return props
-
-	def finish_with_redraw(self, message: str, message_type: str = 'INFO'):
-		"""Complete operation with message and UI redraw."""
-		request_redraw()
-		self.report({message_type}, message)
-		return {'FINISHED'}
-
-	def cancel_with_message(self, message: str, message_type: str = 'ERROR'):
-		"""Cancel operation with message."""
-		self.report({message_type}, message)
-		return {'CANCELLED'}
-
-
-class GitBlendBaseOperator(bpy.types.Operator, GitBlendOperatorMixin):
-	"""Base class for GitBlend operators with common functionality."""
-	bl_options = {'INTERNAL'}
-
-	def execute(self, context):
-		"""Override this method in subclasses."""
-		raise NotImplementedError("Subclasses must implement execute method")
-
-
-class GitBlendValidatedOperator(GitBlendBaseOperator):
-	"""Base operator that automatically validates environment before execution."""
-
-	def execute(self, context):
-		# Validate environment
-		is_valid, error_msg = self.validate_environment(context)
-		if not is_valid:
-			return self.cancel_with_message(error_msg)
-
-		# Get properties
-		props = self.get_props_or_fail(context)
-		if props is None:
-			return {'CANCELLED'}
-
-		# Execute main logic
-		return self.execute_validated(context, props)
-
-	def execute_validated(self, context, props):
-		"""Override this method in subclasses. Environment and props are guaranteed valid."""
-		raise NotImplementedError("Subclasses must implement execute_validated method")
