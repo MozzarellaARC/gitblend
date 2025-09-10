@@ -35,7 +35,6 @@ class GITBLEND_OT_commit(bpy.types.Operator):
     bl_idname = "gitblend.commit"
     bl_label = "Commit Changes"
     bl_description = "Copy the scene's root collection into gitblend as a snapshot named with the branch/message; log the message"
-    # Removed 'UNDO' so this operator never pushes an undo step (we also return FINISHED on success)
     bl_options = {'REGISTER'}
 
     def execute(self, context):
@@ -128,8 +127,7 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
     bl_idname = "gitblend.initialize"
     bl_label = "Initialize Git Blend"
     bl_description = "Create gitblend; ensure a 'source' working collection exists; create the first snapshot"
-    # No UNDO: initialization should not create an undo entry
-    bl_options = {'REGISTER'}  # exclude from undo/redo stack
+    bl_options = {'REGISTER'}
 
     def execute(self, context):
         # Require the .blend file to be saved and not at drive root

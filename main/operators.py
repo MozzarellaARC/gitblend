@@ -209,7 +209,6 @@ class GITBLEND_OT_branch_add(bpy.types.Operator):
     bl_idname = "gitblend.branch_add"
     bl_label = "Add Branch"
     bl_description = "Add a new item to the string list"
-    # Remove UNDO so adding a branch doesn't affect Blender's undo stack
     bl_options = {'REGISTER'}
 
     name: bpy.props.StringProperty(name="Branch name", description="Name of the new branch", default="")
@@ -265,7 +264,7 @@ class GITBLEND_OT_branch_remove(bpy.types.Operator):
     bl_idname = "gitblend.branch_remove"
     bl_label = "Remove Branch"
     bl_description = "Remove the selected item from the string list"
-    bl_options = {'REGISTER'}  # no undo entry
+    bl_options = {'REGISTER'}
     index: bpy.props.IntProperty(default=-1)
 
     def execute(self, context):
@@ -287,7 +286,7 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
     bl_idname = "gitblend.undo_commit"
     bl_label = "Undo Last Commit"
     bl_description = "Remove the latest commit for the selected branch and delete its snapshot"
-    bl_options = {'REGISTER'}  # do not record in undo stack
+    bl_options = {'REGISTER'}
 
     def execute(self, context):
         # Validate environment
@@ -379,7 +378,7 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator, RestoreOperationMixin):
     bl_idname = "gitblend.discard_changes"
     bl_label = "Discard Changes"
     bl_description = "Restore objects from the latest snapshot back into the working collection (for that branch)"
-    bl_options = {'REGISTER'}  # not part of undo stack
+    bl_options = {'REGISTER'}
 
     def _list_branch_snapshots(self, scene, branch):
         """Mirror logic from validate._list_branch_snapshots but locally"""
