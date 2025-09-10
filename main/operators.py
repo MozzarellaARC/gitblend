@@ -1,21 +1,10 @@
 import bpy
-from ..utils.validate import (
-    ensure_gitblend_collection,
-    slugify,
-    get_latest_snapshot,
-    create_diff_snapshot_with_changes,
-    should_skip_commit,
-    unique_coll_name,
-    list_branch_snapshots_upto_uid,
-)
+
 from ..utils.utils import (
-    now_str,
     request_redraw,
     get_props,
     get_selected_branch,
-    log_change,
     set_dropdown_selection,
-    ensure_enum_contains,
     sanitize_save_path,
     build_name_map,
     find_containing_collection,
@@ -25,10 +14,7 @@ from ..utils.utils import (
     remove_object_safely,
     remap_scene_pointers,
 )
-from .index import (
-    compute_collection_signature,
-    derive_changed_set,
-)
+
 from .cas import (
     create_cas_commit,
     get_latest_commit_objects,
@@ -170,135 +156,6 @@ class RestoreOperationMixin:
             removed_msg_parts.append(f"removed {removed_extras} extra")
 
         return restored, skipped
-
-
-class GITBLEND_OT_commit(bpy.types.Operator):
-    bl_idname = "gitblend.commit"
-    bl_label = "Commit Changes"
-    bl_description = "Copy the scene's root collection into gitblend as a snapshot named with the branch/message; log the message"
-    bl_options = {'INTERNAL'}
-
-    def execute(self, context):
-        props = get_props(context)
-        if not props:
-            self.report({'ERROR'}, "GITBLEND properties not found")
-            return {'CANCELLED'}
-
-        msg = (props.commit_message or "").strip()
-        if not msg:
-            self.report({'ERROR'}, "Please enter a commit message before committing.")
-            return {'CANCELLED'}
-
-        scene = context.scene
-
-        # Require a valid saved file path (not drive root)
-        ok, _proj, err = sanitize_save_path()
-        if not ok:
-            self.report({'ERROR'}, err)
-            return {'CANCELLED'}
-
-        sel = get_selected_branch(props) or "main"
-        msg_slug = slugify(msg)
-        # Snapshot base name still includes branch/message
-        snapshot_base_name = f"{sel}-{msg_slug}" if msg_slug else sel
-
-        # Use the scene's root collection as the working area
-        source = scene.collection
-
-        # Require existing gitblend Scene created via Initialize
-        dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
-        if not dot_scene:
-            self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
-            return {'CANCELLED'}
-        dot_coll = dot_scene.collection
-
-        # Snapshot-based validation for early skip (keeps logic consistent with validator)
-        skip, reason = should_skip_commit(scene, source, sel)
-        if skip:
-            self.report({'INFO'}, f"No changes detected; skipping snapshot ({reason})")
-            return {'CANCELLED'}
-
-        uid = now_str("%Y%m%d%H%M%S")
-
-        prev = get_latest_snapshot(scene, sel)
-
-        # Differential snapshot: compute changed set using CAS head commit objects
-        changed_names = None
-        try:
-            latest = get_latest_commit_objects(sel)
-        except Exception:
-            latest = None
-        if latest:
-            _cid, _commit, prev_objs = latest
-            curr_sigs, _coll_hash = compute_collection_signature(source)
-            changed, names = derive_changed_set(curr_sigs, prev_objs)
-            changed_names = set(names) if changed else set()
-
-        # Create diff snapshot using computed changed set (or let it compute if None)
-        new_coll, obj_map = create_diff_snapshot_with_changes(source, dot_coll, uid, prev, changed_names=changed_names)
-        # Rename snapshot collection to follow our branch/message naming convention (ensure unique)
-        try:
-            desired = unique_coll_name(snapshot_base_name, uid)
-            new_coll.name = desired
-        except Exception:
-            pass
-
-        # CAS-only path: compute signatures and write CAS commit; index.json is deprecated
-        snapshot_name = new_coll.name
-        obj_sigs, _coll_hash = compute_collection_signature(source)
-        try:
-            create_cas_commit(sel, uid, now_str(), msg, obj_sigs)
-        except Exception:
-            pass
-
-        # Record UI log entry with branch and uid for filtering/selection
-        try:
-            log_change(props, msg, branch=sel)
-            if len(props.changes_log) > 0:
-                props.changes_log[-1].uid = uid
-        except Exception:
-            pass
-        props.commit_message = ""
-        request_redraw()
-
-        self.report({'INFO'}, "Commit snapshot created in gitblend")
-        return {'FINISHED'}
-
-
-class GITBLEND_OT_initialize(bpy.types.Operator):
-    bl_idname = "gitblend.initialize"
-    bl_label = "Initialize Git Blend"
-    bl_description = "Create gitblend; ensure a 'source' working collection exists; create the first snapshot"
-    bl_options = {'INTERNAL'}  # exclude from undo/redo and search
-
-    def execute(self, context):
-        # Require the .blend file to be saved and not at drive root
-        ok, _proj, err = sanitize_save_path()
-        if not ok:
-            self.report({'ERROR'}, err)
-            return {'CANCELLED'}
-
-        # Ensure a sensible default commit message on first run
-        props = get_props(context)
-        if props and not (props.commit_message or "").strip():
-            props.commit_message = "Initialize"
-        # Ensure the default/selected branch exists in the enum and is selected
-        if props:
-            branch = (getattr(props, "gitblend_branch", "") or "main").strip() or "main"
-            ensure_enum_contains(props, branch)
-            # Select the branch we just ensured exists
-            try:
-                idx = next((i for i, it in enumerate(props.string_items) if (it.name or "").strip().lower() == branch.lower()), -1)
-            except Exception:
-                idx = -1
-            if idx >= 0:
-                set_dropdown_selection(props, idx)
-            request_redraw()
-        # Ensure gitblend (Scene) exists up-front for user feedback in UI
-        ensure_gitblend_collection(context.scene)
-        # Delegate to the Commit operator; first commit will initialize automatically
-        return bpy.ops.gitblend.commit()
-
 
 class GITBLEND_OT_string_add(bpy.types.Operator):
     bl_idname = "gitblend.string_add"
@@ -522,106 +379,6 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator, RestoreOperationMixin):
         return {'FINISHED'}
 
 
-class GITBLEND_OT_checkout_log(bpy.types.Operator, RestoreOperationMixin):
-    bl_idname = "gitblend.checkout_log"
-    bl_label = "Checkout Log Entry"
-    bl_description = "Restore the working collection to the state up to the selected log entry"
-    bl_options = {'INTERNAL'}
-
-    def execute(self, context):
-        ok, _proj, err = sanitize_save_path()
-        if not ok:
-            self.report({'ERROR'}, err)
-            return {'CANCELLED'}
-
-        scene = context.scene
-        dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
-        if not dot_scene:
-            self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
-            return {'CANCELLED'}
-        dot_coll = dot_scene.collection
-
-        props = get_props(context)
-        branch = get_selected_branch(props) if props else "main"
-
-        commits = list_branch_commits(branch)
-        if not commits:
-            self.report({'INFO'}, f"No commit history for branch '{branch}'.")
-            return {'CANCELLED'}
-
-        # Map selection via UI list to the actual selected change log entry
-        target_uid = ""
-        try:
-            if props and 0 <= props.changes_log_index < len(props.changes_log):
-                selected = props.changes_log[props.changes_log_index]
-                if (getattr(selected, "branch", "") or "").strip() == branch:
-                    target_uid = getattr(selected, "uid", "") or ""
-        except Exception:
-            target_uid = ""
-        # Fallback to latest commit uid
-        if not target_uid and commits:
-            target_uid = commits[0][1].get("uid", "")
-        if not target_uid:
-            self.report({'WARNING'}, "Unable to resolve target commit UID.")
-            return {'CANCELLED'}
-        # Find the target commit by uid
-        resolved = resolve_commit_by_uid(branch, target_uid)
-        if not resolved:
-            self.report({'WARNING'}, "Selected commit not found in index.")
-            return {'CANCELLED'}
-        target_id, target = resolved
-
-        # Restore into the scene's root collection
-        source = scene.collection
-
-        tree_id = target.get("tree", "")
-        if not tree_id:
-            self.report({'WARNING'}, "Target commit lacks tree reference.")
-            return {'CANCELLED'}
-        from .cas import flatten_tree_to_objects
-        commit_map = flatten_tree_to_objects(tree_id)
-        commit_objs = list(commit_map.values())
-        snapshots = list_branch_snapshots_upto_uid(scene, branch, target_uid)
-
-        removed_msg_parts = []
-        restored, skipped = self.restore_objects_from_commit(source, commit_objs, snapshots, removed_msg_parts)
-
-        request_redraw()
-        # Derive position for messaging
-        try:
-            pos = next((i for i, (_id, c) in enumerate(commits) if str(c.get("uid", "")) == str(target_uid)), -1)
-        except Exception:
-            pos = -1
-        msg = f"Checked out commit {pos+1 if pos>=0 else '?'}/{len(commits)}"
-        m = (target.get("message", "") or "").strip()
-        if m:
-            msg += f": {m}"
-        if skipped:
-            msg += f" (skipped {skipped})"
-        if removed_msg_parts:
-            msg += f", {', '.join(removed_msg_parts)}"
-        self.report({'INFO'}, msg)
-        return {'FINISHED'}
 
 
-def register_operators():
-    bpy.utils.register_class(GITBLEND_OT_commit)
-    bpy.utils.register_class(GITBLEND_OT_initialize)
-    bpy.utils.register_class(GITBLEND_OT_string_add)
-    bpy.utils.register_class(GITBLEND_OT_string_remove)
-    bpy.utils.register_class(GITBLEND_OT_undo_commit)
-    bpy.utils.register_class(GITBLEND_OT_discard_changes)
-    bpy.utils.register_class(GITBLEND_OT_checkout_log)
 
-
-def unregister_operators():
-    bpy.utils.unregister_class(GITBLEND_OT_discard_changes)
-    bpy.utils.unregister_class(GITBLEND_OT_undo_commit)
-    bpy.utils.unregister_class(GITBLEND_OT_string_remove)
-    bpy.utils.unregister_class(GITBLEND_OT_string_add)
-    bpy.utils.unregister_class(GITBLEND_OT_initialize)
-    bpy.utils.unregister_class(GITBLEND_OT_commit)
-    try:
-        bpy.utils.unregister_class(GITBLEND_OT_checkout_log)
-    except RuntimeError:
-        pass
