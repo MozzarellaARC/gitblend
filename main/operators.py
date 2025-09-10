@@ -24,6 +24,8 @@ from .cas import (
     update_ref,
 )
 
+from ..prefs.properties import SCENE_DIR, HIDDEN_SCENE_DIR
+
 
 class RestoreOperationMixin:
     """Mixin class providing common restoration functionality."""
@@ -168,7 +170,7 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
     def invoke(self, context, event):
         # Ensure environment is valid before showing prompt
         scene = context.scene
-        has_gitblend = (bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")) is not None
+        has_gitblend = (bpy.data.scenes.get(SCENE_DIR) or bpy.data.scenes.get(HIDDEN_SCENE_DIR)) is not None
         if not has_gitblend:
             self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}
@@ -192,7 +194,7 @@ class GITBLEND_OT_string_add(bpy.types.Operator):
             return {'CANCELLED'}
         # Require existing .gitblend collection
         scene = context.scene
-        has_gitblend = (bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")) is not None
+        has_gitblend = (bpy.data.scenes.get(SCENE_DIR) or bpy.data.scenes.get(HIDDEN_SCENE_DIR)) is not None
         if not has_gitblend:
             self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}
@@ -250,7 +252,7 @@ class GITBLEND_OT_undo_commit(bpy.types.Operator):
 
         scene = context.scene
         # Ensure gitblend exists
-        dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
+        dot_scene = bpy.data.scenes.get(SCENE_DIR) or bpy.data.scenes.get(HIDDEN_SCENE_DIR)
         if not dot_scene:
             self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}
@@ -346,7 +348,7 @@ class GITBLEND_OT_discard_changes(bpy.types.Operator, RestoreOperationMixin):
             return {'CANCELLED'}
 
         scene = context.scene
-        dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
+        dot_scene = bpy.data.scenes.get(SCENE_DIR) or bpy.data.scenes.get(HIDDEN_SCENE_DIR)
         if not dot_scene:
             self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}

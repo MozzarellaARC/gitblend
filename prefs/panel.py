@@ -1,6 +1,9 @@
 import bpy
 from ..utils.utils import get_selected_branch
 
+from ..prefs.properties import SCENE_DIR, HIDDEN_SCENE_DIR
+
+
 class GITBLEND_UL_ChangeLog(bpy.types.UIList):
     bl_idname = "GITBLEND_UL_ChangeLog"
 
@@ -48,7 +51,7 @@ class GITBLEND_Panel(bpy.types.Panel):
         layout = self.layout
         scene = context.scene
         # Detect gitblend presence for UI state
-        has_gitblend = (bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")) is not None
+        has_gitblend = (bpy.data.scenes.get(SCENE_DIR) or bpy.data.scenes.get(HIDDEN_SCENE_DIR)) is not None
         layout.label(icon='CHECKMARK' if has_gitblend else 'ERROR')
 
     def draw(self, context):
@@ -60,7 +63,7 @@ class GITBLEND_Panel(bpy.types.Panel):
             return
 
         # Detect gitblend presence for UI state
-        has_gitblend = (bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")) is not None
+        has_gitblend = (bpy.data.scenes.get(SCENE_DIR) or bpy.data.scenes.get(HIDDEN_SCENE_DIR)) is not None
 
         # Top row: Initialize left, current branch right
         row = layout.row(align=True)

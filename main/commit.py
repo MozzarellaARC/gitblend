@@ -28,6 +28,9 @@ from .cas import (
     create_cas_commit,
 )
 
+from ..prefs.properties import SCENE_DIR, HIDDEN_SCENE_DIR
+
+
 class GITBLEND_OT_commit(bpy.types.Operator):
     bl_idname = "gitblend.commit"
     bl_label = "Commit Changes"
@@ -62,7 +65,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         source = scene.collection
 
         # Require existing gitblend Scene created via Initialize
-        dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
+        dot_scene = bpy.data.scenes.get(SCENE_DIR) or bpy.data.scenes.get(HIDDEN_SCENE_DIR)
         if not dot_scene:
             self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}

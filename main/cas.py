@@ -2,6 +2,7 @@ import os
 import json
 import hashlib
 from typing import Dict, Tuple, Optional, List
+from ..prefs.properties import SCENE_DIR, HIDDEN_SCENE_DIR
 
 
 def _project_root_dir() -> str:
@@ -15,7 +16,7 @@ def _project_root_dir() -> str:
 
 
 def _store_root() -> str:
-    return os.path.join(_project_root_dir(), ".gitblend")
+    return os.path.join(_project_root_dir(), HIDDEN_SCENE_DIR)
 
 
 def _objects_dir() -> str:

@@ -17,6 +17,8 @@ from .cas import (
 
 from .operators import RestoreOperationMixin
 
+from ..prefs.properties import SCENE_DIR, HIDDEN_SCENE_DIR
+
 
 class GITBLEND_OT_checkout(bpy.types.Operator, RestoreOperationMixin):
     bl_idname = "gitblend.checkout_log"
@@ -31,7 +33,7 @@ class GITBLEND_OT_checkout(bpy.types.Operator, RestoreOperationMixin):
             return {'CANCELLED'}
 
         scene = context.scene
-        dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
+        dot_scene = bpy.data.scenes.get(SCENE_DIR) or bpy.data.scenes.get(HIDDEN_SCENE_DIR)
         if not dot_scene:
             self.report({'ERROR'}, "'gitblend' Scene does not exist. Click Initialize first.")
             return {'CANCELLED'}

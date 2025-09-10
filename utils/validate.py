@@ -12,6 +12,9 @@ from .utils import (
 	get_object_dependencies,
 )
 
+from ..prefs.properties import SCENE_DIR, HIDDEN_SCENE_DIR
+
+
 # Tolerances for float comparisons (relaxed slightly to avoid noise-based false positives)
 EPS = 1e-5
 EPS_POS = 5e-4  # looser for world positions
@@ -38,12 +41,12 @@ def _get_or_create_gitblend_scene() -> bpy.types.Scene:
 	rename the legacy scene to 'gitblend'.
 	"""
 	# Prefer visible name without dot
-	scene_name = "gitblend"
+	scene_name = SCENE_DIR
 	s = bpy.data.scenes.get(scene_name)
 	if s:
 		return s
 	# Migrate legacy hidden scene name
-	legacy = bpy.data.scenes.get(".gitblend")
+	legacy = bpy.data.scenes.get(HIDDEN_SCENE_DIR)
 	if legacy and bpy.data.scenes.get(scene_name) is None:
 		try:
 			legacy.name = scene_name
@@ -55,7 +58,7 @@ def _get_or_create_gitblend_scene() -> bpy.types.Scene:
 		s = bpy.data.scenes.new(scene_name)
 	except Exception:
 		# Fallback: attempt a different unique name
-		base = "gitblend"
+		base = SCENE_DIR
 		i = 1
 		while bpy.data.scenes.get(f"{base}-{i}") is not None:
 			i += 1
@@ -156,7 +159,7 @@ def _list_branch_snapshots(scene: bpy.types.Scene, branch: str) -> List[bpy.type
 	Matches names starting with 'branch' (with or without '-<slug>') and ending with '_<uid>'.
 	Sorted by UID descending.
 	"""
-	dot_scene = bpy.data.scenes.get("gitblend") or bpy.data.scenes.get(".gitblend")
+	dot_scene = bpy.data.scenes.get(SCENE_DIR) or bpy.data.scenes.get(HIDDEN_SCENE_DIR)
 	if not dot_scene:
 		return []
 	dot_root = dot_scene.collection

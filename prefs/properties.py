@@ -1,5 +1,7 @@
 import bpy
 
+SCENE_DIR = "gitblend"          # Primary scene name for snapshots / working data
+HIDDEN_SCENE_DIR = ".gitblend"  # Legacy hidden scene name still recognized
 
 class GITBLEND_ChangeLogEntry(bpy.types.PropertyGroup):
     """Single commit/change-log entry."""
