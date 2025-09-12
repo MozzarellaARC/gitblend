@@ -311,7 +311,7 @@ def dump_all_rna():
     
     return rna_data
 
-def main():
+def export_json():
     """Main function to dump bpy.data and save to JSON."""
     
     # Get the current blend file path
@@ -352,7 +352,3 @@ def main():
         return {'CANCELLED'}
     
     return {'FINISHED'}
-
-# Run the script
-if __name__ == "__main__":
-    main()
