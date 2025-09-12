@@ -124,7 +124,15 @@ def serialize_object_properties(obj, max_depth=2, current_depth=0, exclude_props
     
     if exclude_props is None:
         exclude_props = {
-            'rna_type', 'bl_rna', '__doc__', '__module__', '__slots__'
+            'rna_type', 'bl_rna', '__doc__', '__module__', '__slots__',
+            # Temporal/volatile properties that change frequently
+            'update_tag', 'is_updated', 'is_updated_data', 'tag', 
+            # Memory/cache related properties
+            'id_data', 'library', 'library_weak_reference',
+            # System/internal properties  
+            'session_uuid', 'original', 'override_library',
+            # Animation/frame dependent properties that may be unstable
+            'is_evaluated', 'evaluated_get'
         }
     
     result = {}
@@ -132,7 +140,14 @@ def serialize_object_properties(obj, max_depth=2, current_depth=0, exclude_props
     # Get the RNA properties if available
     if hasattr(obj, 'bl_rna') and hasattr(obj.bl_rna, 'properties'):
         for prop in obj.bl_rna.properties:
-            if prop.identifier in exclude_props or prop.identifier.startswith('bl_'):
+            if (prop.identifier in exclude_props or 
+                prop.identifier.startswith('bl_') or
+                # Filter out commonly volatile property patterns
+                'update' in prop.identifier.lower() or
+                'cache' in prop.identifier.lower() or
+                'tag' in prop.identifier.lower() or
+                'uuid' in prop.identifier.lower() or
+                'time' in prop.identifier.lower()):
                 continue
                 
             try:
@@ -140,24 +155,42 @@ def serialize_object_properties(obj, max_depth=2, current_depth=0, exclude_props
                 
                 if prop.type == 'POINTER':
                     if value is not None:
-                        if hasattr(value, 'name'):
-                            result[prop.identifier] = f"<{type(value).__name__}: {value.name}>"
+                        # Create stable reference with name and type
+                        if hasattr(value, 'name') and value.name:
+                            # Include both type and name for stable reference
+                            result[prop.identifier] = {
+                                "_type": type(value).__name__,
+                                "_name": value.name,
+                                "_ref": f"<{type(value).__name__}: {value.name}>"
+                            }
                         else:
-                            result[prop.identifier] = f"<{type(value).__name__}>"
+                            # Fallback for objects without names
+                            result[prop.identifier] = {
+                                "_type": type(value).__name__,
+                                "_ref": f"<{type(value).__name__}>"
+                            }
                     else:
                         result[prop.identifier] = None
                         
                 elif prop.type == 'COLLECTION':
                     if hasattr(value, '__len__'):
                         collection_info = {
-                            "count": len(value),
-                            "type": type(value).__name__
+                            "_collection_type": type(value).__name__,
+                            "count": len(value)
                         }
                         
-                        # For small collections, serialize the items
+                        # For small collections, serialize the items with deterministic ordering
                         if len(value) <= 20 and current_depth < max_depth - 1:
                             items = []
-                            for item in value:
+                            
+                            # Sort items deterministically by name (or fallback to string representation)
+                            try:
+                                sorted_items = sorted(value, key=lambda x: getattr(x, 'name', str(x)))
+                            except (TypeError, AttributeError):
+                                # Fallback if sorting fails
+                                sorted_items = list(value)
+                                
+                            for item in sorted_items:
                                 if hasattr(item, 'name'):
                                     # Recursively serialize collection items (like modifiers)
                                     item_data = serialize_object_properties(item, max_depth, current_depth + 1, exclude_props)
@@ -277,10 +310,18 @@ def dump_all_rna():
                             "count": collection_count
                         }
                         
-                        # Sample first few items if collection is not empty
+                        # Sample items if collection is not empty - use deterministic ordering
                         if hasattr(collection, '__iter__') and collection_count > 0:
                             items_sample = []
-                            for i, item in enumerate(collection):
+                            
+                            # Sort items deterministically by name (or fallback to string representation)
+                            try:
+                                sorted_items = sorted(collection, key=lambda x: getattr(x, 'name', str(x)))
+                            except (TypeError, AttributeError):
+                                # Fallback if sorting fails - convert to list to ensure consistent order
+                                sorted_items = list(collection)
+                            
+                            for i, item in enumerate(sorted_items):
                                 if i >= 5:  # Reduced to 5 items due to more detailed data
                                     break
                                 
@@ -333,7 +374,7 @@ def export_json():
         # Save to JSON file
         print(f"Saving bpy.data to: {json_filepath}")
         with open(json_filepath, 'w', encoding='utf-8') as f:
-            json.dump(data_dump, f, indent=2, ensure_ascii=False, default=str)
+            json.dump(data_dump, f, indent=2, ensure_ascii=False, sort_keys=True, default=str)
         
         print(f"✓ bpy.data successfully dumped to: {json_filepath}")
         print(f"  - Collections included: {data_dump['summary']['total_collections']}")
