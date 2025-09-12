@@ -1,0 +1,1 @@
+something wrong with my bl_idname if i put AddonPreferences on top level init its working fine, but if i register it from submodule it stops working, __name__.split('.')[0], __name__, __package__, hardcoded "git_blend" and __name__.split('.')[0] if '.' in __name__ else __name__ not working

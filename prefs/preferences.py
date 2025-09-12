@@ -95,26 +95,3 @@ class GITBLEND_OT_CheckJsondiff(bpy.types.Operator):
             self.report({'ERROR'}, f"Error checking jsondiff: {str(e)}")
             return {'CANCELLED'}
 
-class GITBLEND_Preferences(bpy.types.AddonPreferences):
-    bl_idname = __name__
-
-    # Define your preferences properties here
-    my_property: bpy.props.StringProperty(name="My Property", default="Default Value")
-
-    def draw(self, context):
-        layout = self.layout
-        layout.label(text="GITBLEND Preferences")
-        layout.prop(self, "my_property")
-        
-        # jsondiff module management
-        box = layout.box()
-        box.label(text="JSON Diff Module Management", icon='CONSOLE')
-        
-        row = box.row()
-        row.operator("gitblend.check_jsondiff", icon='INFO')
-        
-        row = box.row()
-        row.operator("gitblend.install_jsondiff", icon='IMPORT')
-        row.operator("gitblend.uninstall_jsondiff", icon='X')
-        
-        box.label(text=f"Install location: {Path(bpy.utils.user_resource('SCRIPTS')) / 'modules'}", icon='FOLDER_REDIRECT')
