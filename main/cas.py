@@ -4,6 +4,9 @@ import hashlib
 from typing import Dict, Tuple, Optional, List
 from ..prefs.properties import SCENE_DIR, HIDDEN_SCENE_DIR
 
+# Pretty JSON on disk for readability. Hashing still uses compact canonical form.
+PRETTY_JSON_INDENT = 2
+
 
 def _project_root_dir() -> str:
     # Avoid importing bpy here; rely on caller paths. Fallback to CWD.
@@ -49,15 +52,29 @@ def _canonical_dumps(data: Dict) -> str:
 
 
 def _write_json_if_absent(path: str, data: Dict) -> None:
+    """Write JSON file only if it doesn't already exist.
+
+    Stored JSON is pretty-printed for human readability while maintaining
+    deterministic key ordering. Object IDs are derived from the canonical
+    compact representation (see _canonical_dumps) before this is called,
+    so adding indentation here is safe and doesn't affect hashes.
+    """
     if os.path.exists(path):
         return
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(
+                data,
+                f,
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=PRETTY_JSON_INDENT,
+            )
+            f.write("\n")  # ensure trailing newline for POSIX tools
         os.replace(tmp, path)
     except Exception:
-        # Best-effort fallback
+        # Best-effort cleanup if something failed after creating tmp
         try:
             os.remove(tmp)
         except Exception:
