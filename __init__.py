@@ -16,9 +16,9 @@ from . import prefs as prefs_module
 from . import main as main_module
 
 def register():
-	prefs_module.register_properties()
+	prefs_module.register_prefs()
 	main_module.register_main()
 	
 def unregister():
 	main_module.unregister_main()
-	prefs_module.unregister_properties()
+	prefs_module.unregister_prefs()
