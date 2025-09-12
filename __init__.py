@@ -17,8 +17,8 @@ from . import main as main_module
 
 def register():
 	prefs_module.register_prefs()
-	main_module.register_main()
+	main_module.register_operators()
 	
 def unregister():
-	main_module.unregister_main()
+	main_module.unregister_operators()
 	prefs_module.unregister_prefs()

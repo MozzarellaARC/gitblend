@@ -10,10 +10,12 @@ from .panel import (
 
 def register_prefs():
 	bpy.utils.register_class(GITBLEND_Properties)
+	bpy.types.Scene.gitblend_props = bpy.props.PointerProperty(type=GITBLEND_Properties)  # type: ignore
 	bpy.utils.register_class(GITBLEND_Panel)
 
 def unregister_prefs():
 	bpy.utils.unregister_class(GITBLEND_Panel)
+	del bpy.types.Scene.gitblend_props
 	bpy.utils.unregister_class(GITBLEND_Properties)
 
 __all__ = (
