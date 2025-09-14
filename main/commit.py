@@ -61,6 +61,20 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             self.report({'ERROR'}, f"Failed to save snapshot: {e}")
             return {'CANCELLED'}
 
-        # TODO: Extend with metadata/commit log indexing.
+        # Record commit in in-memory history (UI list)
+        if props:
+            entry = props.commits.add()
+            entry.hash = scene_hash
+            entry.message = commit_message
+            entry.timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+            props.commits_index = len(props.commits) - 1
+            # Clear message after commit
+            props.commit_message = ""
+        # Force UI redraw
+        for window in context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+
         self.report({'INFO'}, f"Committed snapshot {snapshot_path.name} : {commit_message}")
         return {'FINISHED'}
