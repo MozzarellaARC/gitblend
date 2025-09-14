@@ -1,6 +1,5 @@
 import bpy
-from datetime import datetime
-import uuid
+from .constant import FILE_PATH
 
 
 class GITBLEND_OT_commit(bpy.types.Operator):
@@ -17,6 +16,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             self.report({'ERROR'}, "Commit message cannot be empty.")
             return {'CANCELLED'}
 
+        bpy.ops.wm.save_as_mainfile(filepath=FILE_PATH, copy=True)
         # Placeholder: real commit logic would serialize and store scene changes.
         
         self.report({'INFO'}, f"Committed with message: {commit_message}")
