@@ -1,51 +1,11 @@
 import bpy
 import hashlib
-import os
 import time
 from pathlib import Path
+from typing import Any, Dict
 
-# Metadata dependency
-import json
-from typing import Dict, Any
-from ..prefs.constants import METADATA_FILENAME, METADATA_VERSION
-
-
-def get_metadata_path(project_dir: Path) -> Path:
-    return project_dir / '.gitblend' / METADATA_FILENAME
-
-
-def _default_structure() -> Dict[str, Any]:
-    return {"version": METADATA_VERSION, "commits": []}
-
-
-def load_metadata(project_dir: Path) -> Dict[str, Any]:
-    path = get_metadata_path(project_dir)
-    if not path.exists():
-        return _default_structure()
-    try:
-        with path.open('r', encoding='utf-8') as f:
-            data = json.load(f)
-            # Basic sanity checks
-            if not isinstance(data, dict):
-                return _default_structure()
-            if 'commits' not in data or not isinstance(data['commits'], list):
-                data['commits'] = []
-            data.setdefault('version', METADATA_VERSION)
-            return data
-    except Exception:
-        return _default_structure()
-
-
-def append_commit(project_dir: Path, commit: Dict[str, Any]) -> None:
-    """Append a commit entry and write atomically."""
-    data = load_metadata(project_dir)
-    data['commits'].append(commit)
-    metadata_path = get_metadata_path(project_dir)
-    metadata_path.parent.mkdir(exist_ok=True)
-    tmp_path = metadata_path.with_suffix('.tmp')
-    with tmp_path.open('w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp_path, metadata_path)
+# Use shared initialization + metadata utilities
+from .initialize import ensure_gitblend_dir, append_commit, is_gitblend_initialized
 
 
 def _compute_scene_hash(scene: bpy.types.Scene) -> str:
@@ -72,6 +32,19 @@ class GITBLEND_OT_commit(bpy.types.Operator):
     bl_description = "Commit changes to the Git repository"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @classmethod
+    def poll(cls, context):  # type: ignore
+        # Must have saved blend file and initialization present
+        blend_path = bpy.data.filepath
+        if not blend_path:
+            return False
+        try:
+            from pathlib import Path as _P
+            project_dir = _P(blend_path).resolve().parent
+            return is_gitblend_initialized(project_dir)
+        except Exception:
+            return False
+
     def execute(self, context):
         props = getattr(context.scene, "gitblend_props", None)
         commit_message = (props.commit_message if props else "").strip()
@@ -86,9 +59,8 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             return {'CANCELLED'}
 
         current_dir = Path(current_filepath).resolve().parent
-        gitblend_dir = current_dir / '.gitblend'
         try:
-            gitblend_dir.mkdir(exist_ok=True)
+            gitblend_dir = ensure_gitblend_dir(current_dir)
         except Exception as e:
             self.report({'ERROR'}, f"Failed to create .gitblend directory: {e}")
             return {'CANCELLED'}

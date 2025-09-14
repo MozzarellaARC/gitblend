@@ -43,10 +43,29 @@ class GITBLEND_Panel(bpy.types.Panel):
         col.label(text="Commit History:")
         col.template_list("GITBLEND_UL_commit_history", "", props, "commits", props, "commits_index", rows=5)
 
-        box = layout.box()
-        box.prop(props, "commit_message", text="Message")
-        row = box.row(align=True)
-        row.operator("gitblend.commit", text="Commit", icon='FILE_TICK')
+        # Initialization section
+        box_init = layout.box()
+        box_init.label(text="Repository Setup")
+        from ..main.initialize import is_gitblend_initialized  # type: ignore
+        blend_path = bpy.data.filepath
+        initialized = False
+        if blend_path:
+            from pathlib import Path
+            initialized = is_gitblend_initialized(Path(blend_path).resolve().parent)
+        row_init = box_init.row()
+        if initialized:
+            row_init.label(text="Initialized", icon='CHECKMARK')
+        else:
+            row_init.operator("gitblend.initialize", icon='FILE_NEW')
+
+        if initialized:
+            box = layout.box()
+            box.prop(props, "commit_message", text="Message")
+            row = box.row(align=True)
+            row.operator("gitblend.commit", text="Commit", icon='FILE_TICK')
+        else:
+            warn_box = layout.box()
+            warn_box.label(text="Not initialized", icon='ERROR')
         # Future buttons: diff, checkout etc.
 
         layout.separator()
