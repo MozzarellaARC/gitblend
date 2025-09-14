@@ -13,7 +13,6 @@ class GITBLEND_Panel(bpy.types.Panel):
         props = context.scene.gitblend_props
 
         layout.prop(props, "commit_message", text="Commit Message")
-        layout.operator("gb.commit", text="Commit Changes", icon='FILE_TICK')
-        layout.separator()
-        col = layout.column(align=True)
-        col.operator("gb.commit_copy_scene", text="Commit Copy Scene", icon='DUPLICATE')
+        layout.operator("gb.commit", text="Commit Changes", icon='FILE_TICK')\
+        
+        layout.operator("gb.bpy_serde", text="Serialize bpy into json", icon='DUPLICATE')
