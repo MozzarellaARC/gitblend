@@ -10,3 +10,6 @@ Made for Blender 4.2 to 4.5
 1.0.6 :
 - Now compares on scenes instead of collection
 - uses scene root instead of source collection as the working environment
+
+1.3.0 :
+- Complete rewrite
