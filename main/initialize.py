@@ -74,6 +74,69 @@ def is_gitblend_initialized(project_dir: Path) -> bool:
 	"""Return True if .gitblend directory and metadata file exist."""
 	metadata_path = get_metadata_path(project_dir)
 	return metadata_path.exists()
+
+
+def populate_ui_from_metadata(context) -> None:
+	"""Populate the UI list with commits from metadata file."""
+	blend_path = bpy.data.filepath
+	if not blend_path:
+		return
+	
+	project_dir = Path(blend_path).resolve().parent
+	if not is_gitblend_initialized(project_dir):
+		return
+	
+	props = getattr(context.scene, "gitblend_props", None)
+	if not props:
+		return
+	
+	# Clear existing entries
+	props.commits.clear()
+	
+	# Load metadata and populate UI
+	metadata = load_metadata(project_dir)
+	for commit_data in metadata.get('commits', []):
+		entry = props.commits.add()
+		entry.hash = commit_data.get('hash', '')
+		entry.message = commit_data.get('message', '')
+		entry.timestamp = commit_data.get('timestamp', '')
+	
+	# Set active index to the last commit
+	if props.commits:
+		props.commits_index = len(props.commits) - 1
+	else:
+		props.commits_index = -1
+
+
+class GITBLEND_OT_sync(bpy.types.Operator):
+	"""Sync operator to populate the UI with existing commit history."""
+	bl_idname = "gitblend.sync"
+	bl_label = "Sync History"
+	bl_description = "Load existing commit history from .gitblend directory"
+	bl_options = {'REGISTER', 'UNDO'}
+
+	@classmethod
+	def poll(cls, context):
+		# Only enabled if file is saved and .gitblend exists
+		blend_path = bpy.data.filepath
+		if not blend_path:
+			return False
+		try:
+			project_dir = Path(blend_path).resolve().parent
+			return is_gitblend_initialized(project_dir)
+		except Exception:
+			return False
+
+	def execute(self, context):
+		try:
+			populate_ui_from_metadata(context)
+			self.report({'INFO'}, "Commit history synchronized")
+			return {'FINISHED'}
+		except Exception as e:
+			self.report({'ERROR'}, f"Failed to sync history: {e}")
+			return {'CANCELLED'}
+
+
 class GITBLEND_OT_initialize(bpy.types.Operator):
 	bl_idname = "gitblend.initialize"
 	bl_label = "Initialize .gitblend"
@@ -90,17 +153,28 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
 		if not blend_path:
 			self.report({'ERROR'}, "Please save the .blend file first.")
 			return {'CANCELLED'}
+		
 		project_dir = Path(blend_path).resolve().parent
+		
 		try:
-			initialize_gitblend(project_dir)
+			# Check if .gitblend already exists
+			if is_gitblend_initialized(project_dir):
+				# .gitblend exists, sync the commit history
+				populate_ui_from_metadata(context)
+				self.report({'INFO'}, "Synchronized with existing .gitblend repository")
+			else:
+				# Initialize new .gitblend
+				initialize_gitblend(project_dir)
+				self.report({'INFO'}, ".gitblend initialized")
 		except Exception as e:  # pragma: no cover - Blender runtime context
-			self.report({'ERROR'}, f"Initialization failed: {e}")
+			self.report({'ERROR'}, f"Operation failed: {e}")
 			return {'CANCELLED'}
-		self.report({'INFO'}, ".gitblend initialized")
+		
 		return {'FINISHED'}
 
 
 __all__ = [
 	'get_gitblend_dir', 'get_metadata_path', 'initialize_gitblend', 'append_commit',
-	'ensure_gitblend_dir', 'load_metadata', 'GITBLEND_OT_initialize', 'is_gitblend_initialized'
+	'ensure_gitblend_dir', 'load_metadata', 'GITBLEND_OT_initialize', 'GITBLEND_OT_sync', 
+	'is_gitblend_initialized', 'populate_ui_from_metadata'
 ]

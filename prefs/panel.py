@@ -46,26 +46,59 @@ class GITBLEND_Panel(bpy.types.Panel):
         # Initialization section
         box_init = layout.box()
         box_init.label(text="Repository Setup")
-        from ..main.initialize import is_gitblend_initialized  # type: ignore
+        
+        from ..main.initialize import is_gitblend_initialized, populate_ui_from_metadata  # type: ignore
         blend_path = bpy.data.filepath
-        initialized = False
-        if blend_path:
-            from pathlib import Path
-            initialized = is_gitblend_initialized(Path(blend_path).resolve().parent)
+        
+        # Determine current state
+        blend_saved = bool(blend_path)
+        gitblend_initialized = False
+        history_populated = bool(props.commits)
+        
+        if blend_saved:
+            try:
+                from pathlib import Path
+                gitblend_initialized = is_gitblend_initialized(Path(blend_path).resolve().parent)
+                
+                # Auto-sync if .gitblend exists but history is not populated
+                if gitblend_initialized and not history_populated:
+                    try:
+                        populate_ui_from_metadata(context)
+                        history_populated = bool(props.commits)  # Update status after auto-sync
+                    except Exception:
+                        pass  # Silently fail auto-sync, user can manually sync
+            except Exception:
+                # Handle any path resolution errors
+                blend_saved = False
+        
+        # Create the row for initialization controls
         row_init = box_init.row()
-        if initialized:
-            row_init.label(text="Initialized", icon='CHECKMARK')
+        
+        if not blend_saved:
+            # Blend file not saved
+            row_init.label(text="Please save .blend file first", icon='ERROR')
+        elif not gitblend_initialized:
+            # Blend file saved but .gitblend not initialized
+            row_init.operator("gitblend.initialize", text="Initialize", icon='FILE_NEW')
+        elif gitblend_initialized and not history_populated:
+            # .gitblend exists but history not loaded in UI (auto-sync failed)
+            row_init.operator("gitblend.initialize", text="Sync", icon='FILE_REFRESH')
         else:
-            row_init.operator("gitblend.initialize", icon='FILE_NEW')
+            # Everything is set up
+            row_init.label(text="Initialized", icon='CHECKMARK')
 
-        if initialized:
+        # Show commit controls if initialized
+        if gitblend_initialized:
             box = layout.box()
             box.prop(props, "commit_message", text="Message")
             row = box.row(align=True)
             row.operator("gitblend.commit", text="Commit", icon='FILE_TICK')
         else:
             warn_box = layout.box()
-            warn_box.label(text="Not initialized", icon='ERROR')
+            if not blend_saved:
+                warn_box.label(text="Save .blend file to continue", icon='ERROR')
+            else:
+                warn_box.label(text="Not initialized", icon='ERROR')
         # Future buttons: diff, checkout etc.
 
         layout.separator()

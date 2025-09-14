@@ -1,10 +1,11 @@
 import bpy # type: ignore
 
 from .commit import GITBLEND_OT_commit
-from .initialize import GITBLEND_OT_initialize
+from .initialize import GITBLEND_OT_initialize, GITBLEND_OT_sync
 
 _OPERATORS = (
     GITBLEND_OT_initialize,
+    GITBLEND_OT_sync,
     GITBLEND_OT_commit,
 )
 
