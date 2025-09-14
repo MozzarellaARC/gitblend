@@ -191,3 +191,62 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         except subprocess.CalledProcessError as e:
             self.report({'ERROR'}, f"Git operation failed: {e.stderr if e.stderr else str(e)}")
             return {'CANCELLED'}
+
+
+class GITBLEND_OT_refresh_commit_history(bpy.types.Operator):
+    bl_idname = "gb.refresh_commit_history"
+    bl_label = "Refresh Commit History"
+    bl_description = "Reload commit history from the repository"
+    bl_options = {'INTERNAL'}
+
+    max_commits: bpy.props.IntProperty(  # type: ignore
+        name="Max Commits",
+        default=25,
+        min=1,
+        max=500,
+    )
+
+    def execute(self, context):
+        props = context.scene.gitblend_props
+        blend_filepath = bpy.data.filepath
+        if not blend_filepath:
+            self.report({'ERROR'}, "Please save the Blender file first.")
+            return {'CANCELLED'}
+
+        repo_dir = os.path.dirname(blend_filepath)
+
+        # Clear existing collection
+        props.commit_history.clear()
+
+        # Run git log
+        try:
+            # --pretty format: hash%x1fauthor%x1fdate%x1fmessage%x1e (unit separator & record separator)
+            format_str = "%H%x1f%an%x1f%ad%x1f%s%x1e"
+            result = subprocess.run(
+                ["git.exe", "log", f"--max-count={self.max_commits}", f"--pretty=format:{format_str}", "--date=short"],
+                cwd=repo_dir,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                self.report({'ERROR'}, f"git log failed: {result.stderr.strip()}")
+                return {'CANCELLED'}
+
+            records = result.stdout.strip().split("\x1e")
+            for rec in records:
+                if not rec.strip():
+                    continue
+                parts = rec.split("\x1f")
+                if len(parts) != 4:
+                    continue
+                commit = props.commit_history.add()
+                commit.hash, commit.author, commit.date, commit.message = parts
+
+            return {'FINISHED'}
+        except FileNotFoundError:
+            self.report({'ERROR'}, "git.exe not found. Ensure Git is installed.")
+            return {'CANCELLED'}
+        except Exception as e:
+            self.report({'ERROR'}, f"Unexpected error: {e}")
+            return {'CANCELLED'}
