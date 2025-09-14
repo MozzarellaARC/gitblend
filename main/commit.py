@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 # Use shared initialization + metadata utilities
-from .initialize import ensure_gitblend_dir, append_commit, is_gitblend_initialized
+from .initialize import ensure_gitblend_dir, append_commit, is_gitblend_initialized, is_ui_synced_with_metadata
 
 
 def _compute_scene_hash(scene: bpy.types.Scene) -> str:
@@ -41,7 +41,10 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         try:
             from pathlib import Path as _P
             project_dir = _P(blend_path).resolve().parent
-            return is_gitblend_initialized(project_dir)
+            if not is_gitblend_initialized(project_dir):
+                return False
+            # Must also be synced with metadata
+            return is_ui_synced_with_metadata(context)
         except Exception:
             return False
 
@@ -52,6 +55,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         if not commit_message:
             self.report({'ERROR'}, "Commit message cannot be empty.")
             return {'CANCELLED'}
+        
         # Determine current working .blend file path
         current_filepath = bpy.data.filepath
         if not current_filepath:
@@ -59,6 +63,16 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             return {'CANCELLED'}
 
         current_dir = Path(current_filepath).resolve().parent
+        
+        # Check if .gitblend is initialized
+        if not is_gitblend_initialized(current_dir):
+            self.report({'ERROR'}, "Repository not initialized. Please initialize first.")
+            return {'CANCELLED'}
+        
+        # Check if UI is synced with metadata
+        if not is_ui_synced_with_metadata(context):
+            self.report({'ERROR'}, "Commit history not synchronized. Please sync first.")
+            return {'CANCELLED'}
         try:
             gitblend_dir = ensure_gitblend_dir(current_dir)
         except Exception as e:

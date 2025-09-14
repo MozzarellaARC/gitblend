@@ -76,6 +76,41 @@ def is_gitblend_initialized(project_dir: Path) -> bool:
 	return metadata_path.exists()
 
 
+def is_ui_synced_with_metadata(context) -> bool:
+	"""Check if the UI commit list is synchronized with the metadata file."""
+	blend_path = bpy.data.filepath
+	if not blend_path:
+		return False
+	
+	project_dir = Path(blend_path).resolve().parent
+	if not is_gitblend_initialized(project_dir):
+		return False
+	
+	props = getattr(context.scene, "gitblend_props", None)
+	if not props:
+		return False
+	
+	# Load metadata
+	metadata = load_metadata(project_dir)
+	metadata_commits = metadata.get('commits', [])
+	
+	# Compare counts first
+	if len(props.commits) != len(metadata_commits):
+		return False
+	
+	# Compare each commit
+	for i, ui_commit in enumerate(props.commits):
+		if i >= len(metadata_commits):
+			return False
+		metadata_commit = metadata_commits[i]
+		if (ui_commit.hash != metadata_commit.get('hash', '') or
+		    ui_commit.message != metadata_commit.get('message', '') or
+		    ui_commit.timestamp != metadata_commit.get('timestamp', '')):
+			return False
+	
+	return True
+
+
 def populate_ui_from_metadata(context) -> None:
 	"""Populate the UI list with commits from metadata file."""
 	blend_path = bpy.data.filepath
@@ -176,5 +211,5 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
 __all__ = [
 	'get_gitblend_dir', 'get_metadata_path', 'initialize_gitblend', 'append_commit',
 	'ensure_gitblend_dir', 'load_metadata', 'GITBLEND_OT_initialize', 'GITBLEND_OT_sync', 
-	'is_gitblend_initialized', 'populate_ui_from_metadata'
+	'is_gitblend_initialized', 'populate_ui_from_metadata', 'is_ui_synced_with_metadata'
 ]
