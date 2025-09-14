@@ -11,6 +11,11 @@ class GITBLEND_UL_commit_history(bpy.types.UIList):
             # Truncate hash for display
             short_hash = commit.hash[:8] if commit.hash else "<none>"
             row.label(text=short_hash, icon='FILE_BLEND')
+            # Show timestamp (fallback to blank if missing)
+            ts = getattr(commit, 'timestamp', '') or ''
+            # Keep timestamp fixed width for alignment (YYYY-MM-DD HH:MM:SS = 19 chars)
+            row.label(text=ts)
+            # Remaining space for message
             row.label(text=commit.message[:60])
         elif self.layout_type in {'GRID'}:
             layout.alignment = 'CENTER'

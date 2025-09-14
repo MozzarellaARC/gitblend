@@ -13,3 +13,6 @@ Made for Blender 4.2 to 4.5
 
 1.3.0 :
 - Complete rewrite
+
+1.3.1 :
+- Commit history UI now shows timestamp (YYYY-MM-DD HH:MM:SS) between hash and message
