@@ -59,15 +59,7 @@ def _perform_checkout(context, target_index: int, report_fn=None) -> bool:
         _report('ERROR', f'Snapshot file missing: {snapshot_name}')
         return False
 
-    # Backup
-    try:
-        backups_dir = get_gitblend_dir(project_dir) / 'backups'
-        backups_dir.mkdir(exist_ok=True)
-        timestamp = time.strftime('%Y%m%d_%H%M%S')
-        backup_path = backups_dir / f"backup_{timestamp}.blend"
-        bpy.ops.wm.save_as_mainfile(filepath=str(backup_path), copy=True)
-    except Exception as e:  # pragma: no cover - Blender environment
-        _report('WARNING', f'Failed to create backup: {e}')
+    # Backup disabled per user request (was previously created in .gitblend/backups)
 
     # Open snapshot
     try:
@@ -102,7 +94,7 @@ def _perform_checkout(context, target_index: int, report_fn=None) -> bool:
                     break
     except Exception:
         pass
-    _report('INFO', f'Checked out commit {target_hash[:8]} -> {snapshot_name} (path preserved)')
+    _report('INFO', f'Checked out commit {target_hash[:8]} -> {snapshot_name} (path preserved, no backup)')
     return True
 
 
