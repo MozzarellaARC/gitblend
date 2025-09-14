@@ -84,8 +84,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             entry.message = commit_message
             entry.timestamp = timestamp_str
             props.commits_index = len(props.commits) - 1
-            # Clear message after commit
-            props.commit_message = ""
+            # Preserve last commit message (user request): do not clear commit_message
         # Persist commit metadata
         try:
             append_commit(current_dir, {
