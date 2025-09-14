@@ -14,3 +14,6 @@ class GITBLEND_Panel(bpy.types.Panel):
 
         layout.prop(props, "commit_message", text="Commit Message")
         layout.operator("gb.commit", text="Commit Changes", icon='FILE_TICK')
+        layout.separator()
+        col = layout.column(align=True)
+        col.operator("gb.commit_copy_scene", text="Commit Copy Scene", icon='DUPLICATE')
