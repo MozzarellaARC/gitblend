@@ -11,36 +11,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import bpy
 from . import prefs as prefs_module
 from . import main as main_module
-from pathlib import Path
-
-class GITBLEND_Preferences(bpy.types.AddonPreferences):
-	bl_idname = __name__
-
-	# Define your preferences properties here
-
-	def draw(self, context):
-		layout = self.layout
-		
-		# jsondiff module management
-		box = layout.box()
-		box.label(text="JSON Diff Module Management")
-		
-		row = box.row()
-		row.operator("gitblend.check_jsondiff")
-		
-		row = box.row()
-		row.operator("gitblend.install_jsondiff")
-		row.operator("gitblend.uninstall_jsondiff")
 
 def register():
 	prefs_module.register_prefs()
-	bpy.utils.register_class(GITBLEND_Preferences)
 	main_module.register_operators()
 	
 def unregister():
 	main_module.unregister_operators()
-	bpy.utils.unregister_class(GITBLEND_Preferences)
 	prefs_module.unregister_prefs()

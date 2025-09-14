@@ -1,4 +1,5 @@
 import bpy
+import subprocess
 from . import blend_serialization
 
 class GITBLEND_OT_commit(bpy.types.Operator):
@@ -15,7 +16,7 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             self.report({'ERROR'}, "Commit message cannot be empty.")
             return {'CANCELLED'}
 
-        blend_serialization.export_json()
+        
 
         self.report({'INFO'}, f"Committed with message: {commit_message}")
         return {'FINISHED'}
