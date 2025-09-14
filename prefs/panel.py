@@ -41,7 +41,7 @@ class GITBLEND_Panel(bpy.types.Panel):
         box = layout.box()
         box.prop(props, "commit_message", text="Message")
         row = box.row(align=True)
-        row.operator("gb.commit", text="Commit", icon='FILE_TICK')
+        row.operator("gitblend.commit", text="Commit", icon='FILE_TICK')
         # Future buttons: diff, checkout etc.
 
         layout.separator()
