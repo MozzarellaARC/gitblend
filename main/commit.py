@@ -1,6 +1,5 @@
 import bpy
 import subprocess
-from . import blend_serialization
 
 class GITBLEND_OT_commit(bpy.types.Operator):
     bl_idname = "gb.commit"
