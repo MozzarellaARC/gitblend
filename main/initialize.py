@@ -124,23 +124,30 @@ def populate_ui_from_metadata(context) -> None:
 	props = getattr(context.scene, "gitblend_props", None)
 	if not props:
 		return
-	
-	# Clear existing entries
-	props.commits.clear()
-	
-	# Load metadata and populate UI
-	metadata = load_metadata(project_dir)
-	for commit_data in metadata.get('commits', []):
-		entry = props.commits.add()
-		entry.hash = commit_data.get('hash', '')
-		entry.message = commit_data.get('message', '')
-		entry.timestamp = commit_data.get('timestamp', '')
-	
-	# Set active index to the last commit
-	if props.commits:
-		props.commits_index = len(props.commits) - 1
-	else:
-		props.commits_index = -1
+
+	wm = context.window_manager if hasattr(context, 'window_manager') else None
+	if wm:
+		wm['gitblend_loading_history'] = True  # Suppress auto-checkout during population
+	try:
+		# Clear existing entries
+		props.commits.clear()
+
+		# Load metadata and populate UI
+		metadata = load_metadata(project_dir)
+		for commit_data in metadata.get('commits', []):
+			entry = props.commits.add()
+			entry.hash = commit_data.get('hash', '')
+			entry.message = commit_data.get('message', '')
+			entry.timestamp = commit_data.get('timestamp', '')
+
+		# Set active index to the last commit
+		if props.commits:
+			props.commits_index = len(props.commits) - 1
+		else:
+			props.commits_index = -1
+	finally:
+		if wm and 'gitblend_loading_history' in wm:
+			del wm['gitblend_loading_history']
 
 
 class GITBLEND_OT_sync(bpy.types.Operator):

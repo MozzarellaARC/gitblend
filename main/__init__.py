@@ -1,12 +1,14 @@
 import bpy # type: ignore
 
 from .commit import GITBLEND_OT_commit
+from .checkout import GITBLEND_OT_checkout
 from .initialize import GITBLEND_OT_initialize, GITBLEND_OT_sync
 
 _OPERATORS = (
     GITBLEND_OT_initialize,
     GITBLEND_OT_sync,
     GITBLEND_OT_commit,
+    GITBLEND_OT_checkout,
 )
 
 def register_operators():
