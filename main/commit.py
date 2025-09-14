@@ -67,7 +67,7 @@ def _compute_scene_hash(scene: bpy.types.Scene) -> str:
 
 
 class GITBLEND_OT_commit(bpy.types.Operator):
-    bl_idname = "gb.commit"
+    bl_idname = "gitblend.commit"
     bl_label = "Commit Changes"
     bl_description = "Commit changes to the Git repository"
     bl_options = {'REGISTER', 'UNDO'}
