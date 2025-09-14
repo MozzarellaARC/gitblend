@@ -1,5 +1,7 @@
 import bpy # type: ignore
 
+class GITBLEND_UL_List(bpy.types.UIList):
+    pass
 
 class GITBLEND_Panel(bpy.types.Panel):
     bl_idname = "GB_PT_main_panel"
