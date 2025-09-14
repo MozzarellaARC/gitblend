@@ -93,12 +93,10 @@ class GITBLEND_Panel(bpy.types.Panel):
             box.prop(props, "commit_message", text="Message")
             row = box.row(align=True)
             row.operator("gitblend.commit", text="Commit", icon='FILE_TICK')
-        else:
+        elif blend_saved and not gitblend_initialized:
+            # Only show "Not initialized" warning if blend file is saved but not initialized
             warn_box = layout.box()
-            if not blend_saved:
-                warn_box.label(text="Save .blend file to continue", icon='ERROR')
-            else:
-                warn_box.label(text="Not initialized", icon='ERROR')
+            warn_box.label(text="Not initialized", icon='ERROR')
         # Future buttons: diff, checkout etc.
 
         layout.separator()
