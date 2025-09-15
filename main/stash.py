@@ -155,6 +155,45 @@ class GITBLEND_OT_stash_refresh(bpy.types.Operator):
 		_tag_redraw()
 		return {'FINISHED'}
 
+class GITBLEND_OT_stash_delete(bpy.types.Operator):
+	bl_idname = "gitblend.stash_delete"
+	bl_label = "Delete From Stash"
+	bl_description = "Delete selected stash object(s) permanently"
+	bl_options = {"REGISTER", "UNDO"}
+
+	names: bpy.props.StringProperty(  # type: ignore
+		name="Names",
+		description="Comma separated stash object names to delete",
+		default=""
+	)
+
+	@classmethod
+	def poll(cls, context):  # type: ignore
+		return True
+
+	def execute(self, context):
+		scene = bpy.data.scenes.get(STASH_SCENE_NAME)
+		if scene is None:
+			self.report({'WARNING'}, "No stash scene")
+			return {'CANCELLED'}
+		names = [n.strip() for n in self.names.split(',') if n.strip()]
+		if not names:
+			self.report({'WARNING'}, "No object names provided")
+			return {'CANCELLED'}
+		deleted = 0
+		for name in names:
+			obj = scene.objects.get(name)
+			if not obj:
+				continue
+			try:
+				bpy.data.objects.remove(obj, do_unlink=True)
+				deleted += 1
+			except Exception:
+				continue
+		self.report({'INFO'}, f"Deleted {deleted} object(s) from stash")
+		rebuild_stash_ui_collection(context)
+		_tag_redraw()
+		return {'FINISHED'}
 
 def _tag_redraw():
 	try:
