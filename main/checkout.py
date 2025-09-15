@@ -34,7 +34,8 @@ def _perform_checkout(context, target_index: int, report_fn=None) -> bool:
         return False
     # We allow auto-checkout even if UI not synced (e.g., indexes just changed) but warn.
     if not is_ui_synced_with_metadata(context):
-        _report('INFO', 'Proceeding while UI not fully synced.')
+        _report('INFO', 'UI Not Synced.')
+        return {'CANCELLED'}
 
     props = getattr(context.scene, 'gitblend_props', None)
     if not props or target_index < 0 or target_index >= len(props.commits):
@@ -61,18 +62,79 @@ def _perform_checkout(context, target_index: int, report_fn=None) -> bool:
 
     # Backup disabled per user request (was previously created in .gitblend/backups)
 
-    # Open snapshot
+    # Scene-based recovery: Create new scene and append from commit file
     try:
-        bpy.ops.wm.open_mainfile(filepath=str(snapshot_path), load_ui=False)
+        # Store the current scene name for reference
+        original_scene_name = context.scene.name
+        
+        # Create a new scene
+        bpy.ops.scene.new(type='NEW')
+        new_scene = context.scene
+        new_scene_name = new_scene.name
+        
+        # Switch back to original scene and remove it
+        original_scene = bpy.data.scenes.get(original_scene_name)
+        if original_scene:
+            bpy.data.scenes.remove(original_scene, do_unlink=True)
+        
+        # Purge orphaned data
+        bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+        
+        # Append scene from the commit file
+        with bpy.data.libraries.load(str(snapshot_path)) as (data_from, data_to):
+            # Get all scene names from the commit file
+            commit_scenes = data_from.scenes
+            if not commit_scenes:
+                _report('ERROR', f'No scenes found in commit file: {snapshot_name}')
+                return False
+            
+            # Append the first scene (or find the main scene)
+            # TODO: In the future, we might want to store which scene was committed
+            target_scene_name = commit_scenes[0]
+            data_to.scenes = [target_scene_name]
+        
+        # Find the appended scene and set it as active
+        appended_scene = None
+        # Look for a scene that wasn't the temporary new scene
+        for scene in bpy.data.scenes:
+            if scene.name != new_scene_name:  # This should be the appended scene
+                appended_scene = scene
+                break
+        
+        if appended_scene:
+            # Remove the temporary new scene
+            bpy.data.scenes.remove(new_scene, do_unlink=True)
+            
+            # Set the appended scene as active
+            context.window.scene = appended_scene
+            
+            # Rename the appended scene to maintain consistency
+            # Generate a clean name based on the original scene name
+            desired_name = original_scene_name
+            if appended_scene.name != desired_name:
+                # Check if the desired name is available
+                if desired_name not in bpy.data.scenes:
+                    appended_scene.name = desired_name
+                else:
+                    # If there's a conflict, try to find a unique name
+                    base_name = desired_name
+                    counter = 1
+                    while f"{base_name}.{counter:03d}" in bpy.data.scenes:
+                        counter += 1
+                    appended_scene.name = f"{base_name}.{counter:03d}"
+        else:
+            _report('ERROR', 'Failed to find appended scene from commit file')
+            return False
+            
+        # Save the current state
+        try:
+            bpy.ops.wm.save_as_mainfile(filepath=str(current_file), copy=False)
+        except Exception as e:
+            _report('WARNING', f'Scene restored but failed to save to original path: {e}')
+        
     except Exception as e:
-        _report('ERROR', f'Failed to open snapshot: {e}')
+        _report('ERROR', f'Failed to restore scene from snapshot: {e}')
         return False
-
-    # Save back to original path
-    try:
-        bpy.ops.wm.save_as_mainfile(filepath=str(current_file), copy=False)
-    except Exception as e:
-        _report('WARNING', f'Loaded snapshot but failed to re-save to original path: {e}')
 
     # Rebuild commit UI list & restore selection
     try:
@@ -94,14 +156,14 @@ def _perform_checkout(context, target_index: int, report_fn=None) -> bool:
                     break
     except Exception:
         pass
-    _report('INFO', f'Checked out commit {target_hash[:8]} -> {snapshot_name} (path preserved, no backup)')
+    _report('INFO', f'Checked out commit {target_hash[:8]} -> scene restored from {snapshot_name}')
     return True
 
 
 class GITBLEND_OT_checkout(bpy.types.Operator):
     bl_idname = "gitblend.checkout"
     bl_label = "Checkout Commit"
-    bl_description = "Restore the scene to the selected commit snapshot (creates a backup of current file)"
+    bl_description = "Restore the scene to the selected commit by replacing current scene data"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
