@@ -64,12 +64,35 @@ def rebuild_stash_ui_collection(context: bpy.types.Context):
 	if not props:
 		return
 	stash_objs = _list_stash_objects()
+
+	def _parse(o_name: str):
+		# Expect pattern like <prefix>_<maybeOriginal>_<random8> sometimes; we stored as prefix_random originally.
+		# We'll try to separate original base and trailing 8-char uid.
+		parts = o_name.split('_')
+		uid = ''
+		original = o_name
+		if len(parts) >= 2 and len(parts[-1]) == 8 and parts[-1].isalnum():
+			uid = parts[-1]
+			original = '_'.join(parts[:-1])
+		return original, uid
+
+	# Build sortable tuples (original, uid, object)
+	sortable = []
+	for o in stash_objs:
+		try:
+			orig, uid = _parse(o.name)
+			sortable.append((orig.lower(), uid.lower(), o, orig, uid))
+		except Exception:
+			continue
+	# Sort by original then uid
+	sortable.sort(key=lambda t: (t[0], t[1]))
 	try:
 		props.stash_items.clear()
-		for o in stash_objs:
+		for _olow, _uidlow, o, orig, uid in sortable:
 			entry = props.stash_items.add()
 			entry.name = o.name
-			entry.original = o.name.split('_', 1)[-1] if '_' in o.name else o.name
+			entry.original = orig
+			entry.uid = uid
 		if props.stash_index >= len(props.stash_items):
 			props.stash_index = len(props.stash_items) - 1
 	except Exception:

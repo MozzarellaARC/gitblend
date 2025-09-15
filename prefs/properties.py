@@ -47,6 +47,8 @@ class GITBLEND_CommitEntry(PropertyGroup):
 class GITBLEND_StashEntry(PropertyGroup):
     name: bpy.props.StringProperty(name="Name", default="")  # type: ignore
     original: bpy.props.StringProperty(name="Original Name", default="")  # type: ignore
+    uid: bpy.props.StringProperty(name="UID", default="")  # type: ignore
+
 
 
 class GITBLEND_Properties(bpy.types.PropertyGroup):

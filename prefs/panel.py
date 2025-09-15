@@ -34,21 +34,30 @@ class GITBLEND_UL_stash_objects(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):  # type: ignore
         stash_entry = item
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            # Revised layout: show full UID (stash_entry.name) without truncation.
+            # Use a spacer row that expands, then a fixed-width buttons row.
             row = layout.row(align=True)
-            split = row.split(factor=0.55, align=True)
-            left = split.row(align=True)
-            left.label(text=stash_entry.name, icon='OBJECT_DATAMODE')
+            name_row = row.row(align=True)
+            name_row.label(text=stash_entry.name, icon='OBJECT_DATAMODE')
             if stash_entry.original and stash_entry.original != stash_entry.name:
-                left.label(text=stash_entry.original, icon='DOT')
-            right = split.row(align=True)
-            op_a = right.operator("gitblend.stash_append", text="", icon='IMPORT')
+                name_row.label(text=stash_entry.original, icon='DOT')
+
+            # Spacer to push buttons to right edge
+            row.separator()
+
+            buttons_row = row.row(align=True)
+            buttons_row.alignment = 'RIGHT'
+            try:
+                buttons_row.ui_units_x = 3.8  # Reserve horizontal space for two icons
+            except Exception:
+                pass
+            op_a = buttons_row.operator("gitblend.stash_append", text="", icon='IMPORT')
             op_a.names = stash_entry.name
-            op_d = right.operator("gitblend.stash_delete", text="", icon='TRASH')
+            op_d = buttons_row.operator("gitblend.stash_delete", text="", icon='TRASH')
             op_d.names = stash_entry.name
         elif self.layout_type in {'GRID'}:
             layout.alignment = 'CENTER'
             layout.label(text=stash_entry.name[:8])
-
 
     def filter_items(self, context, data, propname):  # type: ignore
         items = getattr(data, propname)
@@ -150,12 +159,3 @@ class GITBLEND_Panel(bpy.types.Panel):
                 "stash_index",
                 rows=4,
             )
-            col_actions = row_list.column(align=True)
-            if props.stash_index >= 0 and props.stash_index < len(props.stash_items):
-                active_name = props.stash_items[props.stash_index].name
-                op_a = col_actions.operator("gitblend.stash_append", text="Append", icon='IMPORT')
-                op_a.names = active_name
-                op_d = col_actions.operator("gitblend.stash_delete", text="Delete", icon='TRASH')
-                op_d.names = active_name
-            else:
-                col_actions.label(text="Select", icon='INFO')
