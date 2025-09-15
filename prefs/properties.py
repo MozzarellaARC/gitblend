@@ -67,3 +67,8 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
         description="Expand/collapse the stash section",
         default=False,
     )
+    stash_items: bpy.props.CollectionProperty(type=GITBLEND_StashEntry)  # type: ignore
+    stash_index: bpy.props.IntProperty(  # type: ignore
+        name="Active Stash Item",
+        default=-1,
+    )
