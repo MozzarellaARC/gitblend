@@ -28,6 +28,8 @@ class GITBLEND_UL_commit_history(bpy.types.UIList):
         flt_neworder = []
         return flt_flags, flt_neworder
 
+class GITBLEND_UL_stash_objects(bpy.types.UIList):
+    pass
 
 class GITBLEND_Panel(bpy.types.Panel):
     bl_idname = "GB_PT_main_panel"
