@@ -39,14 +39,40 @@ class GITBLEND_UL_stash_objects(bpy.types.UIList):
             col_name = row.row(align=True)
             # Prefer original (base) name if available
             base_name = stash_entry.original if getattr(stash_entry, 'original', '') else stash_entry.name
-            col_name.label(text=base_name, icon='OBJECT_DATAMODE')
+            # Determine icon based on actual object type in the stash scene
+            icon_name = 'OBJECT_DATAMODE'
+            try:
+                from ..main.stash import STASH_SCENE_NAME  # type: ignore
+                scene = bpy.data.scenes.get(STASH_SCENE_NAME)
+                obj = scene.objects.get(stash_entry.name) if scene else None  # type: ignore
+                obj_type = getattr(obj, 'type', '') if obj else ''
+                _type_icon_map = {
+                    'MESH': 'OUTLINER_OB_MESH',
+                    'ARMATURE': 'OUTLINER_OB_ARMATURE',
+                    'CURVE': 'OUTLINER_OB_CURVE',
+                    'CAMERA': 'OUTLINER_OB_CAMERA',
+                    'LIGHT': 'OUTLINER_OB_LIGHT',
+                    'EMPTY': 'OUTLINER_OB_EMPTY',
+                    'LATTICE': 'OUTLINER_OB_LATTICE',
+                    'GPENCIL': 'OUTLINER_OB_GREASEPENCIL',
+                    'LIGHT_PROBE': 'OUTLINER_OB_LIGHTPROBE',
+                    'VOLUME': 'OUTLINER_OB_VOLUME',
+                    'POINTCLOUD': 'OUTLINER_OB_POINTCLOUD',
+                    'SURFACE': 'OUTLINER_OB_SURFACE',
+                    'META': 'OUTLINER_OB_META',
+                    'SPEAKER': 'OUTLINER_OB_SPEAKER',
+                }
+                icon_name = _type_icon_map.get(obj_type, icon_name)
+            except Exception:
+                pass
+            col_name.label(text=base_name, icon=icon_name)
             col_uid = row.row(align=True)
             try:
-                col_uid.ui_units_x = 4.0
+                col_uid.ui_units_x = 8.0
             except Exception:
                 pass
             uid_txt = getattr(stash_entry, 'uid', '') or ''
-            col_uid.label(text=uid_txt)
+            col_uid.label(text=uid_txt, icon='DOT')
             # Spacer to push buttons
             row.separator()
             buttons_row = row.row(align=True)
