@@ -34,21 +34,25 @@ class GITBLEND_UL_stash_objects(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):  # type: ignore
         stash_entry = item
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            # Revised layout: show full UID (stash_entry.name) without truncation.
-            # Use a spacer row that expands, then a fixed-width buttons row.
+            # Layout: [Object Name] [UID] ....buttons
             row = layout.row(align=True)
-            name_row = row.row(align=True)
-            name_row.label(text=stash_entry.name, icon='OBJECT_DATAMODE')
-            if stash_entry.original and stash_entry.original != stash_entry.name:
-                name_row.label(text=stash_entry.original, icon='DOT')
-
-            # Spacer to push buttons to right edge
+            col_name = row.row(align=True)
+            # Prefer original (base) name if available
+            base_name = stash_entry.original if getattr(stash_entry, 'original', '') else stash_entry.name
+            col_name.label(text=base_name, icon='OBJECT_DATAMODE')
+            col_uid = row.row(align=True)
+            try:
+                col_uid.ui_units_x = 4.0
+            except Exception:
+                pass
+            uid_txt = getattr(stash_entry, 'uid', '') or ''
+            col_uid.label(text=uid_txt)
+            # Spacer to push buttons
             row.separator()
-
             buttons_row = row.row(align=True)
             buttons_row.alignment = 'RIGHT'
             try:
-                buttons_row.ui_units_x = 3.8  # Reserve horizontal space for two icons
+                buttons_row.ui_units_x = 3.0
             except Exception:
                 pass
             op_a = buttons_row.operator("gitblend.stash_append", text="", icon='IMPORT')
