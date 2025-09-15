@@ -98,6 +98,19 @@ def rebuild_stash_ui_collection(context: bpy.types.Context):
 	except Exception:
 		pass
 
+
+def _post_stash_mutation(context: bpy.types.Context):
+	"""Common actions after stash state changes.
+
+	Rebuild UI collection and tag redraw. Wrapped to keep operator bodies concise
+	and future-proof (e.g., if we add notifications or logging).
+	"""
+	try:
+		rebuild_stash_ui_collection(context)
+	except Exception:
+		pass
+	_tag_redraw()
+
 class GITBLEND_OT_stash_add(bpy.types.Operator):
 	bl_idname = "gitblend.stash_add"
 	bl_label = "Stash Selected"
@@ -112,7 +125,7 @@ class GITBLEND_OT_stash_add(bpy.types.Operator):
 		objs = list(context.selected_objects)
 		new_objs = _copy_objects_to_stash(objs)
 		self.report({'INFO'}, f"Stashed {len(new_objs)} object(s)")
-		_tag_redraw()
+		_post_stash_mutation(context)
 		return {'FINISHED'}
 
 
@@ -157,8 +170,7 @@ class GITBLEND_OT_stash_append(bpy.types.Operator):
 			except Exception:
 				continue
 		self.report({'INFO'}, f"Appended {appended} object(s)")
-		rebuild_stash_ui_collection(context)
-		_tag_redraw()
+		_post_stash_mutation(context)
 		return {'FINISHED'}
 
 
@@ -173,9 +185,8 @@ class GITBLEND_OT_stash_refresh(bpy.types.Operator):
 		return True
 
 	def execute(self, context):
-		rebuild_stash_ui_collection(context)
+		_post_stash_mutation(context)
 		self.report({'INFO'}, "Stash list refreshed")
-		_tag_redraw()
 		return {'FINISHED'}
 
 class GITBLEND_OT_stash_delete(bpy.types.Operator):
@@ -214,8 +225,7 @@ class GITBLEND_OT_stash_delete(bpy.types.Operator):
 			except Exception:
 				continue
 		self.report({'INFO'}, f"Deleted {deleted} object(s) from stash")
-		rebuild_stash_ui_collection(context)
-		_tag_redraw()
+		_post_stash_mutation(context)
 		return {'FINISHED'}
 
 def _tag_redraw():
