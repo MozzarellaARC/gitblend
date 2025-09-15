@@ -29,7 +29,32 @@ class GITBLEND_UL_commit_history(bpy.types.UIList):
         return flt_flags, flt_neworder
 
 class GITBLEND_UL_stash_objects(bpy.types.UIList):
-    pass
+    bl_idname = "GITBLEND_UL_stash_objects"
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):  # type: ignore
+        stash_entry = item
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            row = layout.row(align=True)
+            split = row.split(factor=0.55, align=True)
+            left = split.row(align=True)
+            left.label(text=stash_entry.name, icon='OBJECT_DATAMODE')
+            if stash_entry.original and stash_entry.original != stash_entry.name:
+                left.label(text=stash_entry.original, icon='DOT')
+            right = split.row(align=True)
+            op_a = right.operator("gitblend.stash_append", text="", icon='IMPORT')
+            op_a.names = stash_entry.name
+            op_d = right.operator("gitblend.stash_delete", text="", icon='TRASH')
+            op_d.names = stash_entry.name
+        elif self.layout_type in {'GRID'}:
+            layout.alignment = 'CENTER'
+            layout.label(text=stash_entry.name[:8])
+
+
+    def filter_items(self, context, data, propname):  # type: ignore
+        items = getattr(data, propname)
+        flt_flags = [self.bitflag_filter_item] * len(items)
+        flt_neworder = []
+        return flt_flags, flt_neworder
 
 class GITBLEND_Panel(bpy.types.Panel):
     bl_idname = "GB_PT_main_panel"
@@ -103,3 +128,34 @@ class GITBLEND_Panel(bpy.types.Panel):
 
         layout.separator()
         layout.operator("gb.bpy_serde", text="Serialize bpy into json", icon='DUPLICATE')
+
+                # Stash Section (collapsible)
+        layout.separator()
+        box = layout.box()
+        header_row = box.row()
+        icon = 'TRIA_DOWN' if props.stash_show else 'TRIA_RIGHT'
+        header_row.prop(props, "stash_show", text="Stash", emboss=False, icon=icon)
+        if props.stash_show:
+            inner = box.column(align=True)
+            row_head = inner.row(align=True)
+            row_head.operator("gitblend.stash_add", icon='EXPORT', text="Stash Selected")
+            row_head.operator("gitblend.stash_refresh", icon='FILE_REFRESH', text="")
+            row_list = inner.row()
+            row_list.template_list(
+                "GITBLEND_UL_stash_objects",
+                "",
+                props,
+                "stash_items",
+                props,
+                "stash_index",
+                rows=4,
+            )
+            col_actions = row_list.column(align=True)
+            if props.stash_index >= 0 and props.stash_index < len(props.stash_items):
+                active_name = props.stash_items[props.stash_index].name
+                op_a = col_actions.operator("gitblend.stash_append", text="Append", icon='IMPORT')
+                op_a.names = active_name
+                op_d = col_actions.operator("gitblend.stash_delete", text="Delete", icon='TRASH')
+                op_d.names = active_name
+            else:
+                col_actions.label(text="Select", icon='INFO')

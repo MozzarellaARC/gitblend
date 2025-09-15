@@ -1,7 +1,5 @@
 import bpy  # type: ignore
 from bpy.types import PropertyGroup
-import functools
-
 
 def _auto_checkout_update(self, context):  # noqa: D401
     """When user changes selection, defer checkout via timer to ensure valid context."""
@@ -46,6 +44,10 @@ class GITBLEND_CommitEntry(PropertyGroup):
     message: bpy.props.StringProperty(name="Message", default="")  # type: ignore
     timestamp: bpy.props.StringProperty(name="Timestamp", default="")  # type: ignore
 
+class GITBLEND_StashEntry(PropertyGroup):
+    name: bpy.props.StringProperty(name="Name", default="")  # type: ignore
+    original: bpy.props.StringProperty(name="Original Name", default="")  # type: ignore
+
 
 class GITBLEND_Properties(bpy.types.PropertyGroup):
     commit_message: bpy.props.StringProperty(  # type: ignore
@@ -59,4 +61,9 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
         name="Active Commit",
         default=-1,
         update=_auto_checkout_update,
+    )
+    stash_show: bpy.props.BoolProperty(  # type: ignore
+        name="Show Stash",
+        description="Expand/collapse the stash section",
+        default=False,
     )
