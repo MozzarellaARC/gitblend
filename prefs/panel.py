@@ -86,6 +86,7 @@ class GITBLEND_Panel(bpy.types.Panel):
         else:
             # Everything is set up
             row_init.label(text="Initialized", icon='CHECKMARK')
+            box_init.operator("gitblend.initialize", text="Sync", icon='FILE_REFRESH')
 
         # Show commit controls if initialized
         if gitblend_initialized:
