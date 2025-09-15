@@ -150,6 +150,8 @@ class GITBLEND_Panel(bpy.types.Panel):
             row_head = inner.row(align=True)
             row_head.operator("gitblend.stash_add", icon='EXPORT', text="Stash Selected")
             row_head.operator("gitblend.stash_refresh", icon='FILE_REFRESH', text="")
+            # Visual separation between action buttons and list
+            inner.separator()
             row_list = inner.row()
             row_list.template_list(
                 "GITBLEND_UL_stash_objects",
