@@ -59,43 +59,88 @@ def _perform_checkout(context, target_index: int, report_fn=None) -> bool:
         _report('ERROR', f'Snapshot file missing: {snapshot_name}')
         return False
 
-    # Backup disabled per user request (was previously created in .gitblend/backups)
-
-    # Open snapshot
+    # Scene-based restore (no opening mainfile): purge selected data blocks and append from snapshot.
     try:
-        bpy.ops.wm.open_mainfile(filepath=str(snapshot_path), load_ui=False)
+        _purge_and_restore_from_snapshot(snapshot_path, _report)
     except Exception as e:
-        _report('ERROR', f'Failed to open snapshot: {e}')
+        _report('ERROR', f'Scene-based restore failed: {e}')
         return False
 
-    # Save back to original path
-    try:
-        bpy.ops.wm.save_as_mainfile(filepath=str(current_file), copy=False)
-    except Exception as e:
-        _report('WARNING', f'Loaded snapshot but failed to re-save to original path: {e}')
+    _report('INFO', f'Checked out commit {target_hash[:8]} -> {snapshot_name} (scene-based, no backup)')
+    return True
 
-    # Rebuild commit UI list & restore selection
+
+def _purge_and_restore_from_snapshot(snapshot_path: Path, report):
+    """Remove specified datablocks then append all scenes + their linked data from snapshot.
+
+    Purge order chosen to reduce dependency issues. Blender automatically clears orphaned
+    datablocks when running outliner cleanups, but we manually remove to avoid duplication.
+    """
+    # Datablock categories to fully purge (objects first so they release users of meshes/materials)
+    purge_order = [
+        ('objects', bpy.data.objects),
+        ('meshes', bpy.data.meshes),
+        ('materials', bpy.data.materials),
+        ('images', bpy.data.images),
+        ('texts', bpy.data.texts),
+        ('actions', bpy.data.actions),
+    ]
+
+    # Deselect & ensure not in edit/pose mode
     try:
-        wm = bpy.context.window_manager  # type: ignore
-        wm['gitblend_loading_history'] = True
-        populate_ui_from_metadata(bpy.context)
-    finally:
-        try:
-            if 'gitblend_loading_history' in bpy.context.window_manager:  # type: ignore
-                del bpy.context.window_manager['gitblend_loading_history']  # type: ignore
-        except Exception:
-            pass
-    try:
-        props_after = getattr(bpy.context.scene, 'gitblend_props', None)
-        if props_after:
-            for i, c in enumerate(props_after.commits):
-                if c.hash == target_hash:
-                    props_after.commits_index = i
-                    break
+        if bpy.ops.object.mode_set.poll():  # type: ignore
+            bpy.ops.object.mode_set(mode='OBJECT')  # type: ignore
     except Exception:
         pass
-    _report('INFO', f'Checked out commit {target_hash[:8]} -> {snapshot_name} (path preserved, no backup)')
-    return True
+
+    # Remove objects via unlink from scenes then remove datablock
+    for label, collection in purge_order:
+        try:
+            items = list(collection)
+            for datablock in items:
+                try:
+                    if label == 'objects':
+                        # Unlink from all scenes/collections first
+                        for scene in list(bpy.data.scenes):
+                            if datablock.name in scene.objects:
+                                scene.objects.unlink(datablock)
+                        for coll in list(bpy.data.collections):
+                            if datablock.name in coll.objects:
+                                coll.objects.unlink(datablock)
+                    collection.remove(datablock)
+                except Exception:
+                    pass
+            report('INFO', f'Purged {label}: {len(items)}')
+        except Exception as e:
+            report('WARNING', f'Failed purging {label}: {e}')
+
+    # Also clear scenes (after objects purged)
+    for sc in list(bpy.data.scenes):
+        try:
+            bpy.data.scenes.remove(sc)
+        except Exception:
+            pass
+
+    # Append scenes from snapshot .blend
+    if not snapshot_path.exists():
+        raise FileNotFoundError(snapshot_path)
+
+    # Use library load to bring in scenes; Blender will automatically bring required linked data.
+    try:
+        with bpy.data.libraries.load(str(snapshot_path), link=False) as (data_from, data_to):  # type: ignore
+            data_to.scenes = list(data_from.scenes)
+    except Exception as e:
+        raise RuntimeError(f'Failed to load scenes: {e}')
+
+    # Set active scene to last (arbitrary) if any
+    if bpy.data.scenes:
+        bpy.context.window.scene = bpy.data.scenes[-1]  # type: ignore
+
+    # Tag UI commit list for redraw (we did not reload file so properties remain); no repopulation needed.
+    for window in bpy.context.window_manager.windows:  # type: ignore
+        for area in window.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
 
 
 class GITBLEND_OT_checkout(bpy.types.Operator):

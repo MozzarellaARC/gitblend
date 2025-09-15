@@ -7,7 +7,7 @@ from .stash import (
     GITBLEND_OT_stash_add,
     GITBLEND_OT_stash_append,
     GITBLEND_OT_stash_delete,
-    GITBLEND_OT_stash_refresh
+    GITBLEND_OT_stash_refresh,
 )
 
 _OPERATORS = (

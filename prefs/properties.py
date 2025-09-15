@@ -1,5 +1,7 @@
 import bpy  # type: ignore
 from bpy.types import PropertyGroup
+import functools
+
 
 def _auto_checkout_update(self, context):  # noqa: D401
     """When user changes selection, defer checkout via timer to ensure valid context."""
@@ -48,7 +50,6 @@ class GITBLEND_StashEntry(PropertyGroup):
     name: bpy.props.StringProperty(name="Name", default="")  # type: ignore
     original: bpy.props.StringProperty(name="Original Name", default="")  # type: ignore
     uid: bpy.props.StringProperty(name="UID", default="")  # type: ignore
-
 
 
 class GITBLEND_Properties(bpy.types.PropertyGroup):
