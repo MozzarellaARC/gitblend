@@ -148,10 +148,26 @@ class GITBLEND_Panel(bpy.types.Panel):
             
             # Branch status display (when initialized)
             if gitblend_initialized:
-                # Update branch status when drawing panel
+                # Only update branch status when necessary (not on every redraw)
                 try:
-                    from ..main.initialize import update_branch_status
-                    update_branch_status(context)
+                    # Check if we need to update branch status
+                    needs_update = False
+                    
+                    # Always update if we don't have branch display info
+                    if not props.current_branch_display:
+                        needs_update = True
+                    # Check if we're missing branch enum value
+                    elif not props.branch_enum:
+                        needs_update = True
+                    # Periodically refresh (every ~2 seconds of redraws, roughly)
+                    elif not hasattr(props, '_last_branch_update_time') or (time.time() - getattr(props, '_last_branch_update_time', 0)) > 2.0:
+                        needs_update = True
+                    
+                    if needs_update:
+                        from ..main.initialize import update_branch_status
+                        import time
+                        update_branch_status(context)
+                        props._last_branch_update_time = time.time()
                 except Exception:
                     pass
                 
@@ -187,11 +203,28 @@ class GITBLEND_Panel(bpy.types.Panel):
         if props.show_history_section:
             col = box_history.column(align=True)
             
-            # Update branch-filtered commits when drawing panel  
+            # Only update branch-filtered commits when necessary (not on every redraw)
             if gitblend_initialized:
                 try:
-                    from ..main.initialize import populate_branch_commits
-                    populate_branch_commits(context)
+                    # Check if branch commits need refreshing
+                    needs_refresh = False
+                    
+                    # Check if branch_commits is empty
+                    if not props.branch_commits:
+                        needs_refresh = True
+                    # Check if current branch has changed
+                    elif hasattr(props, '_last_panel_branch') and props._last_panel_branch != props.current_branch_display:
+                        needs_refresh = True
+                    # Check if branch_commits count doesn't match expected count
+                    elif hasattr(props, '_last_panel_commit_count') and props._last_panel_commit_count != len(props.commits):
+                        needs_refresh = True
+                    
+                    if needs_refresh:
+                        from ..main.initialize import populate_branch_commits
+                        populate_branch_commits(context)
+                        # Cache the current state to avoid unnecessary refreshes
+                        props._last_panel_branch = props.current_branch_display
+                        props._last_panel_commit_count = len(props.commits)
                 except Exception:
                     pass
             

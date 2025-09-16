@@ -16,3 +16,9 @@ Made for Blender 4.2 to 4.5
 
 1.3.1 :
 - Commit history UI now shows timestamp (YYYY-MM-DD HH:MM:SS) between hash and message
+
+1.4.0 :
+- Rewrite from scene based to library based
+
+1.5.1 :
+- Rewrite from global redraw to branch specific redraw

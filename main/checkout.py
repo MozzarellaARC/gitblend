@@ -114,8 +114,12 @@ def _perform_checkout(context, target_index: int, report_fn=None) -> bool:
             if original_scene and len(bpy.data.scenes) > 1:  # Don't remove if it's the only scene
                 bpy.data.scenes.remove(original_scene, do_unlink=True)
             
-            # Purge orphaned data
-            bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+            # Purge orphaned data (reduce frequency)
+            current_time = time.time()
+            last_purge = getattr(wm, '_last_orphan_purge', 0)
+            if current_time - last_purge > 2.0:  # Only purge every 2 seconds max
+                bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+                wm['_last_orphan_purge'] = current_time
             
             # Append scene from the commit file
             pre_scene_names = {s.name for s in bpy.data.scenes}
@@ -224,26 +228,47 @@ def _perform_checkout(context, target_index: int, report_fn=None) -> bool:
 
         # Rebuild commit UI list & restore selection
         try:
-            wm['gitblend_loading_history'] = True
-            populate_ui_from_metadata(context)
+            # Only rebuild UI if necessary - check if we already have the right commit loaded
+            props_after = getattr(context.scene, 'gitblend_props', None)
+            needs_ui_rebuild = True
+            
+            if props_after:
+                # Check if we already have the target commit selected
+                current_index = getattr(props_after, 'commits_index', -1)
+                if (current_index >= 0 and 
+                    current_index < len(props_after.commits) and 
+                    props_after.commits[current_index].hash == target_hash):
+                    needs_ui_rebuild = False
+            
+            if needs_ui_rebuild:
+                wm['gitblend_loading_history'] = True
+                populate_ui_from_metadata(context)
         finally:
             try:
                 if 'gitblend_loading_history' in wm:
                     del wm['gitblend_loading_history']
             except Exception:
                 pass
+                
+        # Update commit selection and branch status
         try:
             props_after = getattr(context.scene, 'gitblend_props', None)
             if props_after:
+                # Find and set the correct commit index
                 for i, c in enumerate(props_after.commits):
                     if c.hash == target_hash:
                         props_after.commits_index = i
                         break
                         
-                # Update branch status after checkout
+                # Update branch status after checkout (throttled)
                 try:
                     from .initialize import update_branch_status
-                    update_branch_status(context)
+                    # Only update branch status if we haven't updated recently
+                    current_time = time.time()
+                    last_update = getattr(wm, '_last_branch_status_update', 0)
+                    if current_time - last_update > 0.5:  # Throttle to max twice per second
+                        update_branch_status(context)
+                        wm['_last_branch_status_update'] = current_time
                 except Exception:
                     pass
         except Exception:
