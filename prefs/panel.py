@@ -29,6 +29,35 @@ class GITBLEND_UL_commit_history(bpy.types.UIList):
         return flt_flags, flt_neworder
 
 
+class GITBLEND_UL_stash_list(bpy.types.UIList):
+    """UIList showing stashed objects."""
+    bl_idname = "GITBLEND_UL_stash_list"
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):  # noqa: D401
+        stash = item
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            row = layout.row(align=True)
+            # Show UID
+            short_uid = stash.uid[:8] if stash.uid else "<none>"
+            row.label(text=short_uid, icon='OBJECT_DATA')
+            # Show timestamp
+            ts = getattr(stash, 'timestamp', '') or ''
+            row.label(text=ts)
+            # Show original object names (truncated)
+            original_names = getattr(stash, 'original_names', '') or ''
+            row.label(text=original_names[:30])
+        elif self.layout_type in {'GRID'}:
+            layout.alignment = 'CENTER'
+            layout.label(text=stash.uid[:8])
+
+    def filter_items(self, context, data, propname):  # noqa: D401
+        # No filtering yet
+        items = getattr(data, propname)
+        flt_flags = [self.bitflag_filter_item] * len(items)
+        flt_neworder = []
+        return flt_flags, flt_neworder
+
+
 class GITBLEND_Panel(bpy.types.Panel):
     bl_idname = "GB_PT_main_panel"
     bl_label = "Git Blend"
@@ -100,5 +129,16 @@ class GITBLEND_Panel(bpy.types.Panel):
             warn_box.label(text="Not initialized", icon='ERROR')
         # Future buttons: diff, checkout etc.
 
+        # Stash section
         layout.separator()
-        layout.operator("gb.bpy_serde", text="Serialize bpy into json", icon='DUPLICATE')
+        stash_box = layout.box()
+        stash_box.label(text="Object Stash")
+        
+        # Stash UIList
+        col_stash = stash_box.column(align=True)
+        col_stash.template_list("GITBLEND_UL_stash_list", "", props, "stashed_objects", props, "stashed_objects_index", rows=3)
+        
+        # Stash controls
+        row_stash = stash_box.row(align=True)
+        row_stash.operator("gitblend.stash", text="Stash Selected", icon='OBJECT_DATA')
+        # Future: Add unstash, delete stash buttons

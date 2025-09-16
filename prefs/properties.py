@@ -47,6 +47,14 @@ class GITBLEND_CommitEntry(PropertyGroup):
     timestamp: bpy.props.StringProperty(name="Timestamp", default="")  # type: ignore
 
 
+class GITBLEND_StashEntry(PropertyGroup):
+    """Property group for tracking stashed objects."""
+    uid: bpy.props.StringProperty(name="UID", default="")  # type: ignore
+    original_names: bpy.props.StringProperty(name="Original Names", default="")  # type: ignore
+    stashed_names: bpy.props.StringProperty(name="Stashed Names", default="")  # type: ignore
+    timestamp: bpy.props.StringProperty(name="Timestamp", default="")  # type: ignore
+
+
 class GITBLEND_Properties(bpy.types.PropertyGroup):
     commit_message: bpy.props.StringProperty(  # type: ignore
         name="Message",
@@ -59,4 +67,9 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
         name="Active Commit",
         default=-1,
         update=_auto_checkout_update,
+    )
+    stashed_objects: bpy.props.CollectionProperty(type=GITBLEND_StashEntry)  # type: ignore
+    stashed_objects_index: bpy.props.IntProperty(  # type: ignore
+        name="Active Stash",
+        default=-1,
     )
