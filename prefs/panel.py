@@ -131,19 +131,8 @@ class GITBLEND_Panel(bpy.types.Panel):
                 # Everything is set up
                 row_init.label(text="Initialized", icon='CHECKMARK')
                 box_repo.operator("gitblend.initialize", text="Sync", icon='FILE_REFRESH')
-
-        # Commit History Section (Collapsible)
-        box_history = layout.box()
-        history_header = box_history.row()
-        history_header.prop(props, "show_history_section", 
-                           icon="TRIA_DOWN" if props.show_history_section else "TRIA_RIGHT", 
-                           icon_only=True, emboss=False)
-        history_header.label(text="Commit History")
-        
-        if props.show_history_section:
-            col = box_history.column(align=True)
             
-            # Branch status display
+            # Branch status display (when initialized)
             if gitblend_initialized:
                 # Update branch status when drawing panel
                 try:
@@ -152,7 +141,8 @@ class GITBLEND_Panel(bpy.types.Panel):
                 except Exception:
                     pass
                 
-                branch_row = col.row(align=True)
+                # Branch info row
+                branch_row = box_repo.row(align=True)
                 branch_row.label(text=f"Branch: {props.current_branch_display}", icon='OUTLINER_OB_GROUP_INSTANCE')
                 
                 # HEAD status indicator
@@ -168,23 +158,35 @@ class GITBLEND_Panel(bpy.types.Panel):
                     project_dir = Path(bpy.data.filepath).resolve().parent
                     branch_names = get_branch_names(project_dir)
                     if branch_names:  # Show if any branches exist
-                        col.prop(props, "branch_enum", text="Switch to")
+                        box_repo.prop(props, "branch_enum", text="Branch")
                 except Exception:
                     pass
+
+        # Commit History Section (Collapsible)
+        box_history = layout.box()
+        history_header = box_history.row()
+        history_header.prop(props, "show_history_section", 
+                           icon="TRIA_DOWN" if props.show_history_section else "TRIA_RIGHT", 
+                           icon_only=True, emboss=False)
+        history_header.label(text="Commit History")
+        
+        if props.show_history_section:
+            col = box_history.column(align=True)
             
             col.template_list("GITBLEND_UL_commit_history", "", props, "commits", props, "commits_index", rows=5)
             
             # Show commit controls if initialized
             if gitblend_initialized:
-                box_history.prop(props, "commit_message", text="Message")
-                row = box_history.row(align=True)
-                
-                # Show different buttons based on HEAD status
+                # Show different input fields based on HEAD status
                 if props.is_on_head:
-                    # On HEAD: show commit button
+                    # On HEAD: show commit message input
+                    box_history.prop(props, "commit_message", text="Message")
+                    row = box_history.row(align=True)
                     row.operator("gitblend.commit", text="Commit", icon='FILE_TICK')
                 else:
-                    # Detached: show create branch button only
+                    # Detached: show branch name input
+                    box_history.prop(props, "branch_name", text="New Branch")
+                    row = box_history.row(align=True)
                     row.operator("gitblend.create_branch", text="Create Branch", icon='OUTLINER_OB_GROUP_INSTANCE')
             elif blend_saved and not gitblend_initialized:
                 # Only show "Not initialized" warning if blend file is saved but not initialized

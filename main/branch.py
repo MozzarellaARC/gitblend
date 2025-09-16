@@ -129,17 +129,16 @@ class GITBLEND_OT_create_branch(bpy.types.Operator):
                 self.report({'ERROR'}, "No current commit found.")
                 return {'CANCELLED'}
             
-            # Get current commit message to use as branch name
+            # Get branch name from user input property
             props = getattr(context.scene, "gitblend_props", None)
-            if not props or props.commits_index < 0 or props.commits_index >= len(props.commits):
-                self.report({'ERROR'}, "Invalid commit selection.")
+            if not props:
+                self.report({'ERROR'}, "Properties not found.")
                 return {'CANCELLED'}
             
-            current_commit = props.commits[props.commits_index]
-            branch_name = current_commit.message.strip()
+            branch_name = props.branch_name.strip()
             
             if not branch_name:
-                self.report({'ERROR'}, "Cannot create branch: commit message is empty.")
+                self.report({'ERROR'}, "Branch name cannot be empty. Please enter a branch name.")
                 return {'CANCELLED'}
             
             # Sanitize branch name (remove problematic characters)
@@ -148,7 +147,7 @@ class GITBLEND_OT_create_branch(bpy.types.Operator):
             branch_name = re.sub(r'\s+', '_', branch_name)  # Replace spaces with underscores
             
             if not branch_name:
-                self.report({'ERROR'}, "Cannot create branch: commit message contains no valid characters.")
+                self.report({'ERROR'}, "Cannot create branch: branch name contains no valid characters.")
                 return {'CANCELLED'}
             
             # Check if branch name already exists
@@ -174,6 +173,9 @@ class GITBLEND_OT_create_branch(bpy.types.Operator):
                 populate_ui_from_metadata(context)
             except Exception as e:
                 self.report({'WARNING'}, f"Branch created but UI refresh failed: {e}")
+            
+            # Clear the branch name field after successful creation
+            props.branch_name = ""
             
             # Force UI redraw
             for window in context.window_manager.windows:

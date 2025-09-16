@@ -256,7 +256,26 @@ def update_branch_status(context) -> None:
 				del wm['gitblend_loading_history']
 		
 		# Update HEAD status
+		was_on_head = props.is_on_head
 		props.is_on_head = is_on_head_commit(context)
+		
+		# Auto-populate branch name when switching from HEAD to DETACHED
+		if was_on_head and not props.is_on_head:
+			# User just switched to detached state, suggest branch name from commit message
+			current_commit_hash = get_current_commit_hash(context)
+			if current_commit_hash and props.commits:
+				for commit in props.commits:
+					if commit.hash == current_commit_hash:
+						# Use commit message as suggested branch name
+						suggested_name = commit.message.strip()
+						if suggested_name:
+							# Sanitize the name
+							import re
+							suggested_name = re.sub(r'[^\w\s-]', '', suggested_name)[:50]
+							suggested_name = re.sub(r'\s+', '_', suggested_name)
+							if suggested_name:
+								props.branch_name = suggested_name
+						break
 		
 	except Exception:
 		props.current_branch_display = "main"

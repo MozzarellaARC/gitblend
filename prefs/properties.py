@@ -179,6 +179,12 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
         items=_get_branch_items,
         update=_branch_switch_update,
     )
+    branch_name: bpy.props.StringProperty(  # type: ignore
+        name="Branch Name",
+        description="Name for new branch",
+        default="",
+        options={'TEXTEDIT_UPDATE'},
+    )
     current_branch_display: bpy.props.StringProperty(  # type: ignore
         name="Current Branch",
         description="Display current branch name",
