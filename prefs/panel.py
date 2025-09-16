@@ -65,10 +65,7 @@ class GITBLEND_Panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         props = context.scene.gitblend_props
-        col = layout.column(align=True)
-        col.label(text="Commit History:")
-        col.template_list("GITBLEND_UL_commit_history", "", props, "commits", props, "commits_index", rows=5)
-
+        
         # Initialization section
         box_init = layout.box()
         box_init.label(text="Repository Setup")
@@ -114,6 +111,11 @@ class GITBLEND_Panel(bpy.types.Panel):
             row_init.label(text="Initialized", icon='CHECKMARK')
             box_init.operator("gitblend.initialize", text="Sync", icon='FILE_REFRESH')
 
+        col = layout.column(align=True)
+        col.label(text="Commit History:")
+        col.template_list("GITBLEND_UL_commit_history", "", props, "commits", props, "commits_index", rows=5)
+        
+
         # Show commit controls if initialized
         if gitblend_initialized:
             box = layout.box()
@@ -124,7 +126,6 @@ class GITBLEND_Panel(bpy.types.Panel):
             # Only show "Not initialized" warning if blend file is saved but not initialized
             warn_box = layout.box()
             warn_box.label(text="Not initialized", icon='ERROR')
-        # Future buttons: diff, checkout etc.
 
         # Stash section
         layout.separator()
