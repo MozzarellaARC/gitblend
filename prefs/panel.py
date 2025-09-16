@@ -173,7 +173,15 @@ class GITBLEND_Panel(bpy.types.Panel):
         if props.show_history_section:
             col = box_history.column(align=True)
             
-            col.template_list("GITBLEND_UL_commit_history", "", props, "commits", props, "commits_index", rows=5)
+            # Update branch-filtered commits when drawing panel  
+            if gitblend_initialized:
+                try:
+                    from ..main.initialize import populate_branch_commits
+                    populate_branch_commits(context)
+                except Exception:
+                    pass
+            
+            col.template_list("GITBLEND_UL_commit_history", "", props, "branch_commits", props, "branch_commits_index", rows=5)
             
             # Show commit controls if initialized
             if gitblend_initialized:

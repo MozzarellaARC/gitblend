@@ -93,6 +93,11 @@ def write_metadata_atomic(project_dir: Path, data: Dict[str, Any]) -> None:
 
 def append_commit(project_dir: Path, commit: Dict[str, Any]) -> None:
 	data = load_metadata(project_dir)
+	
+	# Add branch information to commit
+	current_branch = data.get('current_branch', 'main')
+	commit['branch'] = current_branch
+	
 	data['commits'].append(commit)
 	# Update head_commit to point to the latest commit
 	commit_hash = commit.get('hash')
@@ -105,12 +110,59 @@ def append_commit(project_dir: Path, commit: Dict[str, Any]) -> None:
 	write_metadata_atomic(project_dir, data)
 
 
+def get_branch_commits(project_dir: Path, branch_name: str) -> list:
+	"""Get all commits that belong to a specific branch."""
+	metadata = load_metadata(project_dir)
+	commits = metadata.get('commits', [])
+	
+	# Get the branch info
+	branch_info = metadata.get('branches', {}).get(branch_name)
+	if not branch_info:
+		# If branch doesn't exist, return empty list
+		return []
+	
+	# If this is the main branch or a branch without a created_from point,
+	# show all commits up to its head
+	head_commit = branch_info.get('head_commit')
+	created_from = branch_info.get('created_from')
+	
+	if not head_commit:
+		return []
+	
+	# Simple approach: show all commits up to the head commit
+	# In a future version, we could implement proper branch tracking
+	branch_commits = []
+	for commit in commits:
+		branch_commits.append(commit)
+		# Stop when we reach the head commit of this branch
+		if commit.get('hash') == head_commit:
+			break
+	
+	return branch_commits
+
+
+def get_current_branch_commits(project_dir: Path) -> list:
+	"""Get commits for the currently selected branch."""
+	current_branch = get_current_branch(project_dir)
+	return get_branch_commits(project_dir, current_branch)
+
+
 def get_current_commit_hash(context) -> str:
 	"""Get the hash of the currently checked out commit."""
 	props = getattr(context.scene, "gitblend_props", None)
-	if not props or props.commits_index < 0 or props.commits_index >= len(props.commits):
+	if not props:
 		return ""
-	return props.commits[props.commits_index].hash
+	
+	# Try to get from branch_commits first (filtered view)
+	if (props.branch_commits_index >= 0 and 
+	    props.branch_commits_index < len(props.branch_commits)):
+		return props.branch_commits[props.branch_commits_index].hash
+	
+	# Fallback to all commits
+	if props.commits_index >= 0 and props.commits_index < len(props.commits):
+		return props.commits[props.commits_index].hash
+	
+	return ""
 
 
 def is_on_head_commit(context) -> bool:
@@ -277,10 +329,61 @@ def update_branch_status(context) -> None:
 								props.branch_name = suggested_name
 						break
 		
+		# Refresh branch commits when branch status changes
+		try:
+			populate_branch_commits(context)
+		except Exception:
+			pass
+		
 	except Exception:
 		props.current_branch_display = "main"
 		props.is_on_head = True
 		props.branch_enum = "main"
+
+
+def populate_branch_commits(context, branch_name: str = None) -> None:
+	"""Populate the branch-filtered commits collection."""
+	blend_path = bpy.data.filepath
+	if not blend_path:
+		return
+	
+	project_dir = Path(blend_path).resolve().parent
+	if not is_gitblend_initialized(project_dir):
+		return
+	
+	props = getattr(context.scene, "gitblend_props", None)
+	if not props:
+		return
+	
+	# Use current branch if not specified
+	if branch_name is None:
+		branch_name = get_current_branch(project_dir)
+	
+	# Get commits for the specified branch
+	branch_commits = get_branch_commits(project_dir, branch_name)
+	
+	# Clear and populate branch_commits collection
+	props.branch_commits.clear()
+	current_commit_hash = get_current_commit_hash(context)
+	selected_index = -1
+	
+	for i, commit_data in enumerate(branch_commits):
+		entry = props.branch_commits.add()
+		entry.hash = commit_data.get('hash', '')
+		entry.message = commit_data.get('message', '')
+		entry.timestamp = commit_data.get('timestamp', '')
+		
+		# Track the currently selected commit index
+		if entry.hash == current_commit_hash:
+			selected_index = i
+	
+	# Set the active index
+	if selected_index >= 0:
+		props.branch_commits_index = selected_index
+	elif props.branch_commits:
+		props.branch_commits_index = len(props.branch_commits) - 1
+	else:
+		props.branch_commits_index = -1
 
 
 def populate_ui_from_metadata(context) -> None:
@@ -340,6 +443,9 @@ def populate_ui_from_metadata(context) -> None:
 		
 		# Update branch status
 		update_branch_status(context)
+		
+		# Populate branch-specific commits
+		populate_branch_commits(context)
 	finally:
 		if wm and 'gitblend_loading_history' in wm:
 			del wm['gitblend_loading_history']
@@ -415,5 +521,6 @@ __all__ = [
 	'ensure_gitblend_dir', 'load_metadata', 'GITBLEND_OT_initialize', 'GITBLEND_OT_sync', 
 	'is_gitblend_initialized', 'populate_ui_from_metadata', 'is_ui_synced_with_metadata',
 	'is_on_head_commit', 'get_current_commit_hash', 'get_branch_names', 'get_current_branch',
-	'create_branch', 'update_branch_status'
+	'create_branch', 'update_branch_status', 'populate_branch_commits', 'get_branch_commits',
+	'get_current_branch_commits'
 ]

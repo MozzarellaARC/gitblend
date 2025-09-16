@@ -31,6 +31,9 @@ def _branch_switch_update(self, context):
             def _deferred_switch():
                 try:
                     bpy.ops.gitblend.switch_branch(branch_name=self.branch_enum)
+                    # Refresh branch commits after switching
+                    from ..main.initialize import populate_branch_commits
+                    populate_branch_commits(bpy.context, self.branch_enum)
                 except Exception as e:
                     print(f'[gitblend] Branch switch failed: {e}')
                 return None
@@ -61,6 +64,78 @@ def _get_branch_items(self, context):
         return [(name, name, f"Branch: {name}") for name in sorted(branch_names)]
     except Exception:
         return [("main", "main", "Default branch")]
+
+
+def _auto_checkout_branch_update(self, context):  # noqa: D401
+    """When user changes branch commit selection, defer checkout via timer to ensure valid context."""
+    try:
+        wm = context.window_manager  # type: ignore
+        # Suppression flags - prevent auto-checkout during other operations
+        if (wm.get('gitblend_loading_history') or 
+            wm.get('gitblend_doing_checkout') or 
+            wm.get('gitblend_commit_in_progress') or
+            wm.get('gitblend_stash_in_progress')):
+            return
+        
+        # Don't auto-checkout if _stash scene exists and is active
+        if context.scene.name == "_stash":
+            return
+            
+        # Check if _stash scene exists - might indicate ongoing stash operations
+        if "_stash" in bpy.data.scenes:
+            pass
+            
+    except Exception:
+        return
+    
+    if self.branch_commits_index < 0 or self.branch_commits_index >= len(self.branch_commits):
+        return
+
+    # Get the actual commit hash to find the index in all commits
+    selected_branch_commit = self.branch_commits[self.branch_commits_index]
+    target_hash = selected_branch_commit.hash
+    
+    # Find this commit in the full commits list
+    target_index = -1
+    for i, commit in enumerate(self.commits):
+        if commit.hash == target_hash:
+            target_index = i
+            break
+    
+    if target_index < 0:
+        return
+
+    def _deferred():
+        try:
+            wm = bpy.context.window_manager  # type: ignore
+            # Double-check suppression flags in deferred context
+            if (wm.get('gitblend_loading_history') or 
+                wm.get('gitblend_commit_in_progress') or
+                wm.get('gitblend_stash_in_progress')):
+                return None  # retry next heartbeat
+            wm['gitblend_doing_checkout'] = True
+            # Directly call internal helper to avoid operator poll/context constraints
+            try:
+                from ..main.checkout import _perform_checkout  # type: ignore
+                success = _perform_checkout(bpy.context, target_index)
+                if success:
+                    # Update branch status after successful checkout
+                    try:
+                        from ..main.initialize import update_branch_status
+                        update_branch_status(bpy.context)
+                    except Exception:
+                        pass
+            except Exception as e:  # pragma: no cover
+                print('[gitblend] Auto-checkout failed:', e)
+        finally:
+            try:
+                if 'gitblend_doing_checkout' in bpy.context.window_manager:  # type: ignore
+                    del bpy.context.window_manager['gitblend_doing_checkout']  # type: ignore
+            except Exception:
+                pass
+        return None  # Do not repeat
+
+    bpy.app.timers.register(_deferred, first_interval=0.05)
 
 
 def _auto_checkout_update(self, context):  # noqa: D401
@@ -151,6 +226,13 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
         name="Active Commit",
         default=-1,
         update=_auto_checkout_update,
+    )
+    # Branch-filtered commits for display (updated when branch changes)
+    branch_commits: bpy.props.CollectionProperty(type=GITBLEND_CommitEntry)  # type: ignore
+    branch_commits_index: bpy.props.IntProperty(  # type: ignore
+        name="Active Branch Commit",
+        default=-1,
+        update=_auto_checkout_branch_update,
     )
     stashed_objects: bpy.props.CollectionProperty(type=GITBLEND_StashEntry)  # type: ignore
     stashed_objects_index: bpy.props.IntProperty(  # type: ignore
