@@ -72,6 +72,27 @@ def _perform_checkout(context, target_index: int, report_fn=None) -> bool:
         try:
             # Store the current scene name for reference
             original_scene_name = context.scene.name
+            # Preserve UI/state data attached to the scene before we remove it
+            preserved_state = {}
+            try:
+                old_props = getattr(context.scene, 'gitblend_props', None)
+                if old_props:
+                    preserved_state = {
+                        'commit_message': getattr(old_props, 'commit_message', ''),
+                        'show_stash_section': getattr(old_props, 'show_stash_section', True),
+                        'stashed_objects': [
+                            {
+                                'uid': e.uid,
+                                'original_names': e.original_names,
+                                'stashed_names': e.stashed_names,
+                                'timestamp': e.timestamp,
+                            }
+                            for e in getattr(old_props, 'stashed_objects', [])
+                        ],
+                        'stashed_objects_index': getattr(old_props, 'stashed_objects_index', -1),
+                    }
+            except Exception as e:  # pragma: no cover - defensive
+                _report('WARNING', f'Failed to snapshot UI state: {e}')
             
             # Ensure we have a valid context scene
             if not context.scene:
@@ -97,6 +118,7 @@ def _perform_checkout(context, target_index: int, report_fn=None) -> bool:
             bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
             
             # Append scene from the commit file
+            pre_scene_names = {s.name for s in bpy.data.scenes}
             with bpy.data.libraries.load(str(snapshot_path)) as (data_from, data_to):
                 # Get all scene names from the commit file
                 commit_scenes = data_from.scenes
@@ -111,11 +133,15 @@ def _perform_checkout(context, target_index: int, report_fn=None) -> bool:
             
             # Find the appended scene and set it as active
             appended_scene = None
-            # Look for a scene that wasn't the temporary new scene
-            for scene in bpy.data.scenes:
-                if scene.name != new_scene_name:  # This should be the appended scene
-                    appended_scene = scene
-                    break
+            # Newly added scenes are those not present before load
+            post_new_scenes = [s for s in bpy.data.scenes if s.name not in pre_scene_names]
+            if post_new_scenes:
+                # Prefer the explicitly requested target scene name if present
+                preferred = [s for s in post_new_scenes if s.name == target_scene_name]
+                appended_scene = preferred[0] if preferred else post_new_scenes[0]
+            else:
+                # Fallback: look for any scene whose name matches target_scene_name
+                appended_scene = bpy.data.scenes.get(target_scene_name)
             
             if appended_scene:
                 # Validate the appended scene before proceeding
@@ -156,6 +182,32 @@ def _perform_checkout(context, target_index: int, report_fn=None) -> bool:
                         except Exception:
                             # If renaming fails, keep the original name
                             pass
+
+                # Restore preserved UI/state (gitblend_props) onto the appended scene
+                try:
+                    if preserved_state:
+                        new_props = getattr(appended_scene, 'gitblend_props', None)
+                        if new_props:
+                            new_props.commit_message = preserved_state.get('commit_message', '')
+                            new_props.show_stash_section = preserved_state.get('show_stash_section', True)
+                            # Rebuild stashed objects collection
+                            try:
+                                new_props.stashed_objects.clear()
+                                for entry in preserved_state.get('stashed_objects', []):
+                                    e = new_props.stashed_objects.add()
+                                    e.uid = entry.get('uid', '')
+                                    e.original_names = entry.get('original_names', '')
+                                    e.stashed_names = entry.get('stashed_names', '')
+                                    e.timestamp = entry.get('timestamp', '')
+                                idx = preserved_state.get('stashed_objects_index', -1)
+                                if 0 <= idx < len(new_props.stashed_objects):
+                                    new_props.stashed_objects_index = idx
+                                else:
+                                    new_props.stashed_objects_index = len(new_props.stashed_objects) - 1 if new_props.stashed_objects else -1
+                            except Exception as e:
+                                _report('WARNING', f'Failed to restore stash list: {e}')
+                except Exception as e:
+                    _report('WARNING', f'UI state restore failed: {e}')
             else:
                 _report('ERROR', 'Failed to find appended scene from commit file')
                 return False
