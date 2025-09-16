@@ -132,41 +132,42 @@ def get_branch_commits(project_dir: Path, branch_name: str) -> list:
 	if not head_commit:
 		return []
 	
-	# For proper branch filtering, we need to:
-	# 1. Include all commits that have this branch as their 'branch' field
-	# 2. Include common history up to the branch creation point
-	
+	# Collect all relevant commits with their original indices for sorting
 	branch_commits = []
 	
-	# First pass: collect commits that explicitly belong to this branch
-	for commit in commits:
-		commit_branch = commit.get('branch', 'main')  # Default to main if no branch info
-		if commit_branch == branch_name:
-			branch_commits.append(commit)
-	
-	# Second pass: if this branch was created from another commit,
-	# include the history up to that point
-	if created_from and branch_name != 'main':
-		for commit in commits:
-			# Include commits that come before the branch creation point
-			if commit.get('hash') == created_from:
-				branch_commits.append(commit)
-				break
-			# Include commits that are part of the main line up to creation point
-			commit_branch = commit.get('branch', 'main')
-			if commit_branch == 'main':
-				branch_commits.append(commit)
-	elif branch_name == 'main':
+	if branch_name == 'main':
 		# For main branch, show all commits that belong to main
-		for commit in commits:
+		for i, commit in enumerate(commits):
 			commit_branch = commit.get('branch', 'main')
 			if commit_branch == 'main':
-				branch_commits.append(commit)
+				branch_commits.append((i, commit))
+	else:
+		# For other branches, include:
+		# 1. Common history up to branch creation point (from main)
+		# 2. All commits that belong to this specific branch
+		
+		creation_point_found = False
+		for i, commit in enumerate(commits):
+			commit_branch = commit.get('branch', 'main')
+			commit_hash = commit.get('hash')
+			
+			# Include main commits up to the branch creation point
+			if commit_branch == 'main' and not creation_point_found:
+				branch_commits.append((i, commit))
+				if commit_hash == created_from:
+					creation_point_found = True
+			
+			# Include all commits that belong to this branch
+			elif commit_branch == branch_name:
+				branch_commits.append((i, commit))
 	
-	# Remove duplicates while preserving order
+	# Sort by original index to maintain chronological order (oldest to newest)
+	branch_commits.sort(key=lambda x: x[0])
+	
+	# Extract just the commit data, removing duplicates
 	seen_hashes = set()
 	filtered_commits = []
-	for commit in branch_commits:
+	for _, commit in branch_commits:
 		commit_hash = commit.get('hash')
 		if commit_hash not in seen_hashes:
 			seen_hashes.add(commit_hash)
@@ -206,8 +207,16 @@ def is_on_head_commit(context) -> bool:
 		return True  # Default to HEAD if not initialized
 	
 	metadata = load_metadata(project_dir)
-	head_commit = metadata.get('head_commit')
+	current_branch = get_current_branch(project_dir)
 	current_commit = get_current_commit_hash(context)
+	
+	# Get the head commit of the current branch
+	branch_info = metadata.get('branches', {}).get(current_branch)
+	if not branch_info:
+		# If branch doesn't exist, fallback to global head_commit
+		head_commit = metadata.get('head_commit')
+	else:
+		head_commit = branch_info.get('head_commit')
 	
 	# If no commits exist yet, we're on HEAD
 	if not head_commit:
