@@ -76,7 +76,8 @@ try {
         ".DS_Store",
         "Thumbs.db",
         "test_*",
-        "*.log"
+        "*.log",
+        "README.md"
     )
     
     # Get all files in the project root, excluding the patterns
