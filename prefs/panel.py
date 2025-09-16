@@ -40,12 +40,9 @@ class GITBLEND_UL_stash_list(bpy.types.UIList):
             # Show UID
             short_uid = stash.uid[:8] if stash.uid else "<none>"
             row.label(text=short_uid, icon='OBJECT_DATA')
-            # Show timestamp
-            ts = getattr(stash, 'timestamp', '') or ''
-            row.label(text=ts)
             # Show original object names (truncated)
             original_names = getattr(stash, 'original_names', '') or ''
-            row.label(text=original_names[:30])
+            row.label(text=original_names[:50])
         elif self.layout_type in {'GRID'}:
             layout.alignment = 'CENTER'
             layout.label(text=stash.uid[:8])
@@ -141,4 +138,9 @@ class GITBLEND_Panel(bpy.types.Panel):
         # Stash controls
         row_stash = stash_box.row(align=True)
         row_stash.operator("gitblend.stash", text="Stash Selected", icon='OBJECT_DATA')
-        # Future: Add unstash, delete stash buttons
+
+        # Unstash and delete controls (only show if there are stashed objects)
+        if props.stashed_objects:
+            row_stash_ops = stash_box.row(align=True)
+            row_stash_ops.operator("gitblend.unstash", text="Unstash", icon='IMPORT')
+            row_stash_ops.operator("gitblend.delete_stash", text="Delete", icon='TRASH')
