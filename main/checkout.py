@@ -42,9 +42,6 @@ def _perform_checkout(context, target_index: int, report_fn=None) -> bool:
         if not is_gitblend_initialized(project_dir):
             _report('ERROR', 'Repository not initialized.')
             return False
-        # We allow auto-checkout even if UI not synced (e.g., indexes just changed) but warn.
-        if not is_ui_synced_with_metadata(context):
-            _report('INFO', 'UI Not Synced proceed with caution.')
 
         props = getattr(context.scene, 'gitblend_props', None)
         if not props or target_index < 0 or target_index >= len(props.commits):
