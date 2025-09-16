@@ -98,125 +98,142 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             return False
 
     def execute(self, context):
-        props = getattr(context.scene, "gitblend_props", None)
-        commit_message = (props.commit_message if props else "").strip()
-
-        if not commit_message:
-            self.report({'ERROR'}, "Commit message cannot be empty.")
+        # Set commit operation flag to prevent auto-checkout interference
+        wm = context.window_manager
+        if wm.get('gitblend_commit_in_progress'):
+            self.report({'WARNING'}, "Commit operation already in progress")
             return {'CANCELLED'}
         
-        # Determine current working .blend file path
-        current_filepath = bpy.data.filepath
-        if not current_filepath:
-            self.report({'ERROR'}, "Please save the .blend file before committing.")
-            return {'CANCELLED'}
-
-        current_dir = Path(current_filepath).resolve().parent
+        wm['gitblend_commit_in_progress'] = True
         
-        # Check if .gitblend is initialized
-        if not is_gitblend_initialized(current_dir):
-            self.report({'ERROR'}, "Repository not initialized. Please initialize first.")
+        try:
+            props = getattr(context.scene, "gitblend_props", None)
+            commit_message = (props.commit_message if props else "").strip()
+
+            if not commit_message:
+                self.report({'ERROR'}, "Commit message cannot be empty.")
+                return {'CANCELLED'}
+            
+            # Determine current working .blend file path
+            current_filepath = bpy.data.filepath
+            if not current_filepath:
+                self.report({'ERROR'}, "Please save the .blend file before committing.")
+                return {'CANCELLED'}
+
+            current_dir = Path(current_filepath).resolve().parent
+            
+            # Check if .gitblend is initialized
+            if not is_gitblend_initialized(current_dir):
+                self.report({'ERROR'}, "Repository not initialized. Please initialize first.")
+                return {'CANCELLED'}
+            
+            # Check if UI is synced with metadata
+            if not is_ui_synced_with_metadata(context):
+                self.report({'ERROR'}, "Commit history not synchronized. Please sync first.")
+                return {'CANCELLED'}
+            try:
+                gitblend_dir = ensure_gitblend_dir(current_dir)
+            except Exception as e:
+                self.report({'ERROR'}, f"Failed to create .gitblend directory: {e}")
+                return {'CANCELLED'}
+
+            # Compute a unique sha-256 filename
+            scene_hash = _compute_scene_hash(context.scene)
+            snapshot_path = gitblend_dir / f"{scene_hash}.blend"
+
+            # Save snapshot using bpy.data.libraries.write() for better control
+            try:
+                # Collect all data to write to the snapshot
+                # We want to include the current scene and all its dependencies
+                current_scene = context.scene
+                
+                # Gather all data blocks that need to be saved
+                data_blocks = set()
+                
+                # Add the current scene
+                data_blocks.add(current_scene)
+                
+                # Add all objects in the scene and their dependencies
+                for obj in current_scene.objects:
+                    data_blocks.add(obj)
+                    # Add object data (mesh, curve, etc.)
+                    if obj.data:
+                        data_blocks.add(obj.data)
+                    # Add materials
+                    if hasattr(obj.data, 'materials') and obj.data.materials:
+                        for material in obj.data.materials:
+                            if material:
+                                data_blocks.add(material)
+                                # Add material nodes and textures
+                                if material.use_nodes and material.node_tree:
+                                    data_blocks.add(material.node_tree)
+                                    for node in material.node_tree.nodes:
+                                        if node.type == 'TEX_IMAGE' and node.image:
+                                            data_blocks.add(node.image)
+                    # Add modifiers data if any
+                    for modifier in obj.modifiers:
+                        if hasattr(modifier, 'object') and modifier.object:
+                            data_blocks.add(modifier.object)
+                
+                # Add collections used in the scene
+                for collection in current_scene.collection.children_recursive:
+                    data_blocks.add(collection)
+                if current_scene.collection:
+                    data_blocks.add(current_scene.collection)
+                
+                # Add world data
+                if current_scene.world:
+                    data_blocks.add(current_scene.world)
+                    if current_scene.world.use_nodes and current_scene.world.node_tree:
+                        data_blocks.add(current_scene.world.node_tree)
+                
+                # Add camera and other scene-linked objects
+                if current_scene.camera:
+                    data_blocks.add(current_scene.camera)
+                    if current_scene.camera.data:
+                        data_blocks.add(current_scene.camera.data)
+                
+                # Write the data blocks to the snapshot file
+                # bpy.data.libraries.write() expects a set, not a list
+                bpy.data.libraries.write(str(snapshot_path), data_blocks, fake_user=False)
+                
+            except Exception as e:
+                self.report({'ERROR'}, f"Failed to write snapshot using bpy.data.libraries.write(): {e}")
+                return {'CANCELLED'}
+
+            # Record commit in in-memory history (UI list)
+            timestamp_str = time.strftime('%Y-%m-%d %H:%M:%S')
+            if props:
+                entry = props.commits.add()
+                entry.hash = scene_hash
+                entry.message = commit_message
+                entry.timestamp = timestamp_str
+                props.commits_index = len(props.commits) - 1
+                # Preserve last commit message (user request): do not clear commit_message
+            # Persist commit metadata
+            try:
+                append_commit(current_dir, {
+                    "hash": scene_hash,
+                    "message": commit_message,
+                    "timestamp": timestamp_str,
+                    "snapshot": snapshot_path.name,
+                })
+            except Exception as e:
+                self.report({'WARNING'}, f"Metadata write failed: {e}")
+            # Force UI redraw
+            for window in context.window_manager.windows:
+                for area in window.screen.areas:
+                    if area.type == 'VIEW_3D':
+                        area.tag_redraw()
+
+            self.report({'INFO'}, f"Committed snapshot {snapshot_path.name} : {commit_message}")
+            return {'FINISHED'}
+        
+        except Exception as e:
+            self.report({'ERROR'}, f"Unexpected error during commit: {e}")
             return {'CANCELLED'}
         
-        # Check if UI is synced with metadata
-        if not is_ui_synced_with_metadata(context):
-            self.report({'ERROR'}, "Commit history not synchronized. Please sync first.")
-            return {'CANCELLED'}
-        try:
-            gitblend_dir = ensure_gitblend_dir(current_dir)
-        except Exception as e:
-            self.report({'ERROR'}, f"Failed to create .gitblend directory: {e}")
-            return {'CANCELLED'}
-
-        # Compute a unique sha-256 filename
-        scene_hash = _compute_scene_hash(context.scene)
-        snapshot_path = gitblend_dir / f"{scene_hash}.blend"
-
-        # Save snapshot using bpy.data.libraries.write() for better control
-        try:
-            # Collect all data to write to the snapshot
-            # We want to include the current scene and all its dependencies
-            current_scene = context.scene
-            
-            # Gather all data blocks that need to be saved
-            data_blocks = set()
-            
-            # Add the current scene
-            data_blocks.add(current_scene)
-            
-            # Add all objects in the scene and their dependencies
-            for obj in current_scene.objects:
-                data_blocks.add(obj)
-                # Add object data (mesh, curve, etc.)
-                if obj.data:
-                    data_blocks.add(obj.data)
-                # Add materials
-                if hasattr(obj.data, 'materials') and obj.data.materials:
-                    for material in obj.data.materials:
-                        if material:
-                            data_blocks.add(material)
-                            # Add material nodes and textures
-                            if material.use_nodes and material.node_tree:
-                                data_blocks.add(material.node_tree)
-                                for node in material.node_tree.nodes:
-                                    if node.type == 'TEX_IMAGE' and node.image:
-                                        data_blocks.add(node.image)
-                # Add modifiers data if any
-                for modifier in obj.modifiers:
-                    if hasattr(modifier, 'object') and modifier.object:
-                        data_blocks.add(modifier.object)
-            
-            # Add collections used in the scene
-            for collection in current_scene.collection.children_recursive:
-                data_blocks.add(collection)
-            if current_scene.collection:
-                data_blocks.add(current_scene.collection)
-            
-            # Add world data
-            if current_scene.world:
-                data_blocks.add(current_scene.world)
-                if current_scene.world.use_nodes and current_scene.world.node_tree:
-                    data_blocks.add(current_scene.world.node_tree)
-            
-            # Add camera and other scene-linked objects
-            if current_scene.camera:
-                data_blocks.add(current_scene.camera)
-                if current_scene.camera.data:
-                    data_blocks.add(current_scene.camera.data)
-            
-            # Write the data blocks to the snapshot file
-            # bpy.data.libraries.write() expects a set, not a list
-            bpy.data.libraries.write(str(snapshot_path), data_blocks, fake_user=False)
-            
-        except Exception as e:
-            self.report({'ERROR'}, f"Failed to write snapshot using bpy.data.libraries.write(): {e}")
-            return {'CANCELLED'}
-
-        # Record commit in in-memory history (UI list)
-        timestamp_str = time.strftime('%Y-%m-%d %H:%M:%S')
-        if props:
-            entry = props.commits.add()
-            entry.hash = scene_hash
-            entry.message = commit_message
-            entry.timestamp = timestamp_str
-            props.commits_index = len(props.commits) - 1
-            # Preserve last commit message (user request): do not clear commit_message
-        # Persist commit metadata
-        try:
-            append_commit(current_dir, {
-                "hash": scene_hash,
-                "message": commit_message,
-                "timestamp": timestamp_str,
-                "snapshot": snapshot_path.name,
-            })
-        except Exception as e:
-            self.report({'WARNING'}, f"Metadata write failed: {e}")
-        # Force UI redraw
-        for window in context.window_manager.windows:
-            for area in window.screen.areas:
-                if area.type == 'VIEW_3D':
-                    area.tag_redraw()
-
-        self.report({'INFO'}, f"Committed snapshot {snapshot_path.name} : {commit_message}")
-        return {'FINISHED'}
-    
+        finally:
+            # Always clean up the commit flag
+            if 'gitblend_commit_in_progress' in wm:
+                del wm['gitblend_commit_in_progress']

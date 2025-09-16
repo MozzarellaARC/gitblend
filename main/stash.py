@@ -96,13 +96,21 @@ class GITBLEND_OT_stash(bpy.types.Operator):
 
     def execute(self, context):
         """Execute the stash operation."""
-        selected_objects = context.selected_objects
-        
-        if not selected_objects:
-            self.report({'WARNING'}, "No objects selected to stash")
+        # Set stash operation flag to prevent auto-checkout interference
+        wm = context.window_manager
+        if wm.get('gitblend_stash_in_progress'):
+            self.report({'WARNING'}, "Stash operation already in progress")
             return {'CANCELLED'}
         
+        wm['gitblend_stash_in_progress'] = True
+        
         try:
+            selected_objects = context.selected_objects
+            
+            if not selected_objects:
+                self.report({'WARNING'}, "No objects selected to stash")
+                return {'CANCELLED'}
+            
             # Get or create the _stash scene
             stash_scene = _get_or_create_stash_scene()
             
@@ -147,6 +155,11 @@ class GITBLEND_OT_stash(bpy.types.Operator):
         except Exception as e:
             self.report({'ERROR'}, f"Failed to stash objects: {e}")
             return {'CANCELLED'}
+            
+        finally:
+            # Always clean up the stash flag
+            if 'gitblend_stash_in_progress' in wm:
+                del wm['gitblend_stash_in_progress']
 
 
 class GITBLEND_OT_unstash(bpy.types.Operator):
@@ -166,10 +179,22 @@ class GITBLEND_OT_unstash(bpy.types.Operator):
 
     def execute(self, context):
         """Execute the unstash operation."""
-        props = context.scene.gitblend_props
+        # Set stash operation flag to prevent auto-checkout interference
+        wm = context.window_manager
+        if wm.get('gitblend_stash_in_progress'):
+            self.report({'WARNING'}, "Stash operation already in progress")
+            return {'CANCELLED'}
         
-        if not props.stashed_objects or props.stashed_objects_index < 0:
-            self.report({'WARNING'}, "No stash selected")
+        wm['gitblend_stash_in_progress'] = True
+        
+        try:
+            props = context.scene.gitblend_props
+            
+            if not props.stashed_objects or props.stashed_objects_index < 0:
+                self.report({'WARNING'}, "No stash selected")
+                return {'CANCELLED'}
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to access stash properties: {e}")
             return {'CANCELLED'}
         
         try:
@@ -225,6 +250,11 @@ class GITBLEND_OT_unstash(bpy.types.Operator):
         except Exception as e:
             self.report({'ERROR'}, f"Failed to unstash objects: {e}")
             return {'CANCELLED'}
+            
+        finally:
+            # Always clean up the stash flag
+            if 'gitblend_stash_in_progress' in wm:
+                del wm['gitblend_stash_in_progress']
 
 
 class GITBLEND_OT_delete_stash(bpy.types.Operator):
@@ -244,13 +274,21 @@ class GITBLEND_OT_delete_stash(bpy.types.Operator):
 
     def execute(self, context):
         """Execute the delete stash operation."""
-        props = context.scene.gitblend_props
-        
-        if not props.stashed_objects or props.stashed_objects_index < 0:
-            self.report({'WARNING'}, "No stash selected")
+        # Set stash operation flag to prevent auto-checkout interference
+        wm = context.window_manager
+        if wm.get('gitblend_stash_in_progress'):
+            self.report({'WARNING'}, "Stash operation already in progress")
             return {'CANCELLED'}
         
+        wm['gitblend_stash_in_progress'] = True
+        
         try:
+            props = context.scene.gitblend_props
+            
+            if not props.stashed_objects or props.stashed_objects_index < 0:
+                self.report({'WARNING'}, "No stash selected")
+                return {'CANCELLED'}
+            
             # Get the selected stash entry
             stash_index = props.stashed_objects_index
             stash_entry = props.stashed_objects[stash_index]
@@ -286,3 +324,8 @@ class GITBLEND_OT_delete_stash(bpy.types.Operator):
         except Exception as e:
             self.report({'ERROR'}, f"Failed to delete stash: {e}")
             return {'CANCELLED'}
+            
+        finally:
+            # Always clean up the stash flag
+            if 'gitblend_stash_in_progress' in wm:
+                del wm['gitblend_stash_in_progress']

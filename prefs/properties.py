@@ -7,9 +7,23 @@ def _auto_checkout_update(self, context):  # noqa: D401
     """When user changes selection, defer checkout via timer to ensure valid context."""
     try:
         wm = context.window_manager  # type: ignore
-        # Suppression flags
-        if wm.get('gitblend_loading_history') or wm.get('gitblend_doing_checkout'):
+        # Suppression flags - prevent auto-checkout during other operations
+        if (wm.get('gitblend_loading_history') or 
+            wm.get('gitblend_doing_checkout') or 
+            wm.get('gitblend_commit_in_progress') or
+            wm.get('gitblend_stash_in_progress')):
             return
+        
+        # Don't auto-checkout if _stash scene exists and is active
+        # This prevents interference with stash operations
+        if context.scene.name == "_stash":
+            return
+            
+        # Check if _stash scene exists - might indicate ongoing stash operations
+        if "_stash" in bpy.data.scenes:
+            # Allow auto-checkout but be more cautious
+            pass
+            
     except Exception:
         return
     if self.commits_index < 0 or self.commits_index >= len(self.commits):
@@ -21,7 +35,10 @@ def _auto_checkout_update(self, context):  # noqa: D401
     def _deferred():
         try:
             wm = bpy.context.window_manager  # type: ignore
-            if wm.get('gitblend_loading_history'):
+            # Double-check suppression flags in deferred context
+            if (wm.get('gitblend_loading_history') or 
+                wm.get('gitblend_commit_in_progress') or
+                wm.get('gitblend_stash_in_progress')):
                 return None  # retry next heartbeat
             wm['gitblend_doing_checkout'] = True
             # Directly call internal helper to avoid operator poll/context constraints
