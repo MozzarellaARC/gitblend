@@ -9,9 +9,9 @@ class GITBLEND_MT_stash_specials(bpy.types.Menu):
         layout = self.layout
         props = context.scene.gitblend_props
         
-        # Delete stash option
+        # Unstash option
         if props.stashed_objects and props.stashed_objects_index >= 0:
-            layout.operator("gitblend.delete_stash", text="Delete Stash", icon='TRASH')
+            layout.operator("gitblend.unstash", text="Unstash", icon='IMPORT')
         else:
             layout.label(text="No stash selected", icon='INFO')
 
@@ -288,9 +288,9 @@ class GITBLEND_Panel(bpy.types.Panel):
             col_buttons = row_stash.column(align=True)
             col_buttons.operator("gitblend.stash", text="", icon='ADD')
             
-            # Minus button (unstash selected) - only enabled if stash is selected
-            col_buttons.operator("gitblend.unstash", text="", icon='REMOVE')
+            # Minus button (delete selected stash) - only enabled if stash is selected
+            col_buttons.operator("gitblend.delete_stash", text="", icon='REMOVE')
             
-            # Submenu button for additional actions
+            # Submenu button for additional actions (unstash)
             col_buttons.separator()
             col_buttons.menu("GITBLEND_MT_stash_specials", icon='DOWNARROW_HLT', text="")
