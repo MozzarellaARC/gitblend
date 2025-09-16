@@ -226,6 +226,13 @@ class GITBLEND_OT_commit(bpy.types.Operator):
                     if area.type == 'VIEW_3D':
                         area.tag_redraw()
 
+            # Update branch status after commit
+            try:
+                from .initialize import update_branch_status
+                update_branch_status(context)
+            except Exception:
+                pass
+
             self.report({'INFO'}, f"Committed snapshot {snapshot_path.name} : {commit_message}")
             return {'FINISHED'}
         

@@ -3,6 +3,66 @@ from bpy.types import PropertyGroup
 import functools
 
 
+def _branch_switch_update(self, context):
+    """Handle branch selection change."""
+    try:
+        # Don't switch if we're loading or in an operation
+        wm = context.window_manager
+        if (wm.get('gitblend_loading_history') or 
+            wm.get('gitblend_doing_checkout') or 
+            wm.get('gitblend_commit_in_progress') or
+            wm.get('gitblend_stash_in_progress') or
+            wm.get('gitblend_branch_in_progress')):
+            return
+        
+        # Check if the selected branch is different from current
+        blend_path = bpy.data.filepath
+        if not blend_path:
+            return
+        
+        from pathlib import Path
+        from ..main.initialize import get_current_branch
+        
+        project_dir = Path(blend_path).resolve().parent
+        current_branch = get_current_branch(project_dir)
+        
+        if self.branch_enum != current_branch:
+            # Defer the branch switch to avoid context issues
+            def _deferred_switch():
+                try:
+                    bpy.ops.gitblend.switch_branch(branch_name=self.branch_enum)
+                except Exception as e:
+                    print(f'[gitblend] Branch switch failed: {e}')
+                return None
+            
+            bpy.app.timers.register(_deferred_switch, first_interval=0.05)
+    except Exception:
+        pass
+
+
+def _get_branch_items(self, context):
+    """Generate items for branch enum property."""
+    try:
+        blend_path = bpy.data.filepath
+        if not blend_path:
+            return [("main", "main", "Default branch")]
+        
+        from pathlib import Path
+        from ..main.initialize import is_gitblend_initialized, get_branch_names
+        
+        project_dir = Path(blend_path).resolve().parent
+        if not is_gitblend_initialized(project_dir):
+            return [("main", "main", "Default branch")]
+        
+        branch_names = get_branch_names(project_dir)
+        if not branch_names:
+            return [("main", "main", "Default branch")]
+        
+        return [(name, name, f"Branch: {name}") for name in sorted(branch_names)]
+    except Exception:
+        return [("main", "main", "Default branch")]
+
+
 def _auto_checkout_update(self, context):  # noqa: D401
     """When user changes selection, defer checkout via timer to ensure valid context."""
     try:
@@ -44,7 +104,14 @@ def _auto_checkout_update(self, context):  # noqa: D401
             # Directly call internal helper to avoid operator poll/context constraints
             try:
                 from ..main.checkout import _perform_checkout  # type: ignore
-                _perform_checkout(bpy.context, target_index)
+                success = _perform_checkout(bpy.context, target_index)
+                if success:
+                    # Update branch status after successful checkout
+                    try:
+                        from ..main.initialize import update_branch_status
+                        update_branch_status(bpy.context)
+                    except Exception:
+                        pass
             except Exception as e:  # pragma: no cover
                 print('[gitblend] Auto-checkout failed:', e)
         finally:
@@ -103,5 +170,22 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
     show_history_section: bpy.props.BoolProperty(  # type: ignore
         name="Show History Section",
         description="Show/hide the commit history section",
+        default=True,
+    )
+    # Branch-related properties
+    branch_enum: bpy.props.EnumProperty(  # type: ignore
+        name="Branch",
+        description="Select branch",
+        items=_get_branch_items,
+        update=_branch_switch_update,
+    )
+    current_branch_display: bpy.props.StringProperty(  # type: ignore
+        name="Current Branch",
+        description="Display current branch name",
+        default="main",
+    )
+    is_on_head: bpy.props.BoolProperty(  # type: ignore
+        name="Is on HEAD",
+        description="Whether currently on HEAD commit",
         default=True,
     )

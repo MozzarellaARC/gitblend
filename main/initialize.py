@@ -18,7 +18,19 @@ def get_metadata_path(project_dir: Path) -> Path:
 
 
 def _default_structure() -> Dict[str, Any]:
-	return {"version": METADATA_VERSION, "commits": []}
+	return {
+		"version": METADATA_VERSION, 
+		"commits": [],
+		"branches": {
+			"main": {
+				"head_commit": None,
+				"created_from": None,
+				"created_at": None
+			}
+		},
+		"current_branch": "main",
+		"head_commit": None  # Points to the latest commit hash on current branch
+	}
 
 
 def ensure_gitblend_dir(project_dir: Path) -> Path:
@@ -43,6 +55,28 @@ def load_metadata(project_dir: Path) -> Dict[str, Any]:
 			if 'commits' not in data or not isinstance(data['commits'], list):
 				data['commits'] = []
 			data.setdefault('version', METADATA_VERSION)
+			
+			# Ensure branch-related fields exist (for backwards compatibility)
+			if 'branches' not in data:
+				data['branches'] = {
+					"main": {
+						"head_commit": None,
+						"created_from": None,
+						"created_at": None
+					}
+				}
+			if 'current_branch' not in data:
+				data['current_branch'] = "main"
+			if 'head_commit' not in data:
+				# Set head_commit to the latest commit if any exist
+				if data['commits']:
+					data['head_commit'] = data['commits'][-1].get('hash')
+					# Also update main branch head
+					if 'main' in data['branches']:
+						data['branches']['main']['head_commit'] = data['head_commit']
+				else:
+					data['head_commit'] = None
+			
 			return data
 	except Exception:
 		return _default_structure()
@@ -60,6 +94,80 @@ def write_metadata_atomic(project_dir: Path, data: Dict[str, Any]) -> None:
 def append_commit(project_dir: Path, commit: Dict[str, Any]) -> None:
 	data = load_metadata(project_dir)
 	data['commits'].append(commit)
+	# Update head_commit to point to the latest commit
+	commit_hash = commit.get('hash')
+	if commit_hash:
+		data['head_commit'] = commit_hash
+		# Update current branch's head commit
+		current_branch = data.get('current_branch', 'main')
+		if current_branch in data.get('branches', {}):
+			data['branches'][current_branch]['head_commit'] = commit_hash
+	write_metadata_atomic(project_dir, data)
+
+
+def get_current_commit_hash(context) -> str:
+	"""Get the hash of the currently checked out commit."""
+	props = getattr(context.scene, "gitblend_props", None)
+	if not props or props.commits_index < 0 or props.commits_index >= len(props.commits):
+		return ""
+	return props.commits[props.commits_index].hash
+
+
+def is_on_head_commit(context) -> bool:
+	"""Check if the user is currently on the HEAD commit (latest commit on current branch)."""
+	blend_path = bpy.data.filepath
+	if not blend_path:
+		return True  # Default to HEAD if no file
+	
+	project_dir = Path(blend_path).resolve().parent
+	if not is_gitblend_initialized(project_dir):
+		return True  # Default to HEAD if not initialized
+	
+	metadata = load_metadata(project_dir)
+	head_commit = metadata.get('head_commit')
+	current_commit = get_current_commit_hash(context)
+	
+	# If no commits exist yet, we're on HEAD
+	if not head_commit:
+		return True
+	
+	# If no current commit (empty commits list), we're on HEAD 
+	if not current_commit:
+		return True
+	
+	return head_commit == current_commit
+
+
+def get_branch_names(project_dir: Path) -> list:
+	"""Get list of all branch names."""
+	metadata = load_metadata(project_dir)
+	return list(metadata.get('branches', {}).keys())
+
+
+def get_current_branch(project_dir: Path) -> str:
+	"""Get the name of the current branch."""
+	metadata = load_metadata(project_dir)
+	return metadata.get('current_branch', 'main')
+
+
+def create_branch(project_dir: Path, branch_name: str, from_commit_hash: str) -> None:
+	"""Create a new branch from a specific commit."""
+	import time
+	data = load_metadata(project_dir)
+	
+	if 'branches' not in data:
+		data['branches'] = {}
+	
+	# Create new branch entry
+	data['branches'][branch_name] = {
+		'head_commit': from_commit_hash,
+		'created_from': from_commit_hash,
+		'created_at': time.strftime('%Y-%m-%d %H:%M:%S')
+	}
+	
+	# Switch to the new branch
+	data['current_branch'] = branch_name
+	
 	write_metadata_atomic(project_dir, data)
 
 
@@ -111,6 +219,51 @@ def is_ui_synced_with_metadata(context) -> bool:
 	return True
 
 
+def update_branch_status(context) -> None:
+	"""Update the branch status properties in the UI."""
+	props = getattr(context.scene, "gitblend_props", None)
+	if not props:
+		return
+	
+	blend_path = bpy.data.filepath
+	if not blend_path:
+		props.current_branch_display = "main"
+		props.is_on_head = True
+		props.branch_enum = "main"
+		return
+	
+	try:
+		project_dir = Path(blend_path).resolve().parent
+		if not is_gitblend_initialized(project_dir):
+			props.current_branch_display = "main"
+			props.is_on_head = True
+			props.branch_enum = "main"
+			return
+		
+		# Update current branch display
+		current_branch = get_current_branch(project_dir)
+		props.current_branch_display = current_branch
+		
+		# Update branch enum to current branch (without triggering callback)
+		# We need to temporarily disable the update callback
+		wm = context.window_manager if hasattr(context, 'window_manager') else None
+		if wm:
+			wm['gitblend_loading_history'] = True
+		try:
+			props.branch_enum = current_branch
+		finally:
+			if wm and 'gitblend_loading_history' in wm:
+				del wm['gitblend_loading_history']
+		
+		# Update HEAD status
+		props.is_on_head = is_on_head_commit(context)
+		
+	except Exception:
+		props.current_branch_display = "main"
+		props.is_on_head = True
+		props.branch_enum = "main"
+
+
 def populate_ui_from_metadata(context) -> None:
 	"""Populate the UI list with commits from metadata file."""
 	blend_path = bpy.data.filepath
@@ -134,6 +287,26 @@ def populate_ui_from_metadata(context) -> None:
 
 		# Load metadata and populate UI
 		metadata = load_metadata(project_dir)
+		
+		# Check if metadata was migrated and save it
+		original_metadata = {}
+		try:
+			path = get_metadata_path(project_dir)
+			if path.exists():
+				with path.open('r', encoding='utf-8') as f:
+					original_metadata = json.load(f)
+		except Exception:
+			pass
+		
+		# If metadata structure was updated, save the migrated version
+		if ('branches' not in original_metadata or 
+		    'current_branch' not in original_metadata or 
+		    'head_commit' not in original_metadata):
+			try:
+				write_metadata_atomic(project_dir, metadata)
+			except Exception:
+				pass
+		
 		for commit_data in metadata.get('commits', []):
 			entry = props.commits.add()
 			entry.hash = commit_data.get('hash', '')
@@ -145,6 +318,9 @@ def populate_ui_from_metadata(context) -> None:
 			props.commits_index = len(props.commits) - 1
 		else:
 			props.commits_index = -1
+		
+		# Update branch status
+		update_branch_status(context)
 	finally:
 		if wm and 'gitblend_loading_history' in wm:
 			del wm['gitblend_loading_history']
@@ -218,5 +394,7 @@ class GITBLEND_OT_initialize(bpy.types.Operator):
 __all__ = [
 	'get_gitblend_dir', 'get_metadata_path', 'initialize_gitblend', 'append_commit',
 	'ensure_gitblend_dir', 'load_metadata', 'GITBLEND_OT_initialize', 'GITBLEND_OT_sync', 
-	'is_gitblend_initialized', 'populate_ui_from_metadata', 'is_ui_synced_with_metadata'
+	'is_gitblend_initialized', 'populate_ui_from_metadata', 'is_ui_synced_with_metadata',
+	'is_on_head_commit', 'get_current_commit_hash', 'get_branch_names', 'get_current_branch',
+	'create_branch', 'update_branch_status'
 ]

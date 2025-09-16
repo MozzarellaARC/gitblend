@@ -142,13 +142,50 @@ class GITBLEND_Panel(bpy.types.Panel):
         
         if props.show_history_section:
             col = box_history.column(align=True)
+            
+            # Branch status display
+            if gitblend_initialized:
+                # Update branch status when drawing panel
+                try:
+                    from ..main.initialize import update_branch_status
+                    update_branch_status(context)
+                except Exception:
+                    pass
+                
+                branch_row = col.row(align=True)
+                branch_row.label(text=f"Branch: {props.current_branch_display}", icon='OUTLINER_OB_GROUP_INSTANCE')
+                
+                # HEAD status indicator
+                if props.is_on_head:
+                    branch_row.label(text="HEAD", icon='CHECKMARK')
+                else:
+                    branch_row.label(text="DETACHED", icon='ERROR')
+                
+                # Branch selection dropdown (always show if initialized)
+                try:
+                    from pathlib import Path
+                    from ..main.initialize import get_branch_names
+                    project_dir = Path(bpy.data.filepath).resolve().parent
+                    branch_names = get_branch_names(project_dir)
+                    if branch_names:  # Show if any branches exist
+                        col.prop(props, "branch_enum", text="Switch to")
+                except Exception:
+                    pass
+            
             col.template_list("GITBLEND_UL_commit_history", "", props, "commits", props, "commits_index", rows=5)
             
             # Show commit controls if initialized
             if gitblend_initialized:
                 box_history.prop(props, "commit_message", text="Message")
                 row = box_history.row(align=True)
-                row.operator("gitblend.commit", text="Commit", icon='FILE_TICK')
+                
+                # Show different buttons based on HEAD status
+                if props.is_on_head:
+                    # On HEAD: show commit button
+                    row.operator("gitblend.commit", text="Commit", icon='FILE_TICK')
+                else:
+                    # Detached: show create branch button only
+                    row.operator("gitblend.create_branch", text="Create Branch", icon='OUTLINER_OB_GROUP_INSTANCE')
             elif blend_saved and not gitblend_initialized:
                 # Only show "Not initialized" warning if blend file is saved but not initialized
                 warn_box = box_history.box()

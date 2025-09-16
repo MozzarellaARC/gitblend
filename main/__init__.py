@@ -4,6 +4,7 @@ from .commit import GITBLEND_OT_commit
 from .checkout import GITBLEND_OT_checkout
 from .initialize import GITBLEND_OT_initialize, GITBLEND_OT_sync
 from .stash import GITBLEND_OT_stash, GITBLEND_OT_unstash, GITBLEND_OT_delete_stash
+from .branch import GITBLEND_OT_create_branch, GITBLEND_OT_switch_branch
 
 _OPERATORS = (
     GITBLEND_OT_initialize,
@@ -13,6 +14,8 @@ _OPERATORS = (
     GITBLEND_OT_stash,
     GITBLEND_OT_unstash,
     GITBLEND_OT_delete_stash,
+    GITBLEND_OT_create_branch,
+    GITBLEND_OT_switch_branch,
 )
 
 def register_operators():

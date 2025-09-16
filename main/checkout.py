@@ -239,6 +239,13 @@ def _perform_checkout(context, target_index: int, report_fn=None) -> bool:
                     if c.hash == target_hash:
                         props_after.commits_index = i
                         break
+                        
+                # Update branch status after checkout
+                try:
+                    from .initialize import update_branch_status
+                    update_branch_status(context)
+                except Exception:
+                    pass
         except Exception:
             pass
             
