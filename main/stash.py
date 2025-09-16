@@ -169,13 +169,18 @@ class GITBLEND_OT_unstash(bpy.types.Operator):
     bl_description = "Copy stashed objects back to current scene with name resolution"
     bl_options = {'REGISTER', 'UNDO'}
 
+    stash_index: bpy.props.IntProperty(  # type: ignore
+        name="Stash Index",
+        description="Index of the stash to unstash",
+        default=-1
+    )
+
     @classmethod
     def poll(cls, context):
         """Check if the operator can be executed."""
         props = context.scene.gitblend_props
         return (props.stashed_objects and 
-                props.stashed_objects_index >= 0 and 
-                props.stashed_objects_index < len(props.stashed_objects))
+                len(props.stashed_objects) > 0)
 
     def execute(self, context):
         """Execute the unstash operation."""
@@ -190,8 +195,11 @@ class GITBLEND_OT_unstash(bpy.types.Operator):
         try:
             props = context.scene.gitblend_props
             
-            if not props.stashed_objects or props.stashed_objects_index < 0:
-                self.report({'WARNING'}, "No stash selected")
+            # Use the passed stash_index parameter or fall back to properties
+            target_index = self.stash_index if self.stash_index >= 0 else props.stashed_objects_index
+            
+            if not props.stashed_objects or target_index < 0 or target_index >= len(props.stashed_objects):
+                self.report({'WARNING'}, "Invalid stash selection")
                 return {'CANCELLED'}
         except Exception as e:
             self.report({'ERROR'}, f"Failed to access stash properties: {e}")
@@ -199,7 +207,7 @@ class GITBLEND_OT_unstash(bpy.types.Operator):
         
         try:
             # Get the selected stash entry
-            stash_entry = props.stashed_objects[props.stashed_objects_index]
+            stash_entry = props.stashed_objects[target_index]
             
             # Check if _stash scene exists
             stash_scene_name = "_stash"
@@ -264,13 +272,18 @@ class GITBLEND_OT_delete_stash(bpy.types.Operator):
     bl_description = "Remove stash entry and delete stashed objects from _stash scene"
     bl_options = {'REGISTER', 'UNDO'}
 
+    stash_index: bpy.props.IntProperty(  # type: ignore
+        name="Stash Index",
+        description="Index of the stash to delete",
+        default=-1
+    )
+
     @classmethod
     def poll(cls, context):
         """Check if the operator can be executed."""
         props = context.scene.gitblend_props
         return (props.stashed_objects and 
-                props.stashed_objects_index >= 0 and 
-                props.stashed_objects_index < len(props.stashed_objects))
+                len(props.stashed_objects) > 0)
 
     def execute(self, context):
         """Execute the delete stash operation."""
@@ -285,13 +298,15 @@ class GITBLEND_OT_delete_stash(bpy.types.Operator):
         try:
             props = context.scene.gitblend_props
             
-            if not props.stashed_objects or props.stashed_objects_index < 0:
-                self.report({'WARNING'}, "No stash selected")
+            # Use the passed stash_index parameter or fall back to properties
+            target_index = self.stash_index if self.stash_index >= 0 else props.stashed_objects_index
+            
+            if not props.stashed_objects or target_index < 0 or target_index >= len(props.stashed_objects):
+                self.report({'WARNING'}, "Invalid stash selection")
                 return {'CANCELLED'}
             
             # Get the selected stash entry
-            stash_index = props.stashed_objects_index
-            stash_entry = props.stashed_objects[stash_index]
+            stash_entry = props.stashed_objects[target_index]
             stash_uid = stash_entry.uid[:8]
             
             # Check if _stash scene exists
@@ -306,7 +321,7 @@ class GITBLEND_OT_delete_stash(bpy.types.Operator):
                     self.report({'WARNING'}, f"Failed to remove some stashed objects: {e}")
             
             # Remove the stash entry from the collection
-            props.stashed_objects.remove(stash_index)
+            props.stashed_objects.remove(target_index)
             
             # Adjust the active index
             if props.stashed_objects_index >= len(props.stashed_objects):

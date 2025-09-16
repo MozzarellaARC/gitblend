@@ -43,6 +43,13 @@ class GITBLEND_UL_stash_list(bpy.types.UIList):
             # Show original object names (truncated)
             original_names = getattr(stash, 'original_names', '') or ''
             row.label(text=original_names[:50])
+            
+            # Add action buttons with index passed as property
+            unstash_op = row.operator("gitblend.unstash", text="", icon='IMPORT', emboss=False)
+            unstash_op.stash_index = index
+            
+            delete_op = row.operator("gitblend.delete_stash", text="", icon='TRASH', emboss=False)
+            delete_op.stash_index = index
         elif self.layout_type in {'GRID'}:
             layout.alignment = 'CENTER'
             layout.label(text=stash.uid[:8])
@@ -65,10 +72,6 @@ class GITBLEND_Panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         props = context.scene.gitblend_props
-        
-        # Initialization section
-        box_init = layout.box()
-        box_init.label(text="Repository Setup")
         
         from ..main.initialize import is_gitblend_initialized, populate_ui_from_metadata  # type: ignore
         blend_path = bpy.data.filepath
@@ -93,41 +96,56 @@ class GITBLEND_Panel(bpy.types.Panel):
             except Exception:
                 # Handle any path resolution errors
                 blend_saved = False
-        
-        # Create the row for initialization controls
-        row_init = box_init.row()
-        
-        if not blend_saved:
-            # Blend file not saved
-            row_init.label(text="Please save .blend file first", icon='ERROR')
-        elif not gitblend_initialized:
-            # Blend file saved but .gitblend not initialized
-            row_init.operator("gitblend.initialize", text="Initialize", icon='FILE_NEW')
-        elif gitblend_initialized and not history_populated:
-            # .gitblend exists but history not loaded in UI (auto-sync failed)
-            row_init.operator("gitblend.initialize", text="Sync", icon='FILE_REFRESH')
-        else:
-            # Everything is set up
-            row_init.label(text="Initialized", icon='CHECKMARK')
-            box_init.operator("gitblend.initialize", text="Sync", icon='FILE_REFRESH')
 
-        col = layout.column(align=True)
-        col.label(text="Commit History:")
-        col.template_list("GITBLEND_UL_commit_history", "", props, "commits", props, "commits_index", rows=5)
+        # Repository Setup Section (Collapsible)
+        box_repo = layout.box()
+        repo_header = box_repo.row()
+        repo_header.prop(props, "show_repository_section", 
+                        icon="TRIA_DOWN" if props.show_repository_section else "TRIA_RIGHT", 
+                        icon_only=True, emboss=False)
+        repo_header.label(text="Repository Setup")
         
+        if props.show_repository_section:
+            # Create the row for initialization controls
+            row_init = box_repo.row()
+            
+            if not blend_saved:
+                # Blend file not saved
+                row_init.label(text="Please save .blend file first", icon='ERROR')
+            elif not gitblend_initialized:
+                # Blend file saved but .gitblend not initialized
+                row_init.operator("gitblend.initialize", text="Initialize", icon='FILE_NEW')
+            elif gitblend_initialized and not history_populated:
+                # .gitblend exists but history not loaded in UI (auto-sync failed)
+                row_init.operator("gitblend.initialize", text="Sync", icon='FILE_REFRESH')
+            else:
+                # Everything is set up
+                row_init.label(text="Initialized", icon='CHECKMARK')
+                box_repo.operator("gitblend.initialize", text="Sync", icon='FILE_REFRESH')
 
-        # Show commit controls if initialized
-        if gitblend_initialized:
-            box = layout.box()
-            box.prop(props, "commit_message", text="Message")
-            row = box.row(align=True)
-            row.operator("gitblend.commit", text="Commit", icon='FILE_TICK')
-        elif blend_saved and not gitblend_initialized:
-            # Only show "Not initialized" warning if blend file is saved but not initialized
-            warn_box = layout.box()
-            warn_box.label(text="Not initialized", icon='ERROR')
+        # Commit History Section (Collapsible)
+        box_history = layout.box()
+        history_header = box_history.row()
+        history_header.prop(props, "show_history_section", 
+                           icon="TRIA_DOWN" if props.show_history_section else "TRIA_RIGHT", 
+                           icon_only=True, emboss=False)
+        history_header.label(text="Commit History")
+        
+        if props.show_history_section:
+            col = box_history.column(align=True)
+            col.template_list("GITBLEND_UL_commit_history", "", props, "commits", props, "commits_index", rows=5)
+            
+            # Show commit controls if initialized
+            if gitblend_initialized:
+                box_history.prop(props, "commit_message", text="Message")
+                row = box_history.row(align=True)
+                row.operator("gitblend.commit", text="Commit", icon='FILE_TICK')
+            elif blend_saved and not gitblend_initialized:
+                # Only show "Not initialized" warning if blend file is saved but not initialized
+                warn_box = box_history.box()
+                warn_box.label(text="Not initialized", icon='ERROR')
 
-        # Stash section
+        # Stash section (Already collapsible)
         layout.separator()
         stash_box = layout.box()
         
@@ -147,9 +165,3 @@ class GITBLEND_Panel(bpy.types.Panel):
             # Stash controls
             row_stash = stash_box.row(align=True)
             row_stash.operator("gitblend.stash", text="Stash Selected", icon='OBJECT_DATA')
-
-            # Unstash and delete controls (only show if there are stashed objects)
-            if props.stashed_objects:
-                row_stash_ops = stash_box.row(align=True)
-                row_stash_ops.operator("gitblend.unstash", text="Unstash", icon='IMPORT')
-                row_stash_ops.operator("gitblend.delete_stash", text="Delete", icon='TRASH')

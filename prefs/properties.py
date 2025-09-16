@@ -95,3 +95,13 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
         description="Show/hide the stash section",
         default=True,
     )
+    show_repository_section: bpy.props.BoolProperty(  # type: ignore
+        name="Show Repository Section",
+        description="Show/hide the repository setup section",
+        default=True,
+    )
+    show_history_section: bpy.props.BoolProperty(  # type: ignore
+        name="Show History Section",
+        description="Show/hide the commit history section",
+        default=True,
+    )
