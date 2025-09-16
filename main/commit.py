@@ -204,12 +204,14 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             # Record commit in in-memory history (UI list)
             timestamp_str = time.strftime('%Y-%m-%d %H:%M:%S')
             if props:
+                # Update the general commits list for lookups to work
                 entry = props.commits.add()
                 entry.hash = scene_hash
                 entry.message = commit_message
                 entry.timestamp = timestamp_str
                 props.commits_index = len(props.commits) - 1
                 # Preserve last commit message (user request): do not clear commit_message
+                
             # Persist commit metadata
             try:
                 commit_data = {
@@ -244,14 +246,14 @@ class GITBLEND_OT_commit(bpy.types.Operator):
             # Update branch status after commit
             try:
                 from .initialize import update_branch_status, populate_branch_commits, sync_commit_indices
-                # Refresh branch commits to include the new commit
-                populate_branch_commits(context)
-                # Sync the indices to ensure UI consistency
-                sync_commit_indices(context)
-                # Update branch status
+                # First, update branch status to reflect any branch switches
                 update_branch_status(context)
-            except Exception:
-                pass
+                # Then refresh branch commits to include the new commit
+                populate_branch_commits(context)
+                # Finally, sync the indices to ensure UI consistency
+                sync_commit_indices(context)
+            except Exception as e:
+                self.report({'WARNING'}, f"Failed to update UI after commit: {e}")
 
             self.report({'INFO'}, f"Committed snapshot {snapshot_path.name} : {commit_message}")
             return {'FINISHED'}

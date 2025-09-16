@@ -126,24 +126,53 @@ def get_branch_commits(project_dir: Path, branch_name: str) -> list:
 		# If branch doesn't exist, return empty list
 		return []
 	
-	# If this is the main branch or a branch without a created_from point,
-	# show all commits up to its head
 	head_commit = branch_info.get('head_commit')
 	created_from = branch_info.get('created_from')
 	
 	if not head_commit:
 		return []
 	
-	# Simple approach: show all commits up to the head commit
-	# In a future version, we could implement proper branch tracking
-	branch_commits = []
-	for commit in commits:
-		branch_commits.append(commit)
-		# Stop when we reach the head commit of this branch
-		if commit.get('hash') == head_commit:
-			break
+	# For proper branch filtering, we need to:
+	# 1. Include all commits that have this branch as their 'branch' field
+	# 2. Include common history up to the branch creation point
 	
-	return branch_commits
+	branch_commits = []
+	
+	# First pass: collect commits that explicitly belong to this branch
+	for commit in commits:
+		commit_branch = commit.get('branch', 'main')  # Default to main if no branch info
+		if commit_branch == branch_name:
+			branch_commits.append(commit)
+	
+	# Second pass: if this branch was created from another commit,
+	# include the history up to that point
+	if created_from and branch_name != 'main':
+		for commit in commits:
+			# Include commits that come before the branch creation point
+			if commit.get('hash') == created_from:
+				branch_commits.append(commit)
+				break
+			# Include commits that are part of the main line up to creation point
+			commit_branch = commit.get('branch', 'main')
+			if commit_branch == 'main':
+				branch_commits.append(commit)
+	elif branch_name == 'main':
+		# For main branch, show all commits that belong to main
+		for commit in commits:
+			commit_branch = commit.get('branch', 'main')
+			if commit_branch == 'main':
+				branch_commits.append(commit)
+	
+	# Remove duplicates while preserving order
+	seen_hashes = set()
+	filtered_commits = []
+	for commit in branch_commits:
+		commit_hash = commit.get('hash')
+		if commit_hash not in seen_hashes:
+			seen_hashes.add(commit_hash)
+			filtered_commits.append(commit)
+	
+	return filtered_commits
 
 
 def get_current_branch_commits(project_dir: Path) -> list:
