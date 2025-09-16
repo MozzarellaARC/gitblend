@@ -73,3 +73,8 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
         name="Active Stash",
         default=-1,
     )
+    show_stash_section: bpy.props.BoolProperty(  # type: ignore
+        name="Show Stash Section",
+        description="Show/hide the stash section",
+        default=True,
+    )

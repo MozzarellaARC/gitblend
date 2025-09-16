@@ -129,18 +129,26 @@ class GITBLEND_Panel(bpy.types.Panel):
         # Stash section
         layout.separator()
         stash_box = layout.box()
-        stash_box.label(text="Object Stash")
         
-        # Stash UIList
-        col_stash = stash_box.column(align=True)
-        col_stash.template_list("GITBLEND_UL_stash_list", "", props, "stashed_objects", props, "stashed_objects_index", rows=3)
+        # Collapsible header for stash section
+        stash_header = stash_box.row()
+        stash_header.prop(props, "show_stash_section", 
+                         icon="TRIA_DOWN" if props.show_stash_section else "TRIA_RIGHT", 
+                         icon_only=True, emboss=False)
+        stash_header.label(text="Object Stash")
         
-        # Stash controls
-        row_stash = stash_box.row(align=True)
-        row_stash.operator("gitblend.stash", text="Stash Selected", icon='OBJECT_DATA')
+        # Show stash content only if expanded
+        if props.show_stash_section:
+            # Stash UIList
+            col_stash = stash_box.column(align=True)
+            col_stash.template_list("GITBLEND_UL_stash_list", "", props, "stashed_objects", props, "stashed_objects_index", rows=3)
+            
+            # Stash controls
+            row_stash = stash_box.row(align=True)
+            row_stash.operator("gitblend.stash", text="Stash Selected", icon='OBJECT_DATA')
 
-        # Unstash and delete controls (only show if there are stashed objects)
-        if props.stashed_objects:
-            row_stash_ops = stash_box.row(align=True)
-            row_stash_ops.operator("gitblend.unstash", text="Unstash", icon='IMPORT')
-            row_stash_ops.operator("gitblend.delete_stash", text="Delete", icon='TRASH')
+            # Unstash and delete controls (only show if there are stashed objects)
+            if props.stashed_objects:
+                row_stash_ops = stash_box.row(align=True)
+                row_stash_ops.operator("gitblend.unstash", text="Unstash", icon='IMPORT')
+                row_stash_ops.operator("gitblend.delete_stash", text="Delete", icon='TRASH')
