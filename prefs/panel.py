@@ -1,5 +1,21 @@
 import bpy # type: ignore
 
+class GITBLEND_MT_stash_specials(bpy.types.Menu):
+    """Special operations menu for stash list."""
+    bl_idname = "GITBLEND_MT_stash_specials"
+    bl_label = "Stash Specials"
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.gitblend_props
+        
+        # Delete stash option
+        if props.stashed_objects and props.stashed_objects_index >= 0:
+            layout.operator("gitblend.delete_stash", text="Delete Stash", icon='TRASH')
+        else:
+            layout.label(text="No stash selected", icon='INFO')
+
+
 class GITBLEND_UL_commit_history(bpy.types.UIList):
     """UIList showing commit history entries."""
     bl_idname = "GITBLEND_UL_commit_history"
@@ -43,13 +59,6 @@ class GITBLEND_UL_stash_list(bpy.types.UIList):
             # Show original object names (truncated)
             original_names = getattr(stash, 'original_names', '') or ''
             row.label(text=original_names[:50])
-            
-            # Add action buttons with index passed as property
-            unstash_op = row.operator("gitblend.unstash", text="", icon='IMPORT', emboss=False)
-            unstash_op.stash_index = index
-            
-            delete_op = row.operator("gitblend.delete_stash", text="", icon='TRASH', emboss=False)
-            delete_op.stash_index = index
         elif self.layout_type in {'GRID'}:
             layout.alignment = 'CENTER'
             layout.label(text=stash.uid[:8])
@@ -158,10 +167,20 @@ class GITBLEND_Panel(bpy.types.Panel):
         
         # Show stash content only if expanded
         if props.show_stash_section:
-            # Stash UIList
-            col_stash = stash_box.column(align=True)
-            col_stash.template_list("GITBLEND_UL_stash_list", "", props, "stashed_objects", props, "stashed_objects_index", rows=3)
+            # Stash UIList with vertex groups-style layout
+            row_stash = stash_box.row()
             
-            # Stash controls
-            row_stash = stash_box.row(align=True)
-            row_stash.operator("gitblend.stash", text="Stash Selected", icon='OBJECT_DATA')
+            # Left side: UIList
+            col_list = row_stash.column()
+            col_list.template_list("GITBLEND_UL_stash_list", "", props, "stashed_objects", props, "stashed_objects_index", rows=3)
+            
+            # Right side: Plus/Minus buttons (similar to vertex groups)
+            col_buttons = row_stash.column(align=True)
+            col_buttons.operator("gitblend.stash", text="", icon='ADD')
+            
+            # Minus button (unstash selected) - only enabled if stash is selected
+            col_buttons.operator("gitblend.unstash", text="", icon='REMOVE')
+            
+            # Submenu button for additional actions
+            col_buttons.separator()
+            col_buttons.menu("GITBLEND_MT_stash_specials", icon='DOWNARROW_HLT', text="")
