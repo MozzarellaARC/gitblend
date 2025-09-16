@@ -91,6 +91,11 @@ def write_metadata_atomic(project_dir: Path, data: Dict[str, Any]) -> None:
 	os.replace(tmp_path, metadata_path)
 
 
+def save_metadata(project_dir: Path, metadata: Dict[str, Any]) -> None:
+	"""Save metadata to .gitblend/metadata.json. Alias for write_metadata_atomic."""
+	write_metadata_atomic(project_dir, metadata)
+
+
 def append_commit(project_dir: Path, commit: Dict[str, Any]) -> None:
 	data = load_metadata(project_dir)
 	
@@ -153,12 +158,8 @@ def get_current_commit_hash(context) -> str:
 	if not props:
 		return ""
 	
-	# Try to get from branch_commits first (filtered view)
-	if (props.branch_commits_index >= 0 and 
-	    props.branch_commits_index < len(props.branch_commits)):
-		return props.branch_commits[props.branch_commits_index].hash
-	
-	# Fallback to all commits
+	# Always use commits_index as the source of truth for the current commit
+	# branch_commits is just a filtered view for display purposes
 	if props.commits_index >= 0 and props.commits_index < len(props.commits):
 		return props.commits[props.commits_index].hash
 	
@@ -332,6 +333,7 @@ def update_branch_status(context) -> None:
 		# Refresh branch commits when branch status changes
 		try:
 			populate_branch_commits(context)
+			sync_commit_indices(context)
 		except Exception:
 			pass
 		
@@ -339,6 +341,93 @@ def update_branch_status(context) -> None:
 		props.current_branch_display = "main"
 		props.is_on_head = True
 		props.branch_enum = "main"
+
+
+def get_commit_branches(project_dir: Path, commit_hash: str) -> list:
+	"""Get all branches that were created from a specific commit."""
+	metadata = load_metadata(project_dir)
+	branches = metadata.get('branches', {})
+	
+	commit_branches = []
+	for branch_name, branch_info in branches.items():
+		if branch_info.get('created_from') == commit_hash:
+			commit_branches.append(branch_name)
+	
+	return commit_branches
+
+
+def has_branches_from_commit(project_dir: Path, commit_hash: str) -> bool:
+	"""Check if any branches were created from this commit."""
+	return len(get_commit_branches(project_dir, commit_hash)) > 0
+
+
+def is_branch_empty(project_dir: Path, branch_name: str) -> bool:
+	"""Check if a branch has no commits (was created but never committed to)."""
+	metadata = load_metadata(project_dir)
+	branch_info = metadata.get('branches', {}).get(branch_name)
+	if not branch_info:
+		return True
+	
+	created_from = branch_info.get('created_from')
+	head_commit = branch_info.get('head_commit')
+	
+	# If head_commit is the same as created_from, the branch has no new commits
+	return created_from == head_commit
+
+
+def should_show_commit_button_on_detached(context) -> bool:
+	"""Determine if commit button should be shown when detached (vs create branch button)."""
+	blend_path = bpy.data.filepath
+	if not blend_path:
+		return False
+	
+	project_dir = Path(blend_path).resolve().parent
+	if not is_gitblend_initialized(project_dir):
+		return False
+	
+	props = getattr(context.scene, "gitblend_props", None)
+	if not props:
+		return False
+	
+	# Get current commit and selected branch
+	current_commit_hash = get_current_commit_hash(context)
+	selected_branch = props.branch_enum
+	
+	if not current_commit_hash or not selected_branch:
+		return False
+	
+	# Check if this commit has branches created from it
+	if not has_branches_from_commit(project_dir, current_commit_hash):
+		return False
+	
+	# Check if the selected branch is empty (no commits yet)
+	if not is_branch_empty(project_dir, selected_branch):
+		return False
+	
+	# Check if the selected branch was created from this commit
+	commit_branches = get_commit_branches(project_dir, current_commit_hash)
+	return selected_branch in commit_branches
+
+
+def sync_commit_indices(context) -> None:
+	"""Ensure both commits_index and branch_commits_index point to the same commit."""
+	props = getattr(context.scene, "gitblend_props", None)
+	if not props:
+		return
+	
+	# Get the current commit hash from the main index
+	current_hash = ""
+	if props.commits_index >= 0 and props.commits_index < len(props.commits):
+		current_hash = props.commits[props.commits_index].hash
+	
+	if not current_hash:
+		return
+	
+	# Find this commit in branch_commits and update the index
+	for i, branch_commit in enumerate(props.branch_commits):
+		if branch_commit.hash == current_hash:
+			props.branch_commits_index = i
+			break
 
 
 def populate_branch_commits(context, branch_name: str = None) -> None:
@@ -522,5 +611,5 @@ __all__ = [
 	'is_gitblend_initialized', 'populate_ui_from_metadata', 'is_ui_synced_with_metadata',
 	'is_on_head_commit', 'get_current_commit_hash', 'get_branch_names', 'get_current_branch',
 	'create_branch', 'update_branch_status', 'populate_branch_commits', 'get_branch_commits',
-	'get_current_branch_commits'
+	'get_current_branch_commits', 'sync_commit_indices'
 ]

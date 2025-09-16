@@ -212,12 +212,27 @@ class GITBLEND_OT_commit(bpy.types.Operator):
                 # Preserve last commit message (user request): do not clear commit_message
             # Persist commit metadata
             try:
-                append_commit(current_dir, {
+                commit_data = {
                     "hash": scene_hash,
                     "message": commit_message,
                     "timestamp": timestamp_str,
                     "snapshot": snapshot_path.name,
-                })
+                }
+                
+                # Check if we're committing to a branch that was detached
+                from .initialize import should_show_commit_button_on_detached, load_metadata, save_metadata
+                if should_show_commit_button_on_detached(context):
+                    # We're committing to an empty branch from a detached state
+                    selected_branch = props.branch_enum
+                    
+                    # Update the branch's head commit
+                    metadata = load_metadata(current_dir)
+                    if selected_branch in metadata.get('branches', {}):
+                        metadata['branches'][selected_branch]['head_commit'] = scene_hash
+                        metadata['current_branch'] = selected_branch  # Switch to this branch
+                        save_metadata(current_dir, metadata)
+                
+                append_commit(current_dir, commit_data)
             except Exception as e:
                 self.report({'WARNING'}, f"Metadata write failed: {e}")
             # Force UI redraw
@@ -228,7 +243,12 @@ class GITBLEND_OT_commit(bpy.types.Operator):
 
             # Update branch status after commit
             try:
-                from .initialize import update_branch_status
+                from .initialize import update_branch_status, populate_branch_commits, sync_commit_indices
+                # Refresh branch commits to include the new commit
+                populate_branch_commits(context)
+                # Sync the indices to ensure UI consistency
+                sync_commit_indices(context)
+                # Update branch status
                 update_branch_status(context)
             except Exception:
                 pass

@@ -104,6 +104,9 @@ def _auto_checkout_branch_update(self, context):  # noqa: D401
     
     if target_index < 0:
         return
+    
+    # Update the main commits_index to stay in sync
+    self.commits_index = target_index
 
     def _deferred():
         try:

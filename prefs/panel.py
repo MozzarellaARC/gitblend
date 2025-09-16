@@ -26,7 +26,21 @@ class GITBLEND_UL_commit_history(bpy.types.UIList):
             row = layout.row(align=True)
             # Truncate hash for display
             short_hash = commit.hash[:8] if commit.hash else "<none>"
-            row.label(text=short_hash, icon='FILE_BLEND')
+            
+            # Check if this commit has branches created from it
+            commit_icon = 'FILE_BLEND'
+            try:
+                from pathlib import Path
+                from ..main.initialize import has_branches_from_commit
+                blend_path = bpy.data.filepath
+                if blend_path and commit.hash:
+                    project_dir = Path(blend_path).resolve().parent
+                    if has_branches_from_commit(project_dir, commit.hash):
+                        commit_icon = 'OUTLINER_OB_GROUP_INSTANCE'  # Different icon for commits with branches
+            except Exception:
+                pass
+            
+            row.label(text=short_hash, icon=commit_icon)
             # Show timestamp (fallback to blank if missing)
             ts = getattr(commit, 'timestamp', '') or ''
             # Keep timestamp fixed width for alignment (YYYY-MM-DD HH:MM:SS = 19 chars)
@@ -192,10 +206,26 @@ class GITBLEND_Panel(bpy.types.Panel):
                     row = box_history.row(align=True)
                     row.operator("gitblend.commit", text="Commit", icon='FILE_TICK')
                 else:
-                    # Detached: show branch name input
-                    box_history.prop(props, "branch_name", text="New Branch")
-                    row = box_history.row(align=True)
-                    row.operator("gitblend.create_branch", text="Create Branch", icon='OUTLINER_OB_GROUP_INSTANCE')
+                    # Detached: check if we should show commit or create branch button
+                    try:
+                        from ..main.initialize import should_show_commit_button_on_detached
+                        show_commit = should_show_commit_button_on_detached(context)
+                    except Exception:
+                        show_commit = False
+                    
+                    if show_commit:
+                        # Show commit message input and commit button (committing to empty branch)
+                        box_history.prop(props, "commit_message", text="Message")
+                        row = box_history.row(align=True)
+                        row.operator("gitblend.commit", text="Commit", icon='FILE_TICK')
+                        # Show info about which branch will be updated
+                        info_row = box_history.row()
+                        info_row.label(text=f"Will commit to branch: {props.branch_enum}", icon='INFO')
+                    else:
+                        # Show branch name input and create branch button
+                        box_history.prop(props, "branch_name", text="New Branch")
+                        row = box_history.row(align=True)
+                        row.operator("gitblend.create_branch", text="Create Branch", icon='OUTLINER_OB_GROUP_INSTANCE')
             elif blend_saved and not gitblend_initialized:
                 # Only show "Not initialized" warning if blend file is saved but not initialized
                 warn_box = box_history.box()
