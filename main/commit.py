@@ -7,6 +7,55 @@ from typing import Any, Dict
 # Use shared initialization + metadata utilities
 from .initialize import ensure_gitblend_dir, append_commit, is_gitblend_initialized, is_ui_synced_with_metadata
 
+"""
+COMMIT ARCHITECTURE - OPERATION ORDER
+
+The commit system follows a specific operation order to ensure data integrity and consistency:
+
+1. VALIDATION PHASE:
+   - Check if blend file is saved (must have filepath)
+   - Verify .gitblend directory is initialized
+   - Ensure UI is synchronized with metadata
+   - Validate commit message is not empty
+
+2. HASH GENERATION:
+   - Compute SHA-256 hash from current scene state
+   - Uses object names, types, and current timestamp for uniqueness
+   - Hash serves as both filename and unique identifier
+
+3. DATA COLLECTION PHASE:
+   - Gather current scene and all its dependencies using bpy.data.libraries.write()
+   - Collect objects, meshes, materials, textures, collections
+   - Include world data, cameras, and modifier dependencies
+   - Build a comprehensive set of data blocks for the snapshot
+
+4. SNAPSHOT CREATION:
+   - Write collected data blocks to .gitblend/{hash}.blend using bpy.data.libraries.write()
+   - This creates a focused snapshot containing only scene-relevant data
+   - More efficient than saving entire file (no unused data blocks)
+
+5. METADATA UPDATE:
+   - Add commit entry to in-memory UI list (props.commits)
+   - Update active commit index to newly created commit
+   - Persist commit metadata to .gitblend/metadata.json
+
+6. UI REFRESH:
+   - Force redraw of VIEW_3D areas to show updated commit list
+   - Provide user feedback with success/error messages
+
+CHECKOUT COMPATIBILITY:
+- Commits created with bpy.data.libraries.write() are perfectly compatible with checkout
+- Checkout uses bpy.data.libraries.load() to read the same data blocks
+- This creates a consistent write/read cycle for scene data
+
+BENEFITS OF THIS ARCHITECTURE:
+- Selective data writing (smaller snapshots)
+- Fast commit/checkout operations
+- No interference with current working file
+- Comprehensive dependency tracking
+- Robust error handling at each phase
+"""
+
 
 def _compute_scene_hash(scene: bpy.types.Scene) -> str:
     """Compute a sha-256 hash representing the current scene state.
@@ -83,11 +132,64 @@ class GITBLEND_OT_commit(bpy.types.Operator):
         scene_hash = _compute_scene_hash(context.scene)
         snapshot_path = gitblend_dir / f"{scene_hash}.blend"
 
-        # Save snapshot without altering the currently open file (copy=True)
+        # Save snapshot using bpy.data.libraries.write() for better control
         try:
-            bpy.ops.wm.save_as_mainfile(filepath=str(snapshot_path), copy=True)
+            # Collect all data to write to the snapshot
+            # We want to include the current scene and all its dependencies
+            current_scene = context.scene
+            
+            # Gather all data blocks that need to be saved
+            data_blocks = set()
+            
+            # Add the current scene
+            data_blocks.add(current_scene)
+            
+            # Add all objects in the scene and their dependencies
+            for obj in current_scene.objects:
+                data_blocks.add(obj)
+                # Add object data (mesh, curve, etc.)
+                if obj.data:
+                    data_blocks.add(obj.data)
+                # Add materials
+                if hasattr(obj.data, 'materials') and obj.data.materials:
+                    for material in obj.data.materials:
+                        if material:
+                            data_blocks.add(material)
+                            # Add material nodes and textures
+                            if material.use_nodes and material.node_tree:
+                                data_blocks.add(material.node_tree)
+                                for node in material.node_tree.nodes:
+                                    if node.type == 'TEX_IMAGE' and node.image:
+                                        data_blocks.add(node.image)
+                # Add modifiers data if any
+                for modifier in obj.modifiers:
+                    if hasattr(modifier, 'object') and modifier.object:
+                        data_blocks.add(modifier.object)
+            
+            # Add collections used in the scene
+            for collection in current_scene.collection.children_recursive:
+                data_blocks.add(collection)
+            if current_scene.collection:
+                data_blocks.add(current_scene.collection)
+            
+            # Add world data
+            if current_scene.world:
+                data_blocks.add(current_scene.world)
+                if current_scene.world.use_nodes and current_scene.world.node_tree:
+                    data_blocks.add(current_scene.world.node_tree)
+            
+            # Add camera and other scene-linked objects
+            if current_scene.camera:
+                data_blocks.add(current_scene.camera)
+                if current_scene.camera.data:
+                    data_blocks.add(current_scene.camera.data)
+            
+            # Write the data blocks to the snapshot file
+            # bpy.data.libraries.write() expects a set, not a list
+            bpy.data.libraries.write(str(snapshot_path), data_blocks, fake_user=False)
+            
         except Exception as e:
-            self.report({'ERROR'}, f"Failed to save snapshot: {e}")
+            self.report({'ERROR'}, f"Failed to write snapshot using bpy.data.libraries.write(): {e}")
             return {'CANCELLED'}
 
         # Record commit in in-memory history (UI list)
