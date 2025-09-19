@@ -363,7 +363,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
         
         # 3. Strategic vertex sampling (much faster than full iteration)
         vertex_count = len(mesh.vertices)
-        sample_size = min(1000, vertex_count // 10)  # Sample 10% or max 1000 vertices
+        sample_size = min(500, vertex_count // 20)  # Sample 5% or max 500 vertices
         
         if sample_size > 0:
             # Use deterministic sampling based on mesh structure for consistency
