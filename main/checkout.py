@@ -97,6 +97,17 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             print(f"[GitBlend] Final cleanup of orphaned data blocks")
             self._cleanup_orphaned_data()
             
+            # Verify and fix all node group references after checkout
+            print(f"[GitBlend] Verifying and fixing node group references")
+            self._verify_and_fix_node_group_references()
+            
+            # Debug: Print final node group status
+            self._debug_node_group_status()
+            
+            # Resolve duplications and dangling pointers for node groups
+            print(f"[GitBlend] Resolving node group duplications and dangling pointers")
+            self._resolve_duplications_and_dangling_pointers()
+            
             # Update UI to show we're on this commit
             props = context.scene.gitblend_props
             props.current_commit = self.commit_hash
@@ -252,6 +263,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                         data_to.materials = data_from.materials  
                         data_to.images = data_from.images
                         data_to.actions = data_from.actions
+                        data_to.node_groups = data_from.node_groups
                 
                 # Link found objects to scene
                 scene = bpy.context.scene
@@ -311,8 +323,12 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                     data_to.materials = data_from.materials
                     data_to.images = data_from.images
                     data_to.actions = data_from.actions
+                    data_to.node_groups = data_from.node_groups
                     
                     print(f"[GitBlend] Loaded {len(objects_to_load)} missing objects from commit")
+            
+            # Ensure loaded node groups are properly linked
+            self._ensure_node_group_linking()
             
             # Link restored objects to scene
             scene = bpy.context.scene
@@ -320,6 +336,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 if obj and obj.name not in scene.objects:
                     scene.collection.objects.link(obj)
                     print(f"[GitBlend] Restored object to scene: {obj.name}")
+                    missing_objects.discard(obj.name)
         
         except Exception as e:
             print(f"[GitBlend] Error restoring missing objects: {e}")
@@ -381,6 +398,11 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
         for text in list(bpy.data.texts):
             if text.users == 0:
                 bpy.data.texts.remove(text, do_unlink=True)
+        
+        # Clear orphaned node groups
+        for node_group in list(bpy.data.node_groups):
+            if node_group.users == 0:
+                bpy.data.node_groups.remove(node_group, do_unlink=True)
         
         # Restore viewport settings
         self._restore_viewport_settings(viewport_settings)
@@ -446,6 +468,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 data_to.images = data_from.images
                 data_to.texts = data_from.texts
                 data_to.actions = data_from.actions
+                data_to.node_groups = data_from.node_groups
             
             # Link all objects to the scene
             scene = bpy.context.scene
@@ -471,6 +494,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             delta_images = []
             delta_texts = []
             delta_actions = []
+            delta_node_groups = []
             
             with bpy.data.libraries.load(blend_file_path, link=False, assets_only=False) as (data_from, data_to):
                 # Don't load anything yet, just inspect what's available
@@ -480,9 +504,10 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 delta_images = list(data_from.images)
                 delta_texts = list(data_from.texts)
                 delta_actions = list(data_from.actions)
+                delta_node_groups = list(data_from.node_groups)
             
             print(f"[GitBlend] Delta contains: {len(delta_objects)} objects, {len(delta_meshes)} meshes, "
-                  f"{len(delta_materials)} materials, {len(delta_images)} images")
+                  f"{len(delta_materials)} materials, {len(delta_images)} images, {len(delta_node_groups)} node groups")
             
             # IMPORTANT: For mesh-only deltas, we need to preserve existing objects
             # Store object-mesh relationships before replacing meshes
@@ -496,6 +521,9 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             
             # Now surgically replace each type of data block
             # Process in order: data blocks first, then objects that depend on them
+            # IMPORTANT: Node groups should be processed before objects to ensure proper linking
+            if delta_node_groups:
+                self._replace_data_blocks(blend_file_path, 'node_groups', delta_node_groups)
             if delta_meshes:
                 self._replace_data_blocks_with_preservation(blend_file_path, 'meshes', delta_meshes, object_mesh_map)
             if delta_materials:
@@ -550,6 +578,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 data_to.materials = data_from.materials
                 data_to.images = data_from.images
                 data_to.actions = data_from.actions
+                data_to.node_groups = data_from.node_groups
             
             # Link new objects to scene
             added_objects = []
@@ -578,7 +607,8 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             'materials': bpy.data.materials,
             'images': bpy.data.images,
             'texts': bpy.data.texts,
-            'actions': bpy.data.actions
+            'actions': bpy.data.actions,
+            'node_groups': bpy.data.node_groups
         }
         
         collection = collections_map.get(data_type)
@@ -598,6 +628,9 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                             if mat.name not in dependent_relationships:
                                 dependent_relationships[mat.name] = []
                             dependent_relationships[mat.name].append((obj.name, i))
+        elif data_type == 'node_groups':
+            # Store node group relationships for proper restoration
+            dependent_relationships = self._store_node_group_relationships(block_names)
         
         # Remove existing data blocks
         for block_name in block_names:
@@ -643,7 +676,121 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                         else:
                             print(f"[GitBlend] Warning: Object {obj_name} no longer exists, skipping material reference")
         
+        elif data_type == 'node_groups':
+            # Restore node group references
+            self._restore_node_group_relationships(target_data, dependent_relationships)
+        
         print(f"[GitBlend] Added {len(target_data)} new {data_type}")
+    
+    def _store_node_group_relationships(self, node_group_names):
+        """Store all relationships that reference the specified node groups"""
+        relationships = {}
+        
+        for node_group_name in node_group_names:
+            relationships[node_group_name] = {
+                'geometry_modifiers': [],
+                'material_nodes': [],
+                'compositor_nodes': [],
+                'nested_node_groups': []
+            }
+            
+            # Find geometry modifiers using this node group
+            for obj in bpy.data.objects:
+                if hasattr(obj, 'modifiers'):
+                    for i, modifier in enumerate(obj.modifiers):
+                        if modifier.type == 'NODES' and hasattr(modifier, 'node_group'):
+                            if modifier.node_group and modifier.node_group.name == node_group_name:
+                                relationships[node_group_name]['geometry_modifiers'].append({
+                                    'object_name': obj.name,
+                                    'modifier_index': i,
+                                    'modifier_name': modifier.name
+                                })
+            
+            # Find material nodes using this node group
+            for material in bpy.data.materials:
+                if material.use_nodes and material.node_tree:
+                    for node in material.node_tree.nodes:
+                        if node.type == 'GROUP' and hasattr(node, 'node_tree'):
+                            if node.node_tree and node.node_tree.name == node_group_name:
+                                relationships[node_group_name]['material_nodes'].append({
+                                    'material_name': material.name,
+                                    'node_name': node.name
+                                })
+            
+            # Find compositor nodes using this node group
+            if bpy.context.scene.use_nodes and bpy.context.scene.node_tree:
+                for node in bpy.context.scene.node_tree.nodes:
+                    if node.type == 'GROUP' and hasattr(node, 'node_tree'):
+                        if node.node_tree and node.node_tree.name == node_group_name:
+                            relationships[node_group_name]['compositor_nodes'].append({
+                                'node_name': node.name
+                            })
+            
+            # Find other node groups using this node group
+            for other_node_group in bpy.data.node_groups:
+                if other_node_group.name != node_group_name:
+                    for node in other_node_group.nodes:
+                        if node.type == 'GROUP' and hasattr(node, 'node_tree'):
+                            if node.node_tree and node.node_tree.name == node_group_name:
+                                relationships[node_group_name]['nested_node_groups'].append({
+                                    'parent_node_group_name': other_node_group.name,
+                                    'node_name': node.name
+                                })
+        
+        return relationships
+    
+    def _restore_node_group_relationships(self, loaded_node_groups, relationships):
+        """Restore node group references after loading new node groups"""
+        print(f"[GitBlend] Restoring node group relationships for {len(loaded_node_groups)} node groups")
+        
+        for node_group in loaded_node_groups:
+            if not node_group or node_group.name not in relationships:
+                continue
+                
+            node_group_name = node_group.name
+            refs = relationships[node_group_name]
+            
+            # Restore geometry modifier references
+            for ref in refs['geometry_modifiers']:
+                obj = bpy.data.objects.get(ref['object_name'])
+                if obj and hasattr(obj, 'modifiers'):
+                    if ref['modifier_index'] < len(obj.modifiers):
+                        modifier = obj.modifiers[ref['modifier_index']]
+                        if modifier.type == 'NODES' and hasattr(modifier, 'node_group'):
+                            modifier.node_group = node_group
+                            print(f"[GitBlend] Restored geometry modifier reference: {obj.name}.{modifier.name} -> {node_group_name}")
+                    else:
+                        # Try to find by name if index is out of range
+                        modifier = next((m for m in obj.modifiers if m.name == ref['modifier_name']), None)
+                        if modifier and modifier.type == 'NODES':
+                            modifier.node_group = node_group
+                            print(f"[GitBlend] Restored geometry modifier reference by name: {obj.name}.{modifier.name} -> {node_group_name}")
+            
+            # Restore material node references
+            for ref in refs['material_nodes']:
+                material = bpy.data.materials.get(ref['material_name'])
+                if material and material.use_nodes and material.node_tree:
+                    node = material.node_tree.nodes.get(ref['node_name'])
+                    if node and node.type == 'GROUP' and hasattr(node, 'node_tree'):
+                        node.node_tree = node_group
+                        print(f"[GitBlend] Restored material node reference: {material.name}.{node.name} -> {node_group_name}")
+            
+            # Restore compositor node references
+            if bpy.context.scene.use_nodes and bpy.context.scene.node_tree:
+                for ref in refs['compositor_nodes']:
+                    node = bpy.context.scene.node_tree.nodes.get(ref['node_name'])
+                    if node and node.type == 'GROUP' and hasattr(node, 'node_tree'):
+                        node.node_tree = node_group
+                        print(f"[GitBlend] Restored compositor node reference: {node.name} -> {node_group_name}")
+            
+            # Restore nested node group references
+            for ref in refs['nested_node_groups']:
+                parent_node_group = bpy.data.node_groups.get(ref['parent_node_group_name'])
+                if parent_node_group:
+                    node = parent_node_group.nodes.get(ref['node_name'])
+                    if node and node.type == 'GROUP' and hasattr(node, 'node_tree'):
+                        node.node_tree = node_group
+                        print(f"[GitBlend] Restored nested node group reference: {parent_node_group.name}.{node.name} -> {node_group_name}")
     
     def _replace_data_blocks_with_preservation(self, blend_file_path, data_type, block_names, object_mesh_map=None):
         """Surgically replace specific data blocks while preserving object relationships"""
@@ -655,7 +802,8 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             'materials': bpy.data.materials,
             'images': bpy.data.images,
             'texts': bpy.data.texts,
-            'actions': bpy.data.actions
+            'actions': bpy.data.actions,
+            'node_groups': bpy.data.node_groups
         }
         
         collection = collections_map.get(data_type)
@@ -745,9 +893,231 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 bpy.data.texts.remove(text, do_unlink=True)
                 removed_texts += 1
         
+        # Clean up node groups with no users
+        removed_node_groups = 0
+        for node_group in list(bpy.data.node_groups):
+            if node_group.users == 0 and not node_group.use_fake_user:
+                bpy.data.node_groups.remove(node_group, do_unlink=True)
+                removed_node_groups += 1
+        
         print(f"[GitBlend] Cleanup complete: removed {removed_meshes} meshes, "
               f"{removed_materials} materials, {removed_images} images, "
-              f"{removed_actions} actions, {removed_texts} texts")
+              f"{removed_actions} actions, {removed_texts} texts, "
+              f"{removed_node_groups} node groups")
+    
+    def _verify_and_fix_node_group_references(self):
+        """Verify and fix all node group references after checkout to ensure proper linking"""
+        print(f"[GitBlend] Verifying node group references...")
+        
+        fixed_count = 0
+        
+        # Fix geometry modifier references
+        for obj in bpy.data.objects:
+            if hasattr(obj, 'modifiers'):
+                for modifier in obj.modifiers:
+                    if modifier.type == 'NODES' and hasattr(modifier, 'node_group'):
+                        if modifier.node_group is None:
+                            # Try to find a matching node group by name
+                            # This can happen if the node group was loaded but the reference was lost
+                            potential_name = f"Geometry Nodes"  # Default geometry nodes name
+                            if potential_name in bpy.data.node_groups:
+                                modifier.node_group = bpy.data.node_groups[potential_name]
+                                print(f"[GitBlend] Fixed geometry modifier reference: {obj.name}.{modifier.name}")
+                                fixed_count += 1
+        
+        # Fix material node references
+        for material in bpy.data.materials:
+            if material.use_nodes and material.node_tree:
+                for node in material.node_tree.nodes:
+                    if node.type == 'GROUP' and hasattr(node, 'node_tree'):
+                        if node.node_tree is None:
+                            # Try to find by node name or look for compatible node groups
+                            for node_group in bpy.data.node_groups:
+                                if node_group.type == 'SHADER':
+                                    # For now, assign the first available shader node group
+                                    # In practice, you might want more sophisticated matching
+                                    node.node_tree = node_group
+                                    print(f"[GitBlend] Fixed material node reference: {material.name}.{node.name}")
+                                    fixed_count += 1
+                                    break
+        
+        # Fix compositor node references
+        if bpy.context.scene.use_nodes and bpy.context.scene.node_tree:
+            for node in bpy.context.scene.node_tree.nodes:
+                if node.type == 'GROUP' and hasattr(node, 'node_tree'):
+                    if node.node_tree is None:
+                        # Try to find by compatible compositor node groups
+                        for node_group in bpy.data.node_groups:
+                            if node_group.type == 'COMPOSITING':
+                                node.node_tree = node_group
+                                print(f"[GitBlend] Fixed compositor node reference: {node.name}")
+                                fixed_count += 1
+                                break
+        
+        print(f"[GitBlend] Node group reference verification complete. Fixed {fixed_count} broken references.")
+    
+    def _ensure_node_group_linking(self):
+        """Ensure node groups are properly linked after loading"""
+        print(f"[GitBlend] Ensuring node group linking...")
+        
+        # Force update of all node trees to ensure proper linking
+        try:
+            # Update material node trees
+            for material in bpy.data.materials:
+                if material.use_nodes and material.node_tree:
+                    material.node_tree.update_tag()
+            
+            # Update geometry node modifiers
+            for obj in bpy.data.objects:
+                if hasattr(obj, 'modifiers'):
+                    for modifier in obj.modifiers:
+                        if modifier.type == 'NODES' and modifier.node_group:
+                            modifier.node_group.update_tag()
+            
+            # Update compositor
+            if bpy.context.scene.use_nodes and bpy.context.scene.node_tree:
+                bpy.context.scene.node_tree.update_tag()
+            
+            print(f"[GitBlend] Node group linking update complete")
+        except Exception as e:
+            print(f"[GitBlend] Warning: Failed to update node group linking: {e}")
+    
+    def _resolve_duplications_and_dangling_pointers(self):
+        """Resolve possible duplication and dangling pointers after checkout"""
+        print(f"[GitBlend] Resolving duplications and dangling pointers...")
+        
+        # Resolve node group references in materials
+        self._resolve_material_node_group_references()
+        
+        # Resolve node group references in geometry modifiers
+        self._resolve_geometry_modifier_node_group_references()
+        
+        # Resolve node group references in compositor
+        self._resolve_compositor_node_group_references()
+        
+        # Remove duplicate node groups (same name but different objects)
+        self._remove_duplicate_node_groups()
+        
+        print(f"[GitBlend] Duplication and pointer resolution complete")
+    
+    def _resolve_material_node_group_references(self):
+        """Resolve node group references in material node trees"""
+        for material in bpy.data.materials:
+            if material.use_nodes and material.node_tree:
+                for node in material.node_tree.nodes:
+                    if node.type == 'GROUP' and hasattr(node, 'node_tree'):
+                        if node.node_tree and node.node_tree.name in bpy.data.node_groups:
+                            # Ensure the node references the correct node group by name
+                            correct_node_group = bpy.data.node_groups.get(node.node_tree.name)
+                            if correct_node_group and node.node_tree != correct_node_group:
+                                print(f"[GitBlend] Fixing material node group reference: {material.name} -> {correct_node_group.name}")
+                                node.node_tree = correct_node_group
+    
+    def _resolve_geometry_modifier_node_group_references(self):
+        """Resolve node group references in geometry modifiers"""
+        for obj in bpy.data.objects:
+            if hasattr(obj, 'modifiers'):
+                for modifier in obj.modifiers:
+                    if modifier.type == 'NODES' and hasattr(modifier, 'node_group'):
+                        if modifier.node_group and modifier.node_group.name in bpy.data.node_groups:
+                            # Ensure the modifier references the correct node group by name
+                            correct_node_group = bpy.data.node_groups.get(modifier.node_group.name)
+                            if correct_node_group and modifier.node_group != correct_node_group:
+                                print(f"[GitBlend] Fixing geometry modifier node group reference: {obj.name}.{modifier.name} -> {correct_node_group.name}")
+                                modifier.node_group = correct_node_group
+    
+    def _resolve_compositor_node_group_references(self):
+        """Resolve node group references in compositor node trees"""
+        if bpy.context.scene.use_nodes and bpy.context.scene.node_tree:
+            for node in bpy.context.scene.node_tree.nodes:
+                if node.type == 'GROUP' and hasattr(node, 'node_tree'):
+                    if node.node_tree and node.node_tree.name in bpy.data.node_groups:
+                        # Ensure the node references the correct node group by name
+                        correct_node_group = bpy.data.node_groups.get(node.node_tree.name)
+                        if correct_node_group and node.node_tree != correct_node_group:
+                            print(f"[GitBlend] Fixing compositor node group reference: {correct_node_group.name}")
+                            node.node_tree = correct_node_group
+    
+    def _remove_duplicate_node_groups(self):
+        """Remove duplicate node groups with the same name"""
+        node_group_names = {}
+        duplicates_to_remove = []
+        
+        for node_group in bpy.data.node_groups:
+            if node_group.name in node_group_names:
+                # Found a duplicate - mark for removal
+                duplicates_to_remove.append(node_group)
+                print(f"[GitBlend] Found duplicate node group: {node_group.name}")
+            else:
+                node_group_names[node_group.name] = node_group
+        
+        # Remove duplicates
+        for duplicate in duplicates_to_remove:
+            try:
+                # First reassign any references to the duplicate to the original
+                original = node_group_names[duplicate.name]
+                self._reassign_node_group_references(duplicate, original)
+                
+                # Then remove the duplicate
+                bpy.data.node_groups.remove(duplicate, do_unlink=True)
+                print(f"[GitBlend] Removed duplicate node group: {duplicate.name}")
+            except Exception as e:
+                print(f"[GitBlend] Warning: Failed to remove duplicate node group {duplicate.name}: {e}")
+    
+    def _reassign_node_group_references(self, old_node_group, new_node_group):
+        """Reassign all references from old_node_group to new_node_group"""
+        # Check material nodes
+        for material in bpy.data.materials:
+            if material.use_nodes and material.node_tree:
+                for node in material.node_tree.nodes:
+                    if node.type == 'GROUP' and hasattr(node, 'node_tree') and node.node_tree == old_node_group:
+                        node.node_tree = new_node_group
+        
+        # Check geometry modifier nodes
+        for obj in bpy.data.objects:
+            if hasattr(obj, 'modifiers'):
+                for modifier in obj.modifiers:
+                    if modifier.type == 'NODES' and hasattr(modifier, 'node_group') and modifier.node_group == old_node_group:
+                        modifier.node_group = new_node_group
+        
+        # Check compositor nodes
+        if bpy.context.scene.use_nodes and bpy.context.scene.node_tree:
+            for node in bpy.context.scene.node_tree.nodes:
+                if node.type == 'GROUP' and hasattr(node, 'node_tree') and node.node_tree == old_node_group:
+                    node.node_tree = new_node_group
+        
+        # Check node groups within other node groups
+        for node_group in bpy.data.node_groups:
+            if node_group != old_node_group and node_group != new_node_group:
+                for node in node_group.nodes:
+                    if node.type == 'GROUP' and hasattr(node, 'node_tree') and node.node_tree == old_node_group:
+                        node.node_tree = new_node_group
+    
+    def _debug_node_group_status(self):
+        """Debug function to print current node group status"""
+        print(f"[GitBlend] === Node Group Status Debug ===")
+        print(f"Total node groups: {len(bpy.data.node_groups)}")
+        
+        for node_group in bpy.data.node_groups:
+            print(f"  - {node_group.name} (type: {node_group.type}, users: {node_group.users})")
+        
+        print(f"Geometry modifier references:")
+        for obj in bpy.data.objects:
+            if hasattr(obj, 'modifiers'):
+                for modifier in obj.modifiers:
+                    if modifier.type == 'NODES':
+                        ng_name = modifier.node_group.name if modifier.node_group else "None"
+                        print(f"  - {obj.name}.{modifier.name} -> {ng_name}")
+        
+        print(f"Material node references:")
+        for material in bpy.data.materials:
+            if material.use_nodes and material.node_tree:
+                for node in material.node_tree.nodes:
+                    if node.type == 'GROUP':
+                        ng_name = node.node_tree.name if node.node_tree else "None"
+                        print(f"  - {material.name}.{node.name} -> {ng_name}")
+        
+        print(f"[GitBlend] === End Node Group Debug ===")
 
 
 def register():

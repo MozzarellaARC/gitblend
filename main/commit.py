@@ -139,7 +139,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 "materials": current_counts.get("materials", 0),
                 "images": current_counts.get("images", 0),
                 "texts": current_counts.get("texts", 0),
-                "actions": current_counts.get("actions", 0)
+                "actions": current_counts.get("actions", 0),
+                "node_groups": current_counts.get("node_groups", 0)
             }
             # For first commit, export everything
             all_data_blocks = self._get_all_data_blocks()
@@ -187,7 +188,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             "materials": {},
             "images": {},
             "texts": {},
-            "actions": {}
+            "actions": {},
+            "node_groups": {}  # For geometry nodes, shader nodes, and compositor nodes
         }
         
         # Objects signature
@@ -265,6 +267,18 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 "fcurves_count": len(action.fcurves) if hasattr(action, 'fcurves') else 0
             }
             signature["actions"][action.name] = action_sig
+        
+        # Node Groups signature (geometry nodes, shader nodes, compositor nodes)
+        for node_group in bpy.data.node_groups:
+            node_sig = {
+                "name": node_group.name,
+                "type": node_group.type if hasattr(node_group, 'type') else "Unknown",
+                "nodes_count": len(node_group.nodes) if hasattr(node_group, 'nodes') else 0,
+                "links_count": len(node_group.links) if hasattr(node_group, 'links') else 0,
+                "inputs_count": len(node_group.inputs) if hasattr(node_group, 'inputs') else 0,
+                "outputs_count": len(node_group.outputs) if hasattr(node_group, 'outputs') else 0
+            }
+            signature["node_groups"][node_group.name] = node_sig
         
         return signature
     
@@ -574,10 +588,11 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             'materials': bpy.data.materials,
             'images': bpy.data.images,
             'texts': bpy.data.texts,
-            'actions': bpy.data.actions
+            'actions': bpy.data.actions,
+            'node_groups': bpy.data.node_groups
         }
         
-        for data_type in ["objects", "meshes", "materials", "images", "texts", "actions"]:
+        for data_type in ["objects", "meshes", "materials", "images", "texts", "actions", "node_groups"]:
             current_items = current_sig.get(data_type, {})
             previous_items = previous_sig.get(data_type, {})
             collection = data_collections[data_type]
@@ -638,7 +653,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             'materials': bpy.data.materials,
             'images': bpy.data.images,
             'texts': bpy.data.texts,
-            'actions': bpy.data.actions
+            'actions': bpy.data.actions,
+            'node_groups': bpy.data.node_groups
         }
         
         for collection_name, collection in data_collections.items():
@@ -718,6 +734,25 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 if data_block.animation_data.action:
                     data_blocks_to_write.add(data_block.animation_data.action)
             
+            # Node group dependencies
+            if hasattr(data_block, 'node_tree') and data_block.node_tree:
+                # Add the node tree itself (for objects with modifiers that use node groups)
+                data_blocks_to_write.add(data_block.node_tree)
+                
+                # Add node group dependencies from nodes within the tree
+                for node in data_block.node_tree.nodes:
+                    if hasattr(node, 'node_tree') and node.node_tree:
+                        # Node group node references another node group
+                        data_blocks_to_write.add(node.node_tree)
+                        add_block_dependencies(node.node_tree)
+            
+            # For node groups themselves, add their internal node group dependencies
+            if hasattr(data_block, 'nodes'):
+                for node in data_block.nodes:
+                    if hasattr(node, 'node_tree') and node.node_tree:
+                        data_blocks_to_write.add(node.node_tree)
+                        add_block_dependencies(node.node_tree)
+            
             # Modifier dependencies
             if hasattr(data_block, 'modifiers'):
                 for mod in data_block.modifiers:
@@ -779,7 +814,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             "materials": len(bpy.data.materials),
             "images": len(bpy.data.images),
             "texts": len(bpy.data.texts),
-            "actions": len(bpy.data.actions)
+            "actions": len(bpy.data.actions),
+            "node_groups": len(bpy.data.node_groups)
         }
     
     def _get_previous_data_block_counts(self, previous_blend_path):
@@ -812,7 +848,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             'materials': bpy.data.materials,
             'images': bpy.data.images,
             'texts': bpy.data.texts,
-            'actions': bpy.data.actions
+            'actions': bpy.data.actions,
+            'node_groups': bpy.data.node_groups
         }
         
         # Collect all data blocks to write
