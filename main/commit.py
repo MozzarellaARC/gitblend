@@ -9,14 +9,20 @@ from pathlib import Path
 
 
 class GITBLEND_OT_Commit(bpy.types.Operator):
+    """Git Blend Commit Operator - Save current changes to version control"""
+    
     bl_idname = "gitblend.commit"
     bl_label = "Commit Changes"
     bl_description = "Commit current changes to git blend repository"
     bl_options = {'REGISTER', 'UNDO'}
     
+    # ============================================================================
+    # MAIN EXECUTION METHODS
+    # ============================================================================
+    
     @classmethod
     def poll(cls, context):
-        # Can only commit if blend file is saved and gitblend is initialized
+        """Check if commit operation is possible"""
         if not bpy.data.filepath:
             return False
         
@@ -27,106 +33,159 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
         return gitblend_dir.exists()
     
     def execute(self, context):
+        """Main execution method for commit operation"""
+        # Setup paths
         blend_path = Path(bpy.data.filepath).resolve()
         project_dir = blend_path.parent
         gitblend_dir = project_dir / ".gitblend"
         metadata_file = gitblend_dir / "commits.json"
         
-        # Validate .gitblend exists
-        if not gitblend_dir.exists():
-            self.report({'ERROR'}, "Git Blend not initialized. Run initialize first.")
+        # Validate prerequisites
+        if not self._validate_commit_prerequisites(gitblend_dir):
             return {'CANCELLED'}
         
         try:
             # Load existing metadata
-            metadata = {}
-            if metadata_file.exists():
-                with metadata_file.open('r') as f:
-                    metadata = json.load(f)
+            metadata = self._load_existing_metadata(metadata_file)
             
-            # Get commit message from UI
-            props = context.scene.gitblend_props
-            commit_message = props.commit_message.strip()
-            
+            # Get and validate commit message
+            commit_message = self._get_and_validate_commit_message(context)
             if not commit_message:
-                self.report({'ERROR'}, "Commit message is required")
                 return {'CANCELLED'}
             
-            # Get parent commit hash (latest commit)
-            parent_hash = None
-            commits = metadata.get('commits', [])
-            if commits:
-                parent_hash = commits[-1]['hash']
+            # Get parent commit information
+            parent_hash = self._get_parent_commit_hash(metadata)
             
-            # Detect changes before generating commit
+            # Detect changes and generate deltas
             changes_detected, change_summary, changed_data_blocks = self._detect_changes_and_deltas(gitblend_dir, parent_hash)
-            
             if not changes_detected:
                 self.report({'INFO'}, "No changes detected - nothing to commit")
                 return {'CANCELLED'}
             
-            # Generate new commit data
-            timestamp = datetime.now().isoformat()
-            current_time = int(time.time())
+            # Generate commit data
+            timestamp, current_time, new_commit_hash = self._generate_commit_data(commit_message, parent_hash)
             
-            # Generate new commit hash
-            new_commit_hash = self._generate_commit_hash(current_time, commit_message, parent_hash)
+            # Export changed data blocks
+            self._export_commit_data(gitblend_dir, new_commit_hash, changed_data_blocks)
             
-            # Export only the changed data blocks (delta export)
-            final_blend_path = gitblend_dir / f"{new_commit_hash}.blend"
-            self._export_delta_data_blocks(str(final_blend_path), changed_data_blocks)
-            
-            # Save signature file for this commit
-            signature_file = gitblend_dir / f"{new_commit_hash}_signature.json"
-            current_signature = self._generate_data_signature()
-            with signature_file.open('w') as f:
-                json.dump(current_signature, f, indent=2)
-            
-            # Clean up temporary signature file if it exists
-            temp_signature_file = gitblend_dir / "temp_current_signature.json"
-            if temp_signature_file.exists():
-                temp_signature_file.unlink()
-            
-            # Create new commit metadata with change summary and delta info
-            changed_block_names = [block.name for block in changed_data_blocks]
-            new_commit = {
-                "hash": new_commit_hash,
-                "timestamp": timestamp,
-                "message": commit_message,
-                "parent": parent_hash,
-                "changes": change_summary,
-                "delta_export": True,
-                "changed_blocks": changed_block_names[:50]  # Limit to first 50 for metadata size
-            }
+            # Save commit signature
+            self._save_commit_signature(gitblend_dir, new_commit_hash)
             
             # Update metadata
-            if 'commits' not in metadata:
-                metadata['commits'] = []
-            if 'version' not in metadata:
-                metadata['version'] = 1
+            self._update_commit_metadata(metadata_file, metadata, new_commit_hash, timestamp, 
+                                       commit_message, parent_hash, change_summary, changed_data_blocks)
             
-            metadata['commits'].append(new_commit)
+            # Post-commit tasks
+            self._perform_post_commit_tasks(context, new_commit_hash, change_summary, changed_data_blocks)
             
-            # Save updated metadata
-            with metadata_file.open('w') as f:
-                json.dump(metadata, f, indent=2)
-            
-            # Ensure initialized property is set to True
-            props.initialized = True
-            
-            # Refresh UI
-            from .initialize import populate_ui_from_metadata
-            populate_ui_from_metadata(context)
-            
-            # Report with change summary and delta info
-            changes_text = ", ".join([f"{count} {type_name}" for type_name, count in change_summary.items() if count > 0])
-            blocks_exported = len(changed_data_blocks)
-            self.report({'INFO'}, f"Committed: {new_commit_hash[:8]} - {changes_text} ({blocks_exported} blocks exported)")
             return {'FINISHED'}
             
         except Exception as e:
             self.report({'ERROR'}, f"Failed to commit: {str(e)}")
             return {'CANCELLED'}
+    
+    def _validate_commit_prerequisites(self, gitblend_dir):
+        """Validate that commit operation can proceed"""
+        if not gitblend_dir.exists():
+            self.report({'ERROR'}, "Git Blend not initialized. Run initialize first.")
+            return False
+        return True
+    
+    def _load_existing_metadata(self, metadata_file):
+        """Load existing commit metadata"""
+        metadata = {}
+        if metadata_file.exists():
+            with metadata_file.open('r') as f:
+                metadata = json.load(f)
+        return metadata
+    
+    def _get_and_validate_commit_message(self, context):
+        """Get commit message from UI and validate it"""
+        props = context.scene.gitblend_props
+        commit_message = props.commit_message.strip()
+        
+        if not commit_message:
+            self.report({'ERROR'}, "Commit message is required")
+            return None
+        
+        return commit_message
+    
+    def _get_parent_commit_hash(self, metadata):
+        """Get the parent commit hash (latest commit)"""
+        commits = metadata.get('commits', [])
+        return commits[-1]['hash'] if commits else None
+    
+    def _generate_commit_data(self, commit_message, parent_hash):
+        """Generate timestamp and commit hash"""
+        timestamp = datetime.now().isoformat()
+        current_time = int(time.time())
+        new_commit_hash = self._generate_commit_hash(current_time, commit_message, parent_hash)
+        return timestamp, current_time, new_commit_hash
+    
+    def _export_commit_data(self, gitblend_dir, commit_hash, changed_data_blocks):
+        """Export the changed data blocks for this commit"""
+        final_blend_path = gitblend_dir / f"{commit_hash}.blend"
+        self._export_delta_data_blocks(str(final_blend_path), changed_data_blocks)
+    
+    def _save_commit_signature(self, gitblend_dir, commit_hash):
+        """Save the current data signature for this commit"""
+        signature_file = gitblend_dir / f"{commit_hash}_signature.json"
+        current_signature = self._generate_data_signature()
+        with signature_file.open('w') as f:
+            json.dump(current_signature, f, indent=2)
+        
+        # Clean up temporary signature file if it exists
+        temp_signature_file = gitblend_dir / "temp_current_signature.json"
+        if temp_signature_file.exists():
+            temp_signature_file.unlink()
+    
+    def _update_commit_metadata(self, metadata_file, metadata, commit_hash, timestamp, 
+                               commit_message, parent_hash, change_summary, changed_data_blocks):
+        """Update and save the commit metadata"""
+        # Limit changed block names for metadata size
+        changed_block_names = [block.name for block in changed_data_blocks]
+        
+        # Create new commit metadata with change summary and delta info
+        new_commit = {
+            "hash": commit_hash,
+            "timestamp": timestamp,
+            "message": commit_message,
+            "parent": parent_hash,
+            "changes": change_summary,
+            "delta_export": True,
+            "changed_blocks": changed_block_names[:50]  # Limit to first 50 for metadata size
+        }
+        
+        # Update metadata structure
+        if 'commits' not in metadata:
+            metadata['commits'] = []
+        if 'version' not in metadata:
+            metadata['version'] = 1
+        
+        metadata['commits'].append(new_commit)
+        
+        # Save updated metadata
+        with metadata_file.open('w') as f:
+            json.dump(metadata, f, indent=2)
+    
+    def _perform_post_commit_tasks(self, context, commit_hash, change_summary, changed_data_blocks):
+        """Handle post-commit UI updates and reporting"""
+        # Ensure initialized property is set to True
+        props = context.scene.gitblend_props
+        props.initialized = True
+        
+        # Refresh UI
+        from .initialize import populate_ui_from_metadata
+        populate_ui_from_metadata(context)
+        
+        # Report success with change summary and delta info
+        changes_text = ", ".join([f"{count} {type_name}" for type_name, count in change_summary.items() if count > 0])
+        blocks_exported = len(changed_data_blocks)
+        self.report({'INFO'}, f"Committed: {commit_hash[:8]} - {changes_text} ({blocks_exported} blocks exported)")
+    
+    # ============================================================================
+    # CHANGE DETECTION AND ANALYSIS
+    # ============================================================================
     
     def _detect_changes_and_deltas(self, gitblend_dir, parent_hash):
         """Detect changes and return specific changed data blocks for delta export"""
@@ -139,8 +198,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 "materials": current_counts.get("materials", 0),
                 "images": current_counts.get("images", 0),
                 "texts": current_counts.get("texts", 0),
-                "actions": current_counts.get("actions", 0),
-                "node_groups": current_counts.get("node_groups", 0)
+                "actions": current_counts.get("actions", 0)
             }
             # For first commit, export everything
             all_data_blocks = self._get_all_data_blocks()
@@ -159,15 +217,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
         current_signature = self._generate_data_signature()
         
         # Load previous signature if available
-        previous_signature_file = gitblend_dir / f"{parent_hash}_signature.json"
-        previous_signature = {}
-        
-        if previous_signature_file.exists():
-            try:
-                with previous_signature_file.open('r') as f:
-                    previous_signature = json.load(f)
-            except Exception:
-                pass
+        previous_signature = self._load_previous_signature(gitblend_dir, parent_hash)
         
         # Compare signatures to detect specific changes
         changes_detected, change_summary, changed_data_blocks = self._compare_signatures_and_get_deltas(current_signature, previous_signature)
@@ -180,6 +230,90 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
         
         return changes_detected, change_summary, changed_data_blocks
     
+    def _load_previous_signature(self, gitblend_dir, parent_hash):
+        """Load the signature from the previous commit"""
+        previous_signature_file = gitblend_dir / f"{parent_hash}_signature.json"
+        previous_signature = {}
+        
+        if previous_signature_file.exists():
+            try:
+                with previous_signature_file.open('r') as f:
+                    previous_signature = json.load(f)
+            except Exception:
+                pass
+        
+        return previous_signature
+    
+    def _compare_signatures_and_get_deltas(self, current_sig, previous_sig):
+        """Compare two data signatures and return changes detected plus specific changed data blocks"""
+        changes = {}
+        has_changes = False
+        changed_data_blocks = set()
+        
+        # Define data block collections mapping
+        data_collections = {
+            'objects': bpy.data.objects,
+            'meshes': bpy.data.meshes,
+            'materials': bpy.data.materials,
+            'images': bpy.data.images,
+            'texts': bpy.data.texts,
+            'actions': bpy.data.actions
+        }
+        
+        for data_type in ["objects", "meshes", "materials", "images", "texts", "actions"]:
+            current_items = current_sig.get(data_type, {})
+            previous_items = previous_sig.get(data_type, {})
+            collection = data_collections[data_type]
+            
+            # Find additions, removals, and modifications
+            added = set(current_items.keys()) - set(previous_items.keys())
+            removed = set(previous_items.keys()) - set(current_items.keys())
+            common = set(current_items.keys()) & set(previous_items.keys())
+            
+            # Check for modifications in common items
+            modified = set()
+            for item_name in common:
+                if current_items[item_name] != previous_items[item_name]:
+                    modified.add(item_name)
+            
+            # Add specific changed data blocks to the set
+            for item_name in added | modified:
+                # Find the actual data block object
+                data_block = collection.get(item_name)
+                if data_block:
+                    changed_data_blocks.add(data_block)
+            
+            # Note: We don't export removed items since they don't exist anymore
+            
+            type_changes = len(added) + len(removed) + len(modified)
+            if type_changes > 0:
+                has_changes = True
+                changes[data_type] = {
+                    "added": len(added),
+                    "removed": len(removed),
+                    "modified": len(modified),
+                    "total": type_changes
+                }
+            else:
+                changes[data_type] = {
+                    "added": 0,
+                    "removed": 0,
+                    "modified": 0,
+                    "total": 0
+                }
+        
+        # Create summary for display
+        change_summary = {}
+        for data_type, stats in changes.items():
+            if stats["total"] > 0:
+                change_summary[data_type] = stats["total"]
+        
+        return has_changes, change_summary, changed_data_blocks
+    
+    # ============================================================================
+    # DATA SIGNATURE GENERATION
+    # ============================================================================
+    
     def _generate_data_signature(self):
         """Generate a signature of current data blocks for change detection"""
         signature = {
@@ -188,11 +322,21 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             "materials": {},
             "images": {},
             "texts": {},
-            "actions": {},
-            "node_groups": {}  # For geometry nodes, shader nodes, and compositor nodes
+            "actions": {}
         }
         
-        # Objects signature
+        # Generate signatures for each data type
+        self._generate_objects_signature(signature)
+        self._generate_meshes_signature(signature)
+        self._generate_materials_signature(signature)
+        self._generate_images_signature(signature)
+        self._generate_texts_signature(signature)
+        self._generate_actions_signature(signature)
+        
+        return signature
+    
+    def _generate_objects_signature(self, signature):
+        """Generate signature for objects"""
         for obj in bpy.data.objects:
             obj_sig = {
                 "name": obj.name,
@@ -207,8 +351,9 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 "constraints_hash": self._calculate_constraints_hash(obj)
             }
             signature["objects"][obj.name] = obj_sig
-        
-        # Meshes signature
+    
+    def _generate_meshes_signature(self, signature):
+        """Generate signature for meshes"""
         for mesh in bpy.data.meshes:
             # Calculate geometry hash for detecting vertex-level changes
             geometry_hash = self._calculate_mesh_geometry_hash(mesh)
@@ -222,8 +367,9 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 "geometry_hash": geometry_hash  # This will detect vertex position changes
             }
             signature["meshes"][mesh.name] = mesh_sig
-        
-        # Materials signature
+    
+    def _generate_materials_signature(self, signature):
+        """Generate signature for materials"""
         for mat in bpy.data.materials:
             mat_sig = {
                 "name": mat.name,
@@ -239,8 +385,9 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 mat_sig["node_tree_hash"] = self._calculate_node_tree_hash(mat.node_tree)
             
             signature["materials"][mat.name] = mat_sig
-        
-        # Images signature
+    
+    def _generate_images_signature(self, signature):
+        """Generate signature for images"""
         for img in bpy.data.images:
             img_sig = {
                 "name": img.name,
@@ -249,8 +396,9 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 "file_format": img.file_format if hasattr(img, 'file_format') else None
             }
             signature["images"][img.name] = img_sig
-        
-        # Texts signature
+    
+    def _generate_texts_signature(self, signature):
+        """Generate signature for text data blocks"""
         for text in bpy.data.texts:
             text_sig = {
                 "name": text.name,
@@ -258,8 +406,9 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 "content_hash": hashlib.md5(text.as_string().encode()).hexdigest() if hasattr(text, 'as_string') else None
             }
             signature["texts"][text.name] = text_sig
-        
-        # Actions signature
+    
+    def _generate_actions_signature(self, signature):
+        """Generate signature for animation actions"""
         for action in bpy.data.actions:
             action_sig = {
                 "name": action.name,
@@ -267,20 +416,10 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 "fcurves_count": len(action.fcurves) if hasattr(action, 'fcurves') else 0
             }
             signature["actions"][action.name] = action_sig
-        
-        # Node Groups signature (geometry nodes, shader nodes, compositor nodes)
-        for node_group in bpy.data.node_groups:
-            node_sig = {
-                "name": node_group.name,
-                "type": node_group.type if hasattr(node_group, 'type') else "Unknown",
-                "nodes_count": len(node_group.nodes) if hasattr(node_group, 'nodes') else 0,
-                "links_count": len(node_group.links) if hasattr(node_group, 'links') else 0,
-                "inputs_count": len(node_group.inputs) if hasattr(node_group, 'inputs') else 0,
-                "outputs_count": len(node_group.outputs) if hasattr(node_group, 'outputs') else 0
-            }
-            signature["node_groups"][node_group.name] = node_sig
-        
-        return signature
+    
+    # ============================================================================
+    # HASH CALCULATION METHODS
+    # ============================================================================
     
     def _calculate_mesh_geometry_hash(self, mesh):
         """Calculate a hash of mesh geometry to detect vertex-level changes - optimized version"""
@@ -453,6 +592,56 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             except Exception:
                 return "unknown"
     
+    def _calculate_modifiers_hash(self, obj):
+        """Calculate a hash of object modifiers using recursive property introspection"""
+        try:
+            if not hasattr(obj, 'modifiers') or not obj.modifiers:
+                return "no_modifiers"
+            
+            modifier_data = []
+            
+            for mod in obj.modifiers:
+                # Get all modifier properties recursively
+                mod_props = self._get_object_properties_recursive(mod, visited=set())
+                modifier_data.append(mod_props)
+            
+            # Create hash from all modifier data
+            modifier_string = str(sorted(modifier_data))
+            return hashlib.md5(modifier_string.encode()).hexdigest()
+            
+        except Exception as e:
+            # Fallback: basic modifier count and types
+            try:
+                basic_data = f"{len(obj.modifiers)}_{'_'.join([m.type for m in obj.modifiers])}"
+                return hashlib.md5(basic_data.encode()).hexdigest()
+            except Exception:
+                return "unknown_modifiers"
+    
+    def _calculate_constraints_hash(self, obj):
+        """Calculate a hash of object constraints using recursive property introspection"""
+        try:
+            if not hasattr(obj, 'constraints') or not obj.constraints:
+                return "no_constraints"
+            
+            constraint_data = []
+            
+            for constraint in obj.constraints:
+                # Get all constraint properties recursively
+                constraint_props = self._get_object_properties_recursive(constraint, visited=set())
+                constraint_data.append(constraint_props)
+            
+            # Create hash from all constraint data
+            constraint_string = str(sorted(constraint_data))
+            return hashlib.md5(constraint_string.encode()).hexdigest()
+            
+        except Exception as e:
+            # Fallback: basic constraint count and types
+            try:
+                basic_data = f"{len(obj.constraints)}_{'_'.join([c.type for c in obj.constraints])}"
+                return hashlib.md5(basic_data.encode()).hexdigest()
+            except Exception:
+                return "unknown_constraints"
+    
     def _get_object_properties_recursive(self, obj, visited=None, max_depth=3, current_depth=0):
         """Recursively extract properties from any Blender object for change detection"""
         if visited is None:
@@ -524,123 +713,10 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             return f"{type(obj).__name__}_error"
         finally:
             visited.discard(id(obj))
-
-    def _calculate_modifiers_hash(self, obj):
-        """Calculate a hash of object modifiers using recursive property introspection"""
-        try:
-            if not hasattr(obj, 'modifiers') or not obj.modifiers:
-                return "no_modifiers"
-            
-            modifier_data = []
-            
-            for mod in obj.modifiers:
-                # Get all modifier properties recursively
-                mod_props = self._get_object_properties_recursive(mod, visited=set())
-                modifier_data.append(mod_props)
-            
-            # Create hash from all modifier data
-            modifier_string = str(sorted(modifier_data))
-            return hashlib.md5(modifier_string.encode()).hexdigest()
-            
-        except Exception as e:
-            # Fallback: basic modifier count and types
-            try:
-                basic_data = f"{len(obj.modifiers)}_{'_'.join([m.type for m in obj.modifiers])}"
-                return hashlib.md5(basic_data.encode()).hexdigest()
-            except Exception:
-                return "unknown_modifiers"
     
-    def _calculate_constraints_hash(self, obj):
-        """Calculate a hash of object constraints using recursive property introspection"""
-        try:
-            if not hasattr(obj, 'constraints') or not obj.constraints:
-                return "no_constraints"
-            
-            constraint_data = []
-            
-            for constraint in obj.constraints:
-                # Get all constraint properties recursively
-                constraint_props = self._get_object_properties_recursive(constraint, visited=set())
-                constraint_data.append(constraint_props)
-            
-            # Create hash from all constraint data
-            constraint_string = str(sorted(constraint_data))
-            return hashlib.md5(constraint_string.encode()).hexdigest()
-            
-        except Exception as e:
-            # Fallback: basic constraint count and types
-            try:
-                basic_data = f"{len(obj.constraints)}_{'_'.join([c.type for c in obj.constraints])}"
-                return hashlib.md5(basic_data.encode()).hexdigest()
-            except Exception:
-                return "unknown_constraints"
-    
-    def _compare_signatures_and_get_deltas(self, current_sig, previous_sig):
-        """Compare two data signatures and return changes detected plus specific changed data blocks"""
-        changes = {}
-        has_changes = False
-        changed_data_blocks = set()
-        
-        # Define data block collections mapping
-        data_collections = {
-            'objects': bpy.data.objects,
-            'meshes': bpy.data.meshes,
-            'materials': bpy.data.materials,
-            'images': bpy.data.images,
-            'texts': bpy.data.texts,
-            'actions': bpy.data.actions,
-            'node_groups': bpy.data.node_groups
-        }
-        
-        for data_type in ["objects", "meshes", "materials", "images", "texts", "actions", "node_groups"]:
-            current_items = current_sig.get(data_type, {})
-            previous_items = previous_sig.get(data_type, {})
-            collection = data_collections[data_type]
-            
-            # Find additions, removals, and modifications
-            added = set(current_items.keys()) - set(previous_items.keys())
-            removed = set(previous_items.keys()) - set(current_items.keys())
-            common = set(current_items.keys()) & set(previous_items.keys())
-            
-            # Check for modifications in common items
-            modified = set()
-            for item_name in common:
-                if current_items[item_name] != previous_items[item_name]:
-                    modified.add(item_name)
-            
-            # Add specific changed data blocks to the set
-            for item_name in added | modified:
-                # Find the actual data block object
-                data_block = collection.get(item_name)
-                if data_block:
-                    changed_data_blocks.add(data_block)
-            
-            # Note: We don't export removed items since they don't exist anymore
-            
-            type_changes = len(added) + len(removed) + len(modified)
-            if type_changes > 0:
-                has_changes = True
-                changes[data_type] = {
-                    "added": len(added),
-                    "removed": len(removed),
-                    "modified": len(modified),
-                    "total": type_changes
-                }
-            else:
-                changes[data_type] = {
-                    "added": 0,
-                    "removed": 0,
-                    "modified": 0,
-                    "total": 0
-                }
-        
-        # Create summary for display
-        change_summary = {}
-        for data_type, stats in changes.items():
-            if stats["total"] > 0:
-                change_summary[data_type] = stats["total"]
-        
-        return has_changes, change_summary, changed_data_blocks
+    # ============================================================================
+    # DATA EXPORT METHODS
+    # ============================================================================
     
     def _get_all_data_blocks(self):
         """Get all data blocks for full export (used in first commit)"""
@@ -653,8 +729,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             'materials': bpy.data.materials,
             'images': bpy.data.images,
             'texts': bpy.data.texts,
-            'actions': bpy.data.actions,
-            'node_groups': bpy.data.node_groups
+            'actions': bpy.data.actions
         }
         
         for collection_name, collection in data_collections.items():
@@ -734,77 +809,96 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 if data_block.animation_data.action:
                     data_blocks_to_write.add(data_block.animation_data.action)
             
-            # Node group dependencies
-            if hasattr(data_block, 'node_tree') and data_block.node_tree:
-                # Add the node tree itself (for objects with modifiers that use node groups)
-                data_blocks_to_write.add(data_block.node_tree)
-                
-                # Add node group dependencies from nodes within the tree
-                for node in data_block.node_tree.nodes:
-                    if hasattr(node, 'node_tree') and node.node_tree:
-                        # Node group node references another node group
-                        data_blocks_to_write.add(node.node_tree)
-                        add_block_dependencies(node.node_tree)
-            
-            # For node groups themselves, add their internal node group dependencies
-            if hasattr(data_block, 'nodes'):
-                for node in data_block.nodes:
-                    if hasattr(node, 'node_tree') and node.node_tree:
-                        data_blocks_to_write.add(node.node_tree)
-                        add_block_dependencies(node.node_tree)
-            
             # Modifier dependencies
-            if hasattr(data_block, 'modifiers'):
-                for mod in data_block.modifiers:
-                    # Boolean modifier object dependency
-                    if mod.type == 'BOOLEAN' and hasattr(mod, 'object') and mod.object:
-                        data_blocks_to_write.add(mod.object)
-                        add_block_dependencies(mod.object)
-                    
-                    # Array modifier object dependencies
-                    elif mod.type == 'ARRAY':
-                        if hasattr(mod, 'offset_object') and mod.offset_object:
-                            data_blocks_to_write.add(mod.offset_object)
-                        if hasattr(mod, 'start_cap') and mod.start_cap:
-                            data_blocks_to_write.add(mod.start_cap)
-                        if hasattr(mod, 'end_cap') and mod.end_cap:
-                            data_blocks_to_write.add(mod.end_cap)
-                    
-                    # Mirror modifier object dependency
-                    elif mod.type == 'MIRROR' and hasattr(mod, 'mirror_object') and mod.mirror_object:
-                        data_blocks_to_write.add(mod.mirror_object)
-                    
-                    # Armature modifier dependency
-                    elif mod.type == 'ARMATURE' and hasattr(mod, 'object') and mod.object:
-                        data_blocks_to_write.add(mod.object)
-                        # Also include the armature data
-                        if mod.object.data:
-                            data_blocks_to_write.add(mod.object.data)
-                    
-                    # Curve modifier dependency
-                    elif mod.type == 'CURVE' and hasattr(mod, 'object') and mod.object:
-                        data_blocks_to_write.add(mod.object)
-                        if mod.object.data:
-                            data_blocks_to_write.add(mod.object.data)
-                    
-                    # Displace modifier texture dependency
-                    elif mod.type == 'DISPLACE' and hasattr(mod, 'texture') and mod.texture:
-                        data_blocks_to_write.add(mod.texture)
-                        # If texture uses an image, include that too
-                        if hasattr(mod.texture, 'image') and mod.texture.image:
-                            data_blocks_to_write.add(mod.texture.image)
+            self._add_modifier_dependencies(data_block, data_blocks_to_write, add_block_dependencies)
             
             # Constraint dependencies
-            if hasattr(data_block, 'constraints'):
-                for constraint in data_block.constraints:
-                    # Add constraint target objects as dependencies
-                    if hasattr(constraint, 'target') and constraint.target:
-                        data_blocks_to_write.add(constraint.target)
-                        add_block_dependencies(constraint.target)
+            self._add_constraint_dependencies(data_block, data_blocks_to_write, add_block_dependencies)
         
         # Add dependencies for all changed blocks
         for data_block in list(changed_data_blocks):
             add_block_dependencies(data_block)
+    
+    def _add_modifier_dependencies(self, data_block, data_blocks_to_write, add_block_dependencies):
+        """Add modifier-specific dependencies"""
+        if not hasattr(data_block, 'modifiers'):
+            return
+        
+        for mod in data_block.modifiers:
+            # Boolean modifier object dependency
+            if mod.type == 'BOOLEAN' and hasattr(mod, 'object') and mod.object:
+                data_blocks_to_write.add(mod.object)
+                add_block_dependencies(mod.object)
+            
+            # Array modifier object dependencies
+            elif mod.type == 'ARRAY':
+                if hasattr(mod, 'offset_object') and mod.offset_object:
+                    data_blocks_to_write.add(mod.offset_object)
+                if hasattr(mod, 'start_cap') and mod.start_cap:
+                    data_blocks_to_write.add(mod.start_cap)
+                if hasattr(mod, 'end_cap') and mod.end_cap:
+                    data_blocks_to_write.add(mod.end_cap)
+            
+            # Mirror modifier object dependency
+            elif mod.type == 'MIRROR' and hasattr(mod, 'mirror_object') and mod.mirror_object:
+                data_blocks_to_write.add(mod.mirror_object)
+            
+            # Armature modifier dependency
+            elif mod.type == 'ARMATURE' and hasattr(mod, 'object') and mod.object:
+                data_blocks_to_write.add(mod.object)
+                # Also include the armature data
+                if mod.object.data:
+                    data_blocks_to_write.add(mod.object.data)
+            
+            # Curve modifier dependency
+            elif mod.type == 'CURVE' and hasattr(mod, 'object') and mod.object:
+                data_blocks_to_write.add(mod.object)
+                if mod.object.data:
+                    data_blocks_to_write.add(mod.object.data)
+            
+            # Displace modifier texture dependency
+            elif mod.type == 'DISPLACE' and hasattr(mod, 'texture') and mod.texture:
+                data_blocks_to_write.add(mod.texture)
+                # If texture uses an image, include that too
+                if hasattr(mod.texture, 'image') and mod.texture.image:
+                    data_blocks_to_write.add(mod.texture.image)
+    
+    def _add_constraint_dependencies(self, data_block, data_blocks_to_write, add_block_dependencies):
+        """Add constraint-specific dependencies"""
+        if not hasattr(data_block, 'constraints'):
+            return
+        
+        for constraint in data_block.constraints:
+            # Add constraint target objects as dependencies
+            if hasattr(constraint, 'target') and constraint.target:
+                data_blocks_to_write.add(constraint.target)
+                add_block_dependencies(constraint.target)
+    
+    def _export_data_blocks(self, export_path):
+        """Export specified data blocks using bpy.data.libraries.write"""
+        # Data blocks to export as specified in data.instructions.md
+        data_blocks = {
+            'objects': bpy.data.objects,
+            'meshes': bpy.data.meshes,
+            'materials': bpy.data.materials,
+            'images': bpy.data.images,
+            'texts': bpy.data.texts,
+            'actions': bpy.data.actions
+        }
+        
+        # Collect all data blocks to write
+        data_blocks_to_write = set()
+        
+        for block_type, collection in data_blocks.items():
+            for item in collection:
+                data_blocks_to_write.add(item)
+        
+        # Write to .blend file
+        bpy.data.libraries.write(export_path, data_blocks_to_write, fake_user=True)
+    
+    # ============================================================================
+    # UTILITY METHODS
+    # ============================================================================
     
     def _get_data_block_counts(self):
         """Get counts of current data blocks"""
@@ -814,8 +908,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             "materials": len(bpy.data.materials),
             "images": len(bpy.data.images),
             "texts": len(bpy.data.texts),
-            "actions": len(bpy.data.actions),
-            "node_groups": len(bpy.data.node_groups)
+            "actions": len(bpy.data.actions)
         }
     
     def _get_previous_data_block_counts(self, previous_blend_path):
@@ -838,29 +931,6 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
         """Generate SHA-256 hash for commit"""
         content = f"{timestamp}_{message}_{parent_hash or ''}"
         return hashlib.sha256(content.encode()).hexdigest()
-    
-    def _export_data_blocks(self, export_path):
-        """Export specified data blocks using bpy.data.libraries.write"""
-        # Data blocks to export as specified in data.instructions.md
-        data_blocks = {
-            'objects': bpy.data.objects,
-            'meshes': bpy.data.meshes,
-            'materials': bpy.data.materials,
-            'images': bpy.data.images,
-            'texts': bpy.data.texts,
-            'actions': bpy.data.actions,
-            'node_groups': bpy.data.node_groups
-        }
-        
-        # Collect all data blocks to write
-        data_blocks_to_write = set()
-        
-        for block_type, collection in data_blocks.items():
-            for item in collection:
-                data_blocks_to_write.add(item)
-        
-        # Write to .blend file
-        bpy.data.libraries.write(export_path, data_blocks_to_write, fake_user=True)
 
 
 def register_commit():
@@ -869,4 +939,3 @@ def register_commit():
 
 def unregister_commit():
     bpy.utils.unregister_class(GITBLEND_OT_Commit)
-
