@@ -59,7 +59,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 parent_hash = commits[-1]['hash']
             
             # Detect changes before generating commit
-            changes_detected, change_summary = self._detect_changes(gitblend_dir, parent_hash)
+            changes_detected, change_summary, changed_data_blocks = self._detect_changes_and_deltas(gitblend_dir, parent_hash)
             
             if not changes_detected:
                 self.report({'INFO'}, "No changes detected - nothing to commit")
@@ -72,9 +72,9 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             # Generate new commit hash
             new_commit_hash = self._generate_commit_hash(current_time, commit_message, parent_hash)
             
-            # Export current data blocks to final .blend file
+            # Export only the changed data blocks (delta export)
             final_blend_path = gitblend_dir / f"{new_commit_hash}.blend"
-            self._export_data_blocks(str(final_blend_path))
+            self._export_delta_data_blocks(str(final_blend_path), changed_data_blocks)
             
             # Save signature file for this commit
             signature_file = gitblend_dir / f"{new_commit_hash}_signature.json"
@@ -87,13 +87,16 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             if temp_signature_file.exists():
                 temp_signature_file.unlink()
             
-            # Create new commit metadata with change summary
+            # Create new commit metadata with change summary and delta info
+            changed_block_names = [block.name for block in changed_data_blocks]
             new_commit = {
                 "hash": new_commit_hash,
                 "timestamp": timestamp,
                 "message": commit_message,
                 "parent": parent_hash,
-                "changes": change_summary
+                "changes": change_summary,
+                "delta_export": True,
+                "changed_blocks": changed_block_names[:50]  # Limit to first 50 for metadata size
             }
             
             # Update metadata
@@ -118,19 +121,20 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             from .initialize import populate_ui_from_metadata
             populate_ui_from_metadata(context)
             
-            # Report with change summary
+            # Report with change summary and delta info
             changes_text = ", ".join([f"{count} {type_name}" for type_name, count in change_summary.items() if count > 0])
-            self.report({'INFO'}, f"Committed: {new_commit_hash[:8]} - {changes_text}")
+            blocks_exported = len(changed_data_blocks)
+            self.report({'INFO'}, f"Committed: {new_commit_hash[:8]} - {changes_text} ({blocks_exported} blocks exported)")
             return {'FINISHED'}
             
         except Exception as e:
             self.report({'ERROR'}, f"Failed to commit: {str(e)}")
             return {'CANCELLED'}
     
-    def _detect_changes(self, gitblend_dir, parent_hash):
-        """Detect changes by comparing current data blocks with previous commit"""
+    def _detect_changes_and_deltas(self, gitblend_dir, parent_hash):
+        """Detect changes and return specific changed data blocks for delta export"""
         if not parent_hash:
-            # First commit - everything is new
+            # First commit - everything is new, export all
             current_counts = self._get_data_block_counts()
             change_summary = {
                 "objects": current_counts.get("objects", 0),
@@ -140,15 +144,18 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 "texts": current_counts.get("texts", 0),
                 "actions": current_counts.get("actions", 0)
             }
-            return True, change_summary
+            # For first commit, export everything
+            all_data_blocks = self._get_all_data_blocks()
+            return True, change_summary, all_data_blocks
         
         # Load previous commit to compare
         previous_blend_path = gitblend_dir / f"{parent_hash}.blend"
         if not previous_blend_path.exists():
-            # Previous commit file missing, assume changes
+            # Previous commit file missing, assume changes, export all
             current_counts = self._get_data_block_counts()
             change_summary = {type_name: count for type_name, count in current_counts.items()}
-            return True, change_summary
+            all_data_blocks = self._get_all_data_blocks()
+            return True, change_summary, all_data_blocks
         
         # Create current state signature
         current_signature = self._generate_data_signature()
@@ -164,8 +171,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             except Exception:
                 pass
         
-        # Compare signatures to detect changes
-        changes_detected, change_summary = self._compare_signatures(current_signature, previous_signature)
+        # Compare signatures to detect specific changes
+        changes_detected, change_summary, changed_data_blocks = self._compare_signatures_and_get_deltas(current_signature, previous_signature)
         
         if changes_detected:
             # Save current signature for future comparisons
@@ -173,7 +180,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             with current_signature_file.open('w') as f:
                 json.dump(current_signature, f, indent=2)
         
-        return changes_detected, change_summary
+        return changes_detected, change_summary, changed_data_blocks
     
     def _generate_data_signature(self):
         """Generate a signature of current data blocks for change detection"""
@@ -361,33 +368,54 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             except Exception:
                 return "unknown"
     
-    def _compare_signatures(self, current_sig, previous_sig):
-        """Compare two data signatures and return changes detected"""
+    def _compare_signatures_and_get_deltas(self, current_sig, previous_sig):
+        """Compare two data signatures and return changes detected plus specific changed data blocks"""
         changes = {}
         has_changes = False
+        changed_data_blocks = set()
+        
+        # Define data block collections mapping
+        data_collections = {
+            'objects': bpy.data.objects,
+            'meshes': bpy.data.meshes,
+            'materials': bpy.data.materials,
+            'images': bpy.data.images,
+            'texts': bpy.data.texts,
+            'actions': bpy.data.actions
+        }
         
         for data_type in ["objects", "meshes", "materials", "images", "texts", "actions"]:
             current_items = current_sig.get(data_type, {})
             previous_items = previous_sig.get(data_type, {})
+            collection = data_collections[data_type]
             
-            # Count additions and removals
+            # Find additions, removals, and modifications
             added = set(current_items.keys()) - set(previous_items.keys())
             removed = set(previous_items.keys()) - set(current_items.keys())
             common = set(current_items.keys()) & set(previous_items.keys())
             
             # Check for modifications in common items
-            modified = 0
+            modified = set()
             for item_name in common:
                 if current_items[item_name] != previous_items[item_name]:
-                    modified += 1
+                    modified.add(item_name)
             
-            type_changes = len(added) + len(removed) + modified
+            # Add specific changed data blocks to the set
+            for item_name in added | modified:
+                # Find the actual data block object
+                data_block = collection.get(item_name)
+                if data_block:
+                    changed_data_blocks.add(data_block)
+            
+            # Note: We don't export removed items since they don't exist anymore
+            
+            type_changes = len(added) + len(removed) + len(modified)
             if type_changes > 0:
                 has_changes = True
                 changes[data_type] = {
                     "added": len(added),
                     "removed": len(removed),
-                    "modified": modified,
+                    "modified": len(modified),
                     "total": type_changes
                 }
             else:
@@ -404,7 +432,92 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             if stats["total"] > 0:
                 change_summary[data_type] = stats["total"]
         
-        return has_changes, change_summary
+        return has_changes, change_summary, changed_data_blocks
+    
+    def _get_all_data_blocks(self):
+        """Get all data blocks for full export (used in first commit)"""
+        data_blocks_to_write = set()
+        
+        # Data blocks to export as specified in data.instructions.md
+        data_collections = {
+            'objects': bpy.data.objects,
+            'meshes': bpy.data.meshes,
+            'materials': bpy.data.materials,
+            'images': bpy.data.images,
+            'texts': bpy.data.texts,
+            'actions': bpy.data.actions
+        }
+        
+        for collection_name, collection in data_collections.items():
+            for item in collection:
+                data_blocks_to_write.add(item)
+        
+        return data_blocks_to_write
+    
+    def _export_delta_data_blocks(self, export_path, changed_data_blocks):
+        """Export only the changed data blocks (delta export)"""
+        if not changed_data_blocks:
+            # If no specific changes, fall back to minimal export
+            self._export_data_blocks(export_path)
+            return
+        
+        # Add dependencies for the changed data blocks
+        data_blocks_to_write = set(changed_data_blocks)
+        
+        # Resolve dependencies
+        self._add_dependencies(data_blocks_to_write, changed_data_blocks)
+        
+        # Write only the changed data blocks and their dependencies
+        try:
+            bpy.data.libraries.write(export_path, data_blocks_to_write, fake_user=True)
+        except Exception as e:
+            # Fallback to full export if delta export fails
+            print(f"Delta export failed: {e}, falling back to full export")
+            self._export_data_blocks(export_path)
+    
+    def _add_dependencies(self, data_blocks_to_write, changed_data_blocks):
+        """Add necessary dependencies for changed data blocks"""
+        # Keep track of what we've already processed to avoid infinite loops
+        processed = set()
+        
+        def add_block_dependencies(data_block):
+            if data_block in processed:
+                return
+            processed.add(data_block)
+            
+            # Object dependencies
+            if hasattr(data_block, 'data') and data_block.data:
+                # Object's mesh/curve/etc data
+                data_blocks_to_write.add(data_block.data)
+                add_block_dependencies(data_block.data)
+            
+            # Material dependencies
+            if hasattr(data_block, 'materials'):
+                for material in data_block.materials:
+                    if material:
+                        data_blocks_to_write.add(material)
+                        add_block_dependencies(material)
+            
+            if hasattr(data_block, 'material_slots'):
+                for slot in data_block.material_slots:
+                    if slot.material:
+                        data_blocks_to_write.add(slot.material)
+                        add_block_dependencies(slot.material)
+            
+            # Texture/Image dependencies for materials
+            if hasattr(data_block, 'node_tree') and data_block.node_tree:
+                for node in data_block.node_tree.nodes:
+                    if hasattr(node, 'image') and node.image:
+                        data_blocks_to_write.add(node.image)
+            
+            # Animation data dependencies
+            if hasattr(data_block, 'animation_data') and data_block.animation_data:
+                if data_block.animation_data.action:
+                    data_blocks_to_write.add(data_block.animation_data.action)
+        
+        # Add dependencies for all changed blocks
+        for data_block in list(changed_data_blocks):
+            add_block_dependencies(data_block)
     
     def _get_data_block_counts(self):
         """Get counts of current data blocks"""

@@ -58,7 +58,9 @@ class GITBLEND_OT_Initialize(bpy.types.Operator):
                 "hash": self._generate_commit_hash(current_time, self.commit_message),
                 "timestamp": timestamp,
                 "message": self.commit_message,
-                "parent": None  # Initial commit has no parent
+                "parent": None,  # Initial commit has no parent
+                "delta_export": False,  # Initial commit is always full export
+                "changed_blocks": []  # No previous state to compare
             }
             
             # Save initial metadata
