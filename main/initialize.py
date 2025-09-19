@@ -7,6 +7,18 @@ from datetime import datetime
 from pathlib import Path
 
 
+class GITBLEND_OT_RefreshHistory(bpy.types.Operator):
+    bl_idname = "gitblend.refresh_history"
+    bl_label = "Refresh History"
+    bl_description = "Refresh the commit history"
+    bl_options = {'REGISTER'}
+    
+    def execute(self, context):
+        populate_commit_history(context)
+        self.report({'INFO'}, "Commit history refreshed")
+        return {'FINISHED'}
+
+
 class GITBLEND_OT_RefreshStatus(bpy.types.Operator):
     bl_idname = "gitblend.refresh_status"
     bl_label = "Refresh Status"
@@ -87,6 +99,9 @@ class GITBLEND_OT_Initialize(bpy.types.Operator):
             
             # Update initialized property
             context.scene.gitblend_props.initialized = True
+            
+            # Populate commit history
+            populate_commit_history(context)
             
             self.report({'INFO'}, f"Git Blend initialized with commit: {commit_data['hash'][:8]}")
             return {'FINISHED'}
@@ -313,6 +328,7 @@ class GITBLEND_OT_Initialize(bpy.types.Operator):
 
 
 def register_initialize():
+    bpy.utils.register_class(GITBLEND_OT_RefreshHistory)
     bpy.utils.register_class(GITBLEND_OT_RefreshStatus)
     bpy.utils.register_class(GITBLEND_OT_Initialize)
     # Add handlers to check initialization status
@@ -328,6 +344,7 @@ def unregister_initialize():
         bpy.app.handlers.save_post.remove(on_file_save_check_initialization)
     bpy.utils.unregister_class(GITBLEND_OT_Initialize)
     bpy.utils.unregister_class(GITBLEND_OT_RefreshStatus)
+    bpy.utils.unregister_class(GITBLEND_OT_RefreshHistory)
 
 
 @bpy.app.handlers.persistent
@@ -336,6 +353,9 @@ def on_file_load_check_initialization(dummy):
     try:
         context = bpy.context
         check_and_update_initialized_property(context)
+        # Also populate commit history if initialized
+        if context.scene.gitblend_props.initialized:
+            populate_commit_history(context)
     except Exception:
         pass  # Silently fail if context is not available
 
@@ -346,6 +366,9 @@ def on_file_save_check_initialization(dummy):
     try:
         context = bpy.context
         check_and_update_initialized_property(context)
+        # Also populate commit history if initialized
+        if context.scene.gitblend_props.initialized:
+            populate_commit_history(context)
     except Exception:
         pass  # Silently fail if context is not available
 
@@ -386,11 +409,19 @@ def check_initialized_status(context):
         return False
 
 
-def populate_ui_from_metadata(context):
-    """Load commit history from metadata file into UI"""
+def populate_commit_history(context):
+    """Load commit history from metadata file into UI properties"""
+    if not bpy.data.filepath:
+        # Clear history if no file is open
+        context.scene.gitblend_props.commits.clear()
+        return
+    
     blend_path = Path(bpy.data.filepath).resolve()
     project_dir = blend_path.parent
     metadata_file = project_dir / ".gitblend" / "commits.json"
+    
+    props = context.scene.gitblend_props
+    props.commits.clear()
     
     if not metadata_file.exists():
         return
@@ -399,17 +430,21 @@ def populate_ui_from_metadata(context):
         with metadata_file.open('r') as f:
             metadata = json.load(f)
         
-        props = context.scene.gitblend_props
-        props.commits.clear()
-        
-        for commit in metadata.get('commits', []):
+        # Load commits in reverse order (newest first)
+        commits_data = metadata.get('commits', [])
+        for commit_data in reversed(commits_data):
             commit_entry = props.commits.add()
-            commit_entry.hash = commit.get('hash', '')
-            commit_entry.message = commit.get('message', '')
-            commit_entry.timestamp = commit.get('timestamp', '')
+            commit_entry.hash = commit_data.get('hash', '')
+            commit_entry.message = commit_data.get('message', '')
+            commit_entry.timestamp = commit_data.get('timestamp', '')
             
     except Exception as e:
-        print(f"Failed to load metadata: {e}")
+        print(f"Failed to load commit history: {e}")
+
+
+def populate_ui_from_metadata(context):
+    """Load commit history from metadata file into UI (legacy function)"""
+    populate_commit_history(context)
 
 
 def has_branches_from_commit(project_dir, commit_hash):
