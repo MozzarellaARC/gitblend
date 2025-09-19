@@ -77,6 +77,12 @@ class GITBLEND_OT_Initialize(bpy.types.Operator):
             
             self._export_data_blocks(str(blend_export_path))
             
+            # Create initial signature file for change detection
+            signature_file = gitblend_dir / f"{commit_data['hash']}_signature.json"
+            initial_signature = self._generate_initial_signature()
+            with signature_file.open('w') as f:
+                json.dump(initial_signature, f, indent=2)
+            
             # Update initialized property
             context.scene.gitblend_props.initialized = True
             
@@ -113,6 +119,79 @@ class GITBLEND_OT_Initialize(bpy.types.Operator):
         
         # Write to .blend file
         bpy.data.libraries.write(export_path, data_blocks_to_write, fake_user=True)
+    
+    def _generate_initial_signature(self):
+        """Generate signature for initial commit (same as commit signature)"""
+        signature = {
+            "objects": {},
+            "meshes": {},
+            "materials": {},
+            "images": {},
+            "texts": {},
+            "actions": {}
+        }
+        
+        # Objects signature
+        for obj in bpy.data.objects:
+            obj_sig = {
+                "name": obj.name,
+                "type": obj.type,
+                "location": list(obj.location) if hasattr(obj, 'location') else None,
+                "rotation": list(obj.rotation_euler) if hasattr(obj, 'rotation_euler') else None,
+                "scale": list(obj.scale) if hasattr(obj, 'scale') else None,
+                "data_name": obj.data.name if obj.data else None
+            }
+            signature["objects"][obj.name] = obj_sig
+        
+        # Meshes signature
+        for mesh in bpy.data.meshes:
+            mesh_sig = {
+                "name": mesh.name,
+                "vertices": len(mesh.vertices),
+                "edges": len(mesh.edges),
+                "polygons": len(mesh.polygons),
+                "materials": [mat.name if mat else None for mat in mesh.materials]
+            }
+            signature["meshes"][mesh.name] = mesh_sig
+        
+        # Materials signature
+        for mat in bpy.data.materials:
+            mat_sig = {
+                "name": mat.name,
+                "use_nodes": mat.use_nodes,
+                "diffuse_color": list(mat.diffuse_color) if hasattr(mat, 'diffuse_color') else None
+            }
+            signature["materials"][mat.name] = mat_sig
+        
+        # Images signature
+        for img in bpy.data.images:
+            img_sig = {
+                "name": img.name,
+                "size": list(img.size) if hasattr(img, 'size') else None,
+                "filepath": img.filepath if hasattr(img, 'filepath') else None,
+                "file_format": img.file_format if hasattr(img, 'file_format') else None
+            }
+            signature["images"][img.name] = img_sig
+        
+        # Texts signature
+        for text in bpy.data.texts:
+            text_sig = {
+                "name": text.name,
+                "lines_count": len(text.lines) if hasattr(text, 'lines') else 0,
+                "content_hash": hashlib.md5(text.as_string().encode()).hexdigest() if hasattr(text, 'as_string') else None
+            }
+            signature["texts"][text.name] = text_sig
+        
+        # Actions signature
+        for action in bpy.data.actions:
+            action_sig = {
+                "name": action.name,
+                "frame_range": list(action.frame_range) if hasattr(action, 'frame_range') else None,
+                "fcurves_count": len(action.fcurves) if hasattr(action, 'fcurves') else 0
+            }
+            signature["actions"][action.name] = action_sig
+        
+        return signature
     
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
