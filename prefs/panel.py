@@ -96,21 +96,11 @@ class GITBLEND_Panel(bpy.types.Panel):
             # Show details of selected commit
             if 0 <= props.commits_index < len(props.commits):
                 selected_commit = props.commits[props.commits_index]
-                detail_row = history_box.row()
-                detail_row.label(text=f"Hash: {selected_commit.hash}")
-                if selected_commit.timestamp:
-                    history_box.label(text=f"Date: {selected_commit.timestamp}")
-                history_box.label(text=f"Message: {selected_commit.message}")
                 
                 # Checkout buttons
                 checkout_row = history_box.row(align=True)
                 checkout_op = checkout_row.operator("gitblend.checkout", text="Checkout", icon='FILE_REFRESH')
                 checkout_op.commit_hash = selected_commit.hash
-                checkout_row.operator("gitblend.checkout_head", text="Checkout HEAD", icon='HOME')
-                
-                # Diff button
-                diff_row = history_box.row()
-                diff_row.operator("gitblend.diff_commit", text="Show Changes", icon='ZOOM_IN')
                 
         elif initialized:
             history_box.label(text="No commits yet", icon='INFO')
