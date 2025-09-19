@@ -2,11 +2,6 @@ import bpy  # type: ignore
 import json
 from pathlib import Path
 
-# Import services
-from .core.repository_service import RepositoryService
-from .core.export_service import ExportService
-from .core.signature_service import SignatureService
-
 
 class GITBLEND_OT_Checkout(bpy.types.Operator):
     bl_idname = "gitblend.checkout"
@@ -22,25 +17,44 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         # Can only checkout if blend file is saved and gitblend is initialized
-        return RepositoryService.is_initialized()
+        if not bpy.data.filepath:
+            return False
+        
+        blend_path = Path(bpy.data.filepath).resolve()
+        project_dir = blend_path.parent
+        gitblend_dir = project_dir / ".gitblend"
+        
+        return gitblend_dir.exists()
     
     def execute(self, context):
+        blend_path = Path(bpy.data.filepath).resolve()
+        project_dir = blend_path.parent
+        gitblend_dir = project_dir / ".gitblend"
+        metadata_file = gitblend_dir / "commits.json"
+        
+        # Debug: Print the commit hash we're looking for
+        print(f"[GitBlend] Attempting to checkout commit: {self.commit_hash}")
+        
         # Validate commit hash is provided
         if not self.commit_hash:
             self.report({'ERROR'}, "No commit hash provided. Please select a commit first.")
             return {'CANCELLED'}
         
+        # Validate .gitblend exists
+        if not gitblend_dir.exists():
+            self.report({'ERROR'}, "Git Blend not initialized")
+            return {'CANCELLED'}
+        
+        # Load metadata
+        if not metadata_file.exists():
+            self.report({'ERROR'}, "No commits found")
+            return {'CANCELLED'}
+        
         try:
-            # Get repository paths
-            project_dir, gitblend_dir = RepositoryService.get_project_paths()
-            if not gitblend_dir:
-                self.report({'ERROR'}, "Could not determine .gitblend directory")
-                return {'CANCELLED'}
+            with metadata_file.open('r') as f:
+                metadata = json.load(f)
             
-            # Load metadata using repository service
-            metadata = RepositoryService.load_metadata()
             commits = metadata.get('commits', [])
-            
             if not commits:
                 self.report({'ERROR'}, "No commits found in metadata")
                 return {'CANCELLED'}
@@ -69,19 +83,19 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 self.report({'ERROR'}, "Failed to build commit chain")
                 return {'CANCELLED'}
             
-            # Load target commit signature using repository service
-            target_signature = RepositoryService.load_signature_file(target_commit['hash'])
+            # Load target commit signature to know what complete scene should look like
+            target_signature = self._load_commit_signature(gitblend_dir, target_commit['hash'])
             if not target_signature:
                 self.report({'ERROR'}, "Could not load target commit signature")
                 return {'CANCELLED'}
             
-            # Use signature-based reconstruction
+            # Use signature-based reconstruction instead of clearing everything
             print(f"[GitBlend] Reconstructing scene to match target signature")
             self._reconstruct_scene_from_signature(gitblend_dir, commit_chain, target_signature)
             
             # Simple cleanup of any remaining orphaned data blocks
             print(f"[GitBlend] Final cleanup of orphaned data blocks")
-            ExportService.cleanup_orphaned_data()
+            self._cleanup_orphaned_data()
             
             # Update UI to show we're on this commit
             props = context.scene.gitblend_props
@@ -128,6 +142,24 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             print(f"  {i+1}. {commit['hash'][:8]}: {commit['message']} ({'delta' if is_delta else 'full'})")
         
         return chain
+    
+    def _load_commit_signature(self, gitblend_dir, commit_hash):
+        """Load the signature file for a commit to know what objects should exist"""
+        signature_file = gitblend_dir / f"{commit_hash}_signature.json"
+        
+        if not signature_file.exists():
+            print(f"[GitBlend] Warning: No signature file found for commit {commit_hash[:8]}")
+            return None
+        
+        try:
+            with signature_file.open('r') as f:
+                signature = json.load(f)
+            print(f"[GitBlend] Loaded signature for commit {commit_hash[:8]}: "
+                  f"{len(signature.get('objects', {}))} objects expected")
+            return signature
+        except Exception as e:
+            print(f"[GitBlend] Error loading signature for commit {commit_hash[:8]}: {e}")
+            return None
     
     def _reconstruct_scene_from_signature(self, gitblend_dir, commit_chain, target_signature):
         """Reconstruct scene to match target signature by intelligently applying commits"""
@@ -409,9 +441,31 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             self._apply_delta_commit(blend_file_path)
     
     def _load_full_commit(self, blend_file_path):
-        """Load initial commit data (full state) using ExportService"""
+        """Load initial commit data (full state)"""
         print(f"[GitBlend] Loading full commit state")
-        ExportService.load_data_blocks_from_file(blend_file_path)
+        
+        try:
+            with bpy.data.libraries.load(blend_file_path, link=False) as (data_from, data_to):
+                # Load all data blocks for initial commit
+                data_to.objects = data_from.objects
+                data_to.meshes = data_from.meshes
+                data_to.materials = data_from.materials
+                data_to.images = data_from.images
+                data_to.texts = data_from.texts
+                data_to.actions = data_from.actions
+                data_to.node_groups = data_from.node_groups
+            
+            # Link all objects to the scene
+            scene = bpy.context.scene
+            for obj in data_to.objects:
+                if obj and obj.name not in scene.objects:
+                    scene.collection.objects.link(obj)
+            
+            print(f"[GitBlend] Loaded {len(data_to.objects)} objects from initial commit")
+                  
+        except Exception as e:
+            print(f"[GitBlend] Error loading full commit: {e}")
+            raise
     
     def _apply_delta_commit(self, blend_file_path):
         """Apply delta commit by surgically replacing changed data blocks"""
@@ -655,6 +709,56 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 
                 print(f"[GitBlend] Resolving node group name conflict: {original_name} -> {new_name}")
                 node_group.name = new_name
+    
+    def _cleanup_orphaned_data(self):
+        """Clean up orphaned data blocks after reconstruction"""
+        print(f"[GitBlend] Cleaning up orphaned data blocks...")
+        
+        # Clean up meshes with no users
+        removed_meshes = 0
+        for mesh in list(bpy.data.meshes):
+            if mesh.users == 0:
+                bpy.data.meshes.remove(mesh, do_unlink=True)
+                removed_meshes += 1
+        
+        # Clean up materials with no users
+        removed_materials = 0
+        for mat in list(bpy.data.materials):
+            if mat.users == 0 and not mat.use_fake_user:
+                bpy.data.materials.remove(mat, do_unlink=True)
+                removed_materials += 1
+        
+        # Clean up images with no users
+        removed_images = 0
+        for img in list(bpy.data.images):
+            if img.users == 0 and not img.use_fake_user:
+                bpy.data.images.remove(img, do_unlink=True)
+                removed_images += 1
+        
+        # Clean up actions with no users
+        removed_actions = 0
+        for action in list(bpy.data.actions):
+            if action.users == 0 and not action.use_fake_user:
+                bpy.data.actions.remove(action, do_unlink=True)
+                removed_actions += 1
+        
+        # Clean up node groups with no users
+        removed_node_groups = 0
+        for node_group in list(bpy.data.node_groups):
+            if node_group.users == 0 and not node_group.use_fake_user:
+                bpy.data.node_groups.remove(node_group, do_unlink=True)
+                removed_node_groups += 1
+        
+        # Clean up texts with no users
+        removed_texts = 0
+        for text in list(bpy.data.texts):
+            if text.users == 0:
+                bpy.data.texts.remove(text, do_unlink=True)
+                removed_texts += 1
+        
+        print(f"[GitBlend] Cleanup complete: removed {removed_meshes} meshes, "
+              f"{removed_materials} materials, {removed_images} images, "
+              f"{removed_actions} actions, {removed_node_groups} node groups, {removed_texts} texts")
 
 
 def register():

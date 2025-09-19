@@ -1,15 +1,12 @@
-import bpy
-import os
-import json
-import hashlib
-import time
-from datetime import datetime
-from pathlib import Path
+"""
+Refactored Initialize Operator for GitBlend - Uses service layer for clean separation of concerns.
+"""
 
-# Import new services
-from .core.repository_service import RepositoryService
-from .core.signature_service import SignatureService
-from .core.export_service import ExportService
+import bpy
+from pathlib import Path
+from ..core.repository_service import RepositoryService
+from ..core.signature_service import SignatureService
+from ..core.export_service import ExportService
 
 
 class GITBLEND_OT_RefreshHistory(bpy.types.Operator):
@@ -97,67 +94,16 @@ class GITBLEND_OT_Initialize(bpy.types.Operator):
         return context.window_manager.invoke_props_dialog(self)
 
 
-def register_initialize():
-    bpy.utils.register_class(GITBLEND_OT_RefreshHistory)
-    bpy.utils.register_class(GITBLEND_OT_RefreshStatus)
-    bpy.utils.register_class(GITBLEND_OT_Initialize)
-    # Add handlers to check initialization status
-    bpy.app.handlers.load_post.append(on_file_load_check_initialization)
-    bpy.app.handlers.save_post.append(on_file_save_check_initialization)
-
-
-def unregister_initialize():
-    # Remove handlers
-    if on_file_load_check_initialization in bpy.app.handlers.load_post:
-        bpy.app.handlers.load_post.remove(on_file_load_check_initialization)
-    if on_file_save_check_initialization in bpy.app.handlers.save_post:
-        bpy.app.handlers.save_post.remove(on_file_save_check_initialization)
-    bpy.utils.unregister_class(GITBLEND_OT_Initialize)
-    bpy.utils.unregister_class(GITBLEND_OT_RefreshStatus)
-    bpy.utils.unregister_class(GITBLEND_OT_RefreshHistory)
-
-
-@bpy.app.handlers.persistent
-def on_file_load_check_initialization(dummy):
-    """Handler to check initialization status when a blend file is loaded"""
-    try:
-        context = bpy.context
-        check_and_update_initialized_property(context)
-        # Also populate commit history if initialized
-        if context.scene.gitblend_props.initialized:
-            populate_commit_history(context)
-    except Exception:
-        pass  # Silently fail if context is not available
-
-
-@bpy.app.handlers.persistent
-def on_file_save_check_initialization(dummy):
-    """Handler to check initialization status when a blend file is saved"""
-    try:
-        context = bpy.context
-        check_and_update_initialized_property(context)
-        # Also populate commit history if initialized
-        if context.scene.gitblend_props.initialized:
-            populate_commit_history(context)
-    except Exception:
-        pass  # Silently fail if context is not available
-
-
-# Utility functions for other modules
-def is_gitblend_initialized(project_dir):
-    """Check if .gitblend directory exists"""
-    return RepositoryService.is_initialized()
-
-
+# Utility functions for UI management
 def check_and_update_initialized_property(context):
-    """Check if gitblend is initialized and update the property accordingly"""
+    """Check if gitblend is initialized and update the property accordingly."""
     is_initialized = RepositoryService.is_initialized()
     context.scene.gitblend_props.initialized = is_initialized
     return is_initialized
 
 
 def check_initialized_status(context):
-    """Read-only check of initialization status - safe to call from panel draw"""
+    """Read-only check of initialization status - safe to call from panel draw."""
     return RepositoryService.is_initialized()
 
 
@@ -178,29 +124,29 @@ def populate_commit_history(context):
 
 
 def populate_ui_from_metadata(context):
-    """Load commit history from metadata file into UI (legacy function)"""
+    """Load commit history from metadata file into UI (legacy function)."""
     populate_commit_history(context)
 
 
 def has_branches_from_commit(project_dir, commit_hash):
-    """Check if commit has branches (placeholder for future implementation)"""
+    """Check if commit has branches (placeholder for future implementation)."""
     return False
 
 
 def update_branch_status(context):
-    """Update branch status in UI (placeholder for future implementation)"""
+    """Update branch status in UI (placeholder for future implementation)."""
     props = context.scene.gitblend_props
     props.current_branch_display = "main"
     props.is_on_head = True
 
 
 def get_branch_names(project_dir):
-    """Get list of branch names (placeholder for future implementation)"""
+    """Get list of branch names (placeholder for future implementation)."""
     return ["main"]
 
 
 def populate_branch_commits(context):
-    """Populate branch-specific commits (placeholder for future implementation)"""
+    """Populate branch-specific commits (placeholder for future implementation)."""
     props = context.scene.gitblend_props
     # For now, just copy all commits to branch_commits
     props.branch_commits.clear()
@@ -212,5 +158,52 @@ def populate_branch_commits(context):
 
 
 def should_show_commit_button_on_detached(context):
-    """Check if commit button should be shown when detached (placeholder)"""
+    """Check if commit button should be shown when detached (placeholder)."""
     return False
+
+
+# Handler functions for automatic status updates
+@bpy.app.handlers.persistent
+def on_file_load_check_initialization(dummy):
+    """Handler to check initialization status when a blend file is loaded."""
+    try:
+        context = bpy.context
+        check_and_update_initialized_property(context)
+        # Also populate commit history if initialized
+        if context.scene.gitblend_props.initialized:
+            populate_commit_history(context)
+    except Exception:
+        pass  # Silently fail if context is not available
+
+
+@bpy.app.handlers.persistent
+def on_file_save_check_initialization(dummy):
+    """Handler to check initialization status when a blend file is saved."""
+    try:
+        context = bpy.context
+        check_and_update_initialized_property(context)
+        # Also populate commit history if initialized
+        if context.scene.gitblend_props.initialized:
+            populate_commit_history(context)
+    except Exception:
+        pass  # Silently fail if context is not available
+
+
+def register_initialize():
+    bpy.utils.register_class(GITBLEND_OT_RefreshHistory)
+    bpy.utils.register_class(GITBLEND_OT_RefreshStatus)
+    bpy.utils.register_class(GITBLEND_OT_Initialize)
+    # Add handlers to check initialization status
+    bpy.app.handlers.load_post.append(on_file_load_check_initialization)
+    bpy.app.handlers.save_post.append(on_file_save_check_initialization)
+
+
+def unregister_initialize():
+    # Remove handlers
+    if on_file_load_check_initialization in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(on_file_load_check_initialization)
+    if on_file_save_check_initialization in bpy.app.handlers.save_post:
+        bpy.app.handlers.save_post.remove(on_file_save_check_initialization)
+    bpy.utils.unregister_class(GITBLEND_OT_Initialize)
+    bpy.utils.unregister_class(GITBLEND_OT_RefreshStatus)
+    bpy.utils.unregister_class(GITBLEND_OT_RefreshHistory)

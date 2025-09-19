@@ -1,17 +1,13 @@
-import bpy
-import os
-import json
-import hashlib
-import time
-import filecmp
-from datetime import datetime
-from pathlib import Path
+"""
+Refactored Commit Operator for GitBlend - Uses service layer for clean separation of concerns.
+"""
 
-# Import new services
-from .core.repository_service import RepositoryService
-from .core.signature_service import SignatureService
-from .core.export_service import ExportService
-from .core.change_detection import ChangeDetectionService
+import bpy
+from datetime import datetime
+from ..core.repository_service import RepositoryService
+from ..core.signature_service import SignatureService
+from ..core.export_service import ExportService
+from ..core.change_detection import ChangeDetectionService
 
 
 class GITBLEND_OT_Commit(bpy.types.Operator):
@@ -93,7 +89,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             props.initialized = True
             
             # Refresh UI
-            from .initialize import populate_ui_from_metadata
+            from .initialize_operator import populate_ui_from_metadata
             populate_ui_from_metadata(context)
             
             # Report success with change summary
@@ -107,10 +103,10 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             self.report({'ERROR'}, f"Failed to commit: {str(e)}")
             return {'CANCELLED'}
 
+
 def register_commit():
     bpy.utils.register_class(GITBLEND_OT_Commit)
 
 
 def unregister_commit():
     bpy.utils.unregister_class(GITBLEND_OT_Commit)
-
