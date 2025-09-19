@@ -111,9 +111,6 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             with metadata_file.open('w') as f:
                 json.dump(metadata, f, indent=2)
             
-            # Clear commit message
-            props.commit_message = ""
-            
             # Ensure initialized property is set to True
             props.initialized = True
             

@@ -97,10 +97,9 @@ class GITBLEND_Panel(bpy.types.Panel):
             if 0 <= props.commits_index < len(props.commits):
                 selected_commit = props.commits[props.commits_index]
                 
-                # Checkout buttons
-                checkout_row = history_box.row(align=True)
-                checkout_op = checkout_row.operator("gitblend.checkout", text="Checkout", icon='FILE_REFRESH')
-                checkout_op.commit_hash = selected_commit.hash
+                # Show commit details (checkout happens automatically on selection)
+                details_row = history_box.row()
+                details_row.label(text=f"Selected: {selected_commit.hash[:8]}", icon='FILE_BLEND')
                 
         elif initialized:
             history_box.label(text="No commits yet", icon='INFO')

@@ -10,6 +10,21 @@ def update_commit_history(self, context):
         pass  # Silently fail to avoid breaking the UI
 
 
+def update_commit_selection(self, context):
+    """Update callback when commit selection changes - triggers checkout"""
+    try:
+        props = context.scene.gitblend_props
+        if props.commits and 0 <= props.commits_index < len(props.commits):
+            selected_commit = props.commits[props.commits_index]
+            if selected_commit.hash:
+                # Import and execute checkout operator
+                bpy.ops.gitblend.checkout(commit_hash=selected_commit.hash)
+    except Exception as e:
+        # Silently fail to avoid breaking the UI
+        print(f"Checkout failed during selection: {e}")
+        pass
+
+
 class GITBLEND_CommitEntry(bpy.types.PropertyGroup):
     hash: bpy.props.StringProperty(name="Hash", default="")
     message: bpy.props.StringProperty(name="Message", default="")
@@ -31,7 +46,7 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
     
     # Commit history
     commits: bpy.props.CollectionProperty(type=GITBLEND_CommitEntry)
-    commits_index: bpy.props.IntProperty(default=0)
+    commits_index: bpy.props.IntProperty(default=0, update=update_commit_selection)
     
     # Auto-refresh trigger
     refresh_history: bpy.props.BoolProperty(
