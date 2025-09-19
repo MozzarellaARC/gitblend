@@ -272,43 +272,16 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
         return signature
     
     def _calculate_mesh_geometry_hash(self, mesh):
-        """Calculate a hash of mesh geometry to detect vertex-level changes"""
+        """Calculate a hash of mesh geometry to detect vertex-level changes - optimized version"""
         try:
-            # Ensure mesh is evaluated (in case it's being modified)
-            mesh.calc_loop_triangles()
+            # For large meshes, use a more efficient approach
+            vertex_count = len(mesh.vertices)
             
-            # Collect vertex coordinates
-            vertex_data = []
-            for vertex in mesh.vertices:
-                # Include vertex position (co) and normal for better change detection
-                vertex_data.extend([
-                    round(vertex.co.x, 6),  # Round to avoid floating point precision issues
-                    round(vertex.co.y, 6),
-                    round(vertex.co.z, 6),
-                    round(vertex.normal.x, 6),
-                    round(vertex.normal.y, 6),
-                    round(vertex.normal.z, 6)
-                ])
-            
-            # Include face data for topology changes
-            face_data = []
-            for poly in mesh.polygons:
-                # Include face vertices indices (sorted to be order-independent)
-                face_verts = sorted(poly.vertices)
-                face_data.extend(face_verts)
-                # Include face normal
-                face_data.extend([
-                    round(poly.normal.x, 6),
-                    round(poly.normal.y, 6),
-                    round(poly.normal.z, 6)
-                ])
-            
-            # Combine all geometry data and create hash
-            geometry_data = vertex_data + face_data
-            geometry_string = ','.join(map(str, geometry_data))
-            
-            return hashlib.md5(geometry_string.encode()).hexdigest()
-            
+            if vertex_count > 10000:  # Use optimized method for large meshes
+                return self._calculate_optimized_mesh_hash(mesh)
+            else:  # Use detailed method for smaller meshes
+                return self._calculate_detailed_mesh_hash(mesh)
+                
         except Exception as e:
             # If we can't calculate geometry hash, use a basic fallback
             try:
@@ -318,6 +291,105 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             except Exception:
                 # Ultimate fallback
                 return "unknown"
+    
+    def _calculate_detailed_mesh_hash(self, mesh):
+        """Detailed hash calculation for smaller meshes (< 10K vertices)"""
+        # Ensure mesh is evaluated (in case it's being modified)
+        mesh.calc_loop_triangles()
+        
+        # Collect vertex coordinates
+        vertex_data = []
+        for vertex in mesh.vertices:
+            # Include vertex position (co) and normal for better change detection
+            vertex_data.extend([
+                round(vertex.co.x, 6),  # Round to avoid floating point precision issues
+                round(vertex.co.y, 6),
+                round(vertex.co.z, 6),
+                round(vertex.normal.x, 6),
+                round(vertex.normal.y, 6),
+                round(vertex.normal.z, 6)
+            ])
+        
+        # Include face data for topology changes
+        face_data = []
+        for poly in mesh.polygons:
+            # Include face vertices indices (sorted to be order-independent)
+            face_verts = sorted(poly.vertices)
+            face_data.extend(face_verts)
+            # Include face normal
+            face_data.extend([
+                round(poly.normal.x, 6),
+                round(poly.normal.y, 6),
+                round(poly.normal.z, 6)
+            ])
+        
+        # Combine all geometry data and create hash
+        geometry_data = vertex_data + face_data
+        geometry_string = ','.join(map(str, geometry_data))
+        
+        return hashlib.md5(geometry_string.encode()).hexdigest()
+    
+    def _calculate_optimized_mesh_hash(self, mesh):
+        """Optimized hash calculation for large meshes (>= 10K vertices)"""
+        import random
+        
+        # Strategy: Use statistical sampling + bounding box + basic metrics
+        # This provides good change detection without processing every vertex
+        
+        hash_components = []
+        
+        # 1. Basic mesh statistics (fast)
+        hash_components.extend([
+            len(mesh.vertices),
+            len(mesh.polygons), 
+            len(mesh.edges)
+        ])
+        
+        # 2. Bounding box (very fast)
+        if mesh.vertices:
+            # Get min/max bounds
+            min_x = min(v.co.x for v in mesh.vertices)
+            max_x = max(v.co.x for v in mesh.vertices)
+            min_y = min(v.co.y for v in mesh.vertices)
+            max_y = max(v.co.y for v in mesh.vertices)
+            min_z = min(v.co.z for v in mesh.vertices)
+            max_z = max(v.co.z for v in mesh.vertices)
+            
+            hash_components.extend([
+                round(min_x, 4), round(max_x, 4),
+                round(min_y, 4), round(max_y, 4),
+                round(min_z, 4), round(max_z, 4)
+            ])
+        
+        # 3. Strategic vertex sampling (much faster than full iteration)
+        vertex_count = len(mesh.vertices)
+        sample_size = min(1000, vertex_count // 10)  # Sample 10% or max 1000 vertices
+        
+        if sample_size > 0:
+            # Use deterministic sampling based on mesh structure for consistency
+            step = max(1, vertex_count // sample_size)
+            sampled_vertices = mesh.vertices[::step][:sample_size]
+            
+            # Hash sampled vertex positions
+            for vertex in sampled_vertices:
+                hash_components.extend([
+                    round(vertex.co.x, 4),  # Less precision for performance
+                    round(vertex.co.y, 4),
+                    round(vertex.co.z, 4)
+                ])
+        
+        # 4. Surface area approximation (fast geometric property)
+        try:
+            # Calculate approximate surface area using triangle areas
+            mesh.calc_loop_triangles()
+            total_area = sum(tri.area for tri in mesh.loop_triangles[:100])  # Sample first 100 triangles
+            hash_components.append(round(total_area, 4))
+        except:
+            pass
+        
+        # 5. Create hash from components
+        hash_string = ','.join(map(str, hash_components))
+        return hashlib.md5(hash_string.encode()).hexdigest()
     
     def _calculate_node_tree_hash(self, node_tree):
         """Calculate a hash of material node tree to detect node changes"""
