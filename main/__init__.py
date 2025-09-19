@@ -1,30 +1,13 @@
 import bpy # type: ignore
 
-from .commit import GITBLEND_OT_commit
-from .checkout import GITBLEND_OT_checkout
-from .initialize import GITBLEND_OT_initialize, GITBLEND_OT_sync
-from .stash import GITBLEND_OT_stash, GITBLEND_OT_unstash, GITBLEND_OT_delete_stash
-from .branch import GITBLEND_OT_create_branch, GITBLEND_OT_switch_branch
 
-_OPERATORS = (
-    GITBLEND_OT_initialize,
-    GITBLEND_OT_sync,
-    GITBLEND_OT_commit,
-    GITBLEND_OT_checkout,
-    GITBLEND_OT_stash,
-    GITBLEND_OT_unstash,
-    GITBLEND_OT_delete_stash,
-    GITBLEND_OT_create_branch,
-    GITBLEND_OT_switch_branch,
-)
+
 
 def register_operators():
-    for op in _OPERATORS:
-        bpy.utils.register_class(op)
+    pass
 
 def unregister_operators():
-    for op in reversed(_OPERATORS):
-        bpy.utils.unregister_class(op)
+    pass
 
 __all__ = (
     "register_operators",
