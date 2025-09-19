@@ -252,6 +252,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                         data_to.materials = data_from.materials  
                         data_to.images = data_from.images
                         data_to.actions = data_from.actions
+                        data_to.node_groups = data_from.node_groups
                 
                 # Link found objects to scene
                 scene = bpy.context.scene
@@ -311,6 +312,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                     data_to.materials = data_from.materials
                     data_to.images = data_from.images
                     data_to.actions = data_from.actions
+                    data_to.node_groups = data_from.node_groups
                     
                     print(f"[GitBlend] Loaded {len(objects_to_load)} missing objects from commit")
             
@@ -446,6 +448,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 data_to.images = data_from.images
                 data_to.texts = data_from.texts
                 data_to.actions = data_from.actions
+                data_to.node_groups = data_from.node_groups
             
             # Link all objects to the scene
             scene = bpy.context.scene
@@ -471,6 +474,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             delta_images = []
             delta_texts = []
             delta_actions = []
+            delta_node_groups = []
             
             with bpy.data.libraries.load(blend_file_path, link=False, assets_only=False) as (data_from, data_to):
                 # Don't load anything yet, just inspect what's available
@@ -480,9 +484,10 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 delta_images = list(data_from.images)
                 delta_texts = list(data_from.texts)
                 delta_actions = list(data_from.actions)
+                delta_node_groups = list(data_from.node_groups)
             
             print(f"[GitBlend] Delta contains: {len(delta_objects)} objects, {len(delta_meshes)} meshes, "
-                  f"{len(delta_materials)} materials, {len(delta_images)} images")
+                  f"{len(delta_materials)} materials, {len(delta_images)} images, {len(delta_node_groups)} node_groups")
             
             # Now surgically replace each type of data block
             # Process in order: data blocks first, then objects that depend on them
@@ -496,6 +501,8 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 self._replace_data_blocks(blend_file_path, 'texts', delta_texts)
             if delta_actions:
                 self._replace_data_blocks(blend_file_path, 'actions', delta_actions)
+            if delta_node_groups:
+                self._replace_data_blocks(blend_file_path, 'node_groups', delta_node_groups)
             
             # Process objects last, after their dependencies are in place
             if delta_objects:
@@ -540,6 +547,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 data_to.materials = data_from.materials
                 data_to.images = data_from.images
                 data_to.actions = data_from.actions
+                data_to.node_groups = data_from.node_groups
             
             # Link new objects to scene
             added_objects = []
@@ -568,7 +576,8 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             'materials': bpy.data.materials,
             'images': bpy.data.images,
             'texts': bpy.data.texts,
-            'actions': bpy.data.actions
+            'actions': bpy.data.actions,
+            'node_groups': bpy.data.node_groups
         }
         
         collection = collections_map.get(data_type)
