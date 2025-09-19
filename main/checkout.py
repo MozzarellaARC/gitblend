@@ -234,57 +234,6 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                     # Object might already be linked or have issues
                     pass
 
-
-class GITBLEND_OT_DiffCommit(bpy.types.Operator):
-    bl_idname = "gitblend.diff_commit"
-    bl_label = "Show Commit Diff"
-    bl_description = "Show what changed in the selected commit"
-    bl_options = {'REGISTER'}
-
-    def execute(self, context):
-        props = context.scene.gitblend_props
-        
-        if not props.commits or props.commits_index < 0 or props.commits_index >= len(props.commits):
-            self.report({'ERROR'}, "No commit selected")
-            return {'CANCELLED'}
-
-        selected_commit = props.commits[props.commits_index]
-        
-        # Load commit metadata to show changes
-        try:
-            blend_path = Path(bpy.data.filepath).resolve()
-            project_dir = blend_path.parent
-            metadata_file = project_dir / ".gitblend" / "commits.json"
-            
-            with metadata_file.open('r') as f:
-                metadata = json.load(f)
-            
-            commits = metadata.get('commits', [])
-            commit_data = None
-            
-            for commit in commits:
-                if commit.get('hash') == selected_commit.hash:
-                    commit_data = commit
-                    break
-            
-            if commit_data:
-                changes = commit_data.get('changed_blocks', [])
-                if changes:
-                    change_list = ', '.join(changes[:10])  # Show first 10 changes
-                    if len(changes) > 10:
-                        change_list += f" ... (+{len(changes)-10} more)"
-                    self.report({'INFO'}, f"Changed: {change_list}")
-                else:
-                    self.report({'INFO'}, "No specific changes recorded")
-            else:
-                self.report({'WARNING'}, "Commit details not found")
-                
-        except Exception as e:
-            self.report({'ERROR'}, f"Failed to load commit diff: {str(e)}")
-            
-        return {'FINISHED'}
-
-
 def get_current_commit_hash(context) -> str:
     """Get the hash of the current commit state (utility function)"""
     # This would compare current scene state with latest commit
@@ -298,46 +247,9 @@ def is_scene_modified(context) -> bool:
     # For now, always return True to be safe
     return True
 
-
-class GITBLEND_OT_CheckoutHead(bpy.types.Operator):
-    bl_idname = "gitblend.checkout_head"
-    bl_label = "Checkout HEAD"
-    bl_description = "Checkout to the latest commit (HEAD)"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        if not bpy.data.filepath:
-            self.report({'ERROR'}, "Please save the blend file first")
-            return {'CANCELLED'}
-
-        props = context.scene.gitblend_props
-        
-        # Find the latest commit (HEAD)
-        if not props.commits:
-            self.report({'ERROR'}, "No commits found")
-            return {'CANCELLED'}
-
-        # The first commit in the list is the latest (HEAD)
-        head_commit = props.commits[0]
-        
-        try:
-            checkout_op = GITBLEND_OT_Checkout()
-            checkout_op._restore_to_commit(head_commit.hash)
-            self.report({'INFO'}, f"Checked out to HEAD: {head_commit.hash[:8]}")
-            return {'FINISHED'}
-            
-        except Exception as e:
-            self.report({'ERROR'}, f"Checkout to HEAD failed: {str(e)}")
-            return {'CANCELLED'}
-
-
 def register():
     bpy.utils.register_class(GITBLEND_OT_Checkout)
-    bpy.utils.register_class(GITBLEND_OT_CheckoutHead)
-    bpy.utils.register_class(GITBLEND_OT_DiffCommit)
 
 
 def unregister():
-    bpy.utils.unregister_class(GITBLEND_OT_DiffCommit)
-    bpy.utils.unregister_class(GITBLEND_OT_CheckoutHead)
     bpy.utils.unregister_class(GITBLEND_OT_Checkout)
