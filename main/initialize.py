@@ -136,21 +136,27 @@ class GITBLEND_OT_Initialize(bpy.types.Operator):
             obj_sig = {
                 "name": obj.name,
                 "type": obj.type,
-                "location": list(obj.location) if hasattr(obj, 'location') else None,
-                "rotation": list(obj.rotation_euler) if hasattr(obj, 'rotation_euler') else None,
-                "scale": list(obj.scale) if hasattr(obj, 'scale') else None,
-                "data_name": obj.data.name if obj.data else None
+                "location": [round(x, 6) for x in obj.location] if hasattr(obj, 'location') else None,
+                "rotation": [round(x, 6) for x in obj.rotation_euler] if hasattr(obj, 'rotation_euler') else None,
+                "scale": [round(x, 6) for x in obj.scale] if hasattr(obj, 'scale') else None,
+                "data_name": obj.data.name if obj.data else None,
+                "visible": obj.visible_get() if hasattr(obj, 'visible_get') else True,
+                "hide_viewport": obj.hide_viewport if hasattr(obj, 'hide_viewport') else False
             }
             signature["objects"][obj.name] = obj_sig
         
         # Meshes signature
         for mesh in bpy.data.meshes:
+            # Calculate geometry hash for detecting vertex-level changes
+            geometry_hash = self._calculate_mesh_geometry_hash(mesh)
+            
             mesh_sig = {
                 "name": mesh.name,
                 "vertices": len(mesh.vertices),
                 "edges": len(mesh.edges),
                 "polygons": len(mesh.polygons),
-                "materials": [mat.name if mat else None for mat in mesh.materials]
+                "materials": [mat.name if mat else None for mat in mesh.materials],
+                "geometry_hash": geometry_hash  # This will detect vertex position changes
             }
             signature["meshes"][mesh.name] = mesh_sig
         
@@ -159,8 +165,16 @@ class GITBLEND_OT_Initialize(bpy.types.Operator):
             mat_sig = {
                 "name": mat.name,
                 "use_nodes": mat.use_nodes,
-                "diffuse_color": list(mat.diffuse_color) if hasattr(mat, 'diffuse_color') else None
+                "diffuse_color": [round(x, 4) for x in mat.diffuse_color] if hasattr(mat, 'diffuse_color') else None,
+                "roughness": round(mat.roughness, 4) if hasattr(mat, 'roughness') else None,
+                "metallic": round(mat.metallic, 4) if hasattr(mat, 'metallic') else None,
+                "alpha": round(mat.alpha, 4) if hasattr(mat, 'alpha') else None
             }
+            
+            # Add node tree hash if using nodes
+            if mat.use_nodes and mat.node_tree:
+                mat_sig["node_tree_hash"] = self._calculate_node_tree_hash(mat.node_tree)
+            
             signature["materials"][mat.name] = mat_sig
         
         # Images signature
@@ -192,6 +206,105 @@ class GITBLEND_OT_Initialize(bpy.types.Operator):
             signature["actions"][action.name] = action_sig
         
         return signature
+    
+    def _calculate_mesh_geometry_hash(self, mesh):
+        """Calculate a hash of mesh geometry to detect vertex-level changes"""
+        try:
+            # Ensure mesh is evaluated (in case it's being modified)
+            mesh.calc_loop_triangles()
+            
+            # Collect vertex coordinates
+            vertex_data = []
+            for vertex in mesh.vertices:
+                # Include vertex position (co) and normal for better change detection
+                vertex_data.extend([
+                    round(vertex.co.x, 6),  # Round to avoid floating point precision issues
+                    round(vertex.co.y, 6),
+                    round(vertex.co.z, 6),
+                    round(vertex.normal.x, 6),
+                    round(vertex.normal.y, 6),
+                    round(vertex.normal.z, 6)
+                ])
+            
+            # Include face data for topology changes
+            face_data = []
+            for poly in mesh.polygons:
+                # Include face vertices indices (sorted to be order-independent)
+                face_verts = sorted(poly.vertices)
+                face_data.extend(face_verts)
+                # Include face normal
+                face_data.extend([
+                    round(poly.normal.x, 6),
+                    round(poly.normal.y, 6),
+                    round(poly.normal.z, 6)
+                ])
+            
+            # Combine all geometry data and create hash
+            geometry_data = vertex_data + face_data
+            geometry_string = ','.join(map(str, geometry_data))
+            
+            return hashlib.md5(geometry_string.encode()).hexdigest()
+            
+        except Exception as e:
+            # If we can't calculate geometry hash, use a basic fallback
+            try:
+                # Simple fallback: hash vertex count and face count
+                simple_data = f"{len(mesh.vertices)}_{len(mesh.polygons)}_{len(mesh.edges)}"
+                return hashlib.md5(simple_data.encode()).hexdigest()
+            except Exception:
+                # Ultimate fallback
+                return "unknown"
+    
+    def _calculate_node_tree_hash(self, node_tree):
+        """Calculate a hash of material node tree to detect node changes"""
+        try:
+            node_data = []
+            
+            # Collect node information
+            for node in node_tree.nodes:
+                node_info = [
+                    node.name,
+                    node.type,
+                    str(node.location.x),
+                    str(node.location.y)
+                ]
+                
+                # Add input values for nodes with default values
+                for input_socket in node.inputs:
+                    if hasattr(input_socket, 'default_value'):
+                        try:
+                            if hasattr(input_socket.default_value, '__iter__'):
+                                # Vector/Color values
+                                node_info.extend([str(round(x, 4)) for x in input_socket.default_value])
+                            else:
+                                # Scalar values
+                                node_info.append(str(round(input_socket.default_value, 4)))
+                        except (TypeError, AttributeError):
+                            pass
+                
+                node_data.extend(node_info)
+            
+            # Collect link information
+            for link in node_tree.links:
+                link_info = [
+                    link.from_node.name,
+                    link.from_socket.name,
+                    link.to_node.name,
+                    link.to_socket.name
+                ]
+                node_data.extend(link_info)
+            
+            # Create hash from all node data
+            node_string = ','.join(node_data)
+            return hashlib.md5(node_string.encode()).hexdigest()
+            
+        except Exception:
+            # Fallback: basic node count
+            try:
+                basic_data = f"{len(node_tree.nodes)}_{len(node_tree.links)}"
+                return hashlib.md5(basic_data.encode()).hexdigest()
+            except Exception:
+                return "unknown"
     
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
