@@ -7,6 +7,17 @@ from datetime import datetime
 from pathlib import Path
 
 
+class GITBLEND_OT_RefreshStatus(bpy.types.Operator):
+    bl_idname = "gitblend.refresh_status"
+    bl_label = "Refresh Status"
+    bl_description = "Refresh the initialization status"
+    bl_options = {'REGISTER'}
+    
+    def execute(self, context):
+        check_and_update_initialized_property(context)
+        return {'FINISHED'}
+
+
 class GITBLEND_OT_Initialize(bpy.types.Operator):
     bl_idname = "gitblend.initialize"
     bl_label = "Initialize Git Blend"
@@ -66,6 +77,9 @@ class GITBLEND_OT_Initialize(bpy.types.Operator):
             
             self._export_data_blocks(str(blend_export_path))
             
+            # Update initialized property
+            context.scene.gitblend_props.initialized = True
+            
             self.report({'INFO'}, f"Git Blend initialized with commit: {commit_data['hash'][:8]}")
             return {'FINISHED'}
             
@@ -105,17 +119,77 @@ class GITBLEND_OT_Initialize(bpy.types.Operator):
 
 
 def register_initialize():
+    bpy.utils.register_class(GITBLEND_OT_RefreshStatus)
     bpy.utils.register_class(GITBLEND_OT_Initialize)
+    # Add handlers to check initialization status
+    bpy.app.handlers.load_post.append(on_file_load_check_initialization)
+    bpy.app.handlers.save_post.append(on_file_save_check_initialization)
 
 
 def unregister_initialize():
+    # Remove handlers
+    if on_file_load_check_initialization in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(on_file_load_check_initialization)
+    if on_file_save_check_initialization in bpy.app.handlers.save_post:
+        bpy.app.handlers.save_post.remove(on_file_save_check_initialization)
     bpy.utils.unregister_class(GITBLEND_OT_Initialize)
+    bpy.utils.unregister_class(GITBLEND_OT_RefreshStatus)
+
+
+@bpy.app.handlers.persistent
+def on_file_load_check_initialization(dummy):
+    """Handler to check initialization status when a blend file is loaded"""
+    try:
+        context = bpy.context
+        check_and_update_initialized_property(context)
+    except Exception:
+        pass  # Silently fail if context is not available
+
+
+@bpy.app.handlers.persistent
+def on_file_save_check_initialization(dummy):
+    """Handler to check initialization status when a blend file is saved"""
+    try:
+        context = bpy.context
+        check_and_update_initialized_property(context)
+    except Exception:
+        pass  # Silently fail if context is not available
 
 
 # Utility functions for other modules
 def is_gitblend_initialized(project_dir):
     """Check if .gitblend directory exists"""
     return (project_dir / ".gitblend").exists()
+
+
+def check_and_update_initialized_property(context):
+    """Check if gitblend is initialized and update the property accordingly"""
+    if not bpy.data.filepath:
+        context.scene.gitblend_props.initialized = False
+        return False
+    
+    try:
+        blend_path = Path(bpy.data.filepath).resolve()
+        project_dir = blend_path.parent
+        is_initialized = is_gitblend_initialized(project_dir)
+        context.scene.gitblend_props.initialized = is_initialized
+        return is_initialized
+    except Exception:
+        context.scene.gitblend_props.initialized = False
+        return False
+
+
+def check_initialized_status(context):
+    """Read-only check of initialization status - safe to call from panel draw"""
+    if not bpy.data.filepath:
+        return False
+    
+    try:
+        blend_path = Path(bpy.data.filepath).resolve()
+        project_dir = blend_path.parent
+        return is_gitblend_initialized(project_dir)
+    except Exception:
+        return False
 
 
 def populate_ui_from_metadata(context):

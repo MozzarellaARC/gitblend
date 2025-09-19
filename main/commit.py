@@ -109,6 +109,9 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             # Clear commit message
             props.commit_message = ""
             
+            # Ensure initialized property is set to True
+            props.initialized = True
+            
             # Refresh UI
             from .initialize import populate_ui_from_metadata
             populate_ui_from_metadata(context)

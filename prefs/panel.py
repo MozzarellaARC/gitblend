@@ -1,4 +1,6 @@
 import bpy # type: ignore
+from ..main.initialize import check_initialized_status
+
 
 class GITBLEND_Panel(bpy.types.Panel):
     bl_label = "Git Blend"
@@ -11,7 +13,8 @@ class GITBLEND_Panel(bpy.types.Panel):
         layout = self.layout
         props = context.scene.gitblend_props
 
-        initialized = props.initialized
+        # Check initialization status (read-only, safe in draw method)
+        initialized = check_initialized_status(context)
 
         layout.prop(props, "commit_message", text="Commit Message")
         if not initialized:
