@@ -104,7 +104,8 @@ class GITBLEND_Panel(bpy.types.Panel):
                 
                 # Checkout buttons
                 checkout_row = history_box.row(align=True)
-                checkout_row.operator("gitblend.checkout", text="Checkout", icon='FILE_REFRESH')
+                checkout_op = checkout_row.operator("gitblend.checkout", text="Checkout", icon='FILE_REFRESH')
+                checkout_op.commit_hash = selected_commit.hash
                 checkout_row.operator("gitblend.checkout_head", text="Checkout HEAD", icon='HOME')
                 
                 # Diff button

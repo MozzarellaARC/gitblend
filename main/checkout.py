@@ -32,6 +32,14 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
         gitblend_dir = project_dir / ".gitblend"
         metadata_file = gitblend_dir / "commits.json"
         
+        # Debug: Print the commit hash we're looking for
+        print(f"[GitBlend] Attempting to checkout commit: {self.commit_hash}")
+        
+        # Validate commit hash is provided
+        if not self.commit_hash:
+            self.report({'ERROR'}, "No commit hash provided. Please select a commit first.")
+            return {'CANCELLED'}
+        
         # Validate .gitblend exists
         if not gitblend_dir.exists():
             self.report({'ERROR'}, "Git Blend not initialized")
@@ -51,6 +59,11 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 self.report({'ERROR'}, "No commits found in metadata")
                 return {'CANCELLED'}
             
+            # Debug: Print available commits
+            print(f"[GitBlend] Available commits:")
+            for commit in commits:
+                print(f"  - {commit.get('hash', 'NO_HASH')[:8]}: {commit.get('message', 'NO_MESSAGE')}")
+            
             # Find target commit
             target_commit = None
             for commit in commits:
@@ -59,6 +72,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                     break
             
             if not target_commit:
+                print(f"[GitBlend] Commit hash '{self.commit_hash}' not found in available commits")
                 self.report({'ERROR'}, f"Commit {self.commit_hash[:8]} not found")
                 return {'CANCELLED'}
             
