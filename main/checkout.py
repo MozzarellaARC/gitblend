@@ -252,6 +252,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                         data_to.materials = data_from.materials  
                         data_to.images = data_from.images
                         data_to.actions = data_from.actions
+                        data_to.node_groups = data_from.node_groups
                 
                 # Link found objects to scene
                 scene = bpy.context.scene
@@ -311,6 +312,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                     data_to.materials = data_from.materials
                     data_to.images = data_from.images
                     data_to.actions = data_from.actions
+                    data_to.node_groups = data_from.node_groups
                     
                     print(f"[GitBlend] Loaded {len(objects_to_load)} missing objects from commit")
             
@@ -376,6 +378,11 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
         for action in list(bpy.data.actions):
             if action.users == 0:
                 bpy.data.actions.remove(action, do_unlink=True)
+        
+        # Clear orphaned node groups
+        for node_group in list(bpy.data.node_groups):
+            if node_group.users == 0:
+                bpy.data.node_groups.remove(node_group, do_unlink=True)
         
         # Clear texts (usually safe to clear all)
         for text in list(bpy.data.texts):
@@ -446,6 +453,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 data_to.images = data_from.images
                 data_to.texts = data_from.texts
                 data_to.actions = data_from.actions
+                data_to.node_groups = data_from.node_groups
             
             # Link all objects to the scene
             scene = bpy.context.scene
@@ -471,6 +479,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             delta_images = []
             delta_texts = []
             delta_actions = []
+            delta_node_groups = []
             
             with bpy.data.libraries.load(blend_file_path, link=False, assets_only=False) as (data_from, data_to):
                 # Don't load anything yet, just inspect what's available
@@ -480,12 +489,15 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 delta_images = list(data_from.images)
                 delta_texts = list(data_from.texts)
                 delta_actions = list(data_from.actions)
+                delta_node_groups = list(data_from.node_groups)
             
             print(f"[GitBlend] Delta contains: {len(delta_objects)} objects, {len(delta_meshes)} meshes, "
-                  f"{len(delta_materials)} materials, {len(delta_images)} images")
+                  f"{len(delta_materials)} materials, {len(delta_images)} images, {len(delta_node_groups)} node groups")
             
             # Now surgically replace each type of data block
             # Process in order: data blocks first, then objects that depend on them
+            if delta_node_groups:
+                self._replace_data_blocks(blend_file_path, 'node_groups', delta_node_groups)
             if delta_meshes:
                 self._replace_data_blocks(blend_file_path, 'meshes', delta_meshes)
             if delta_materials:
@@ -540,6 +552,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 data_to.materials = data_from.materials
                 data_to.images = data_from.images
                 data_to.actions = data_from.actions
+                data_to.node_groups = data_from.node_groups
             
             # Link new objects to scene
             added_objects = []
@@ -568,7 +581,8 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             'materials': bpy.data.materials,
             'images': bpy.data.images,
             'texts': bpy.data.texts,
-            'actions': bpy.data.actions
+            'actions': bpy.data.actions,
+            'node_groups': bpy.data.node_groups
         }
         
         collection = collections_map.get(data_type)
@@ -578,7 +592,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
         
         # Store relationships using object NAMES instead of object references
         dependent_relationships = {}
-        if data_type in ['meshes', 'materials']:
+        if data_type in ['meshes', 'materials', 'node_groups']:
             for obj in bpy.data.objects:
                 if data_type == 'meshes' and obj.type == 'MESH' and obj.data and obj.data.name in block_names:
                     dependent_relationships[obj.data.name] = obj.name
@@ -588,6 +602,22 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                             if mat.name not in dependent_relationships:
                                 dependent_relationships[mat.name] = []
                             dependent_relationships[mat.name].append((obj.name, i))
+                elif data_type == 'node_groups':
+                    # Track geometry node modifier dependencies
+                    if hasattr(obj, 'modifiers'):
+                        for mod in obj.modifiers:
+                            if mod.type == 'NODES' and hasattr(mod, 'node_group') and mod.node_group and mod.node_group.name in block_names:
+                                if mod.node_group.name not in dependent_relationships:
+                                    dependent_relationships[mod.node_group.name] = []
+                                dependent_relationships[mod.node_group.name].append((obj.name, mod.name))
+            
+            # Also track material node tree dependencies
+            if data_type == 'node_groups':
+                for material in bpy.data.materials:
+                    if material.use_nodes and material.node_tree and material.node_tree.name in block_names:
+                        if material.node_tree.name not in dependent_relationships:
+                            dependent_relationships[material.node_tree.name] = []
+                        dependent_relationships[material.node_tree.name].append(('material', material.name))
         
         # Remove existing data blocks
         for block_name in block_names:
@@ -603,8 +633,12 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             target_collection = getattr(data_to, data_type)
             target_collection[:] = [name for name in source_collection if name in block_names]
         
-        # Restore references using object names (safer)
+        # Handle node group deduplication by renaming conflicts
         target_data = getattr(data_to, data_type)
+        if data_type == 'node_groups':
+            self._resolve_node_group_duplicates(target_data)
+        
+        # Restore references using object names (safer)
         if data_type == 'meshes':
             for mesh in target_data:
                 if mesh and mesh.name in dependent_relationships:
@@ -633,7 +667,48 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                         else:
                             print(f"[GitBlend] Warning: Object {obj_name} no longer exists, skipping material reference")
         
+        elif data_type == 'node_groups':
+            for node_group in target_data:
+                if node_group and node_group.name in dependent_relationships:
+                    for ref_type, ref_name in dependent_relationships[node_group.name]:
+                        if ref_type == 'material':
+                            # Restore material node tree reference
+                            material = bpy.data.materials.get(ref_name)
+                            if material:
+                                material.node_tree = node_group
+                                print(f"[GitBlend] Restored material node tree reference: {material.name} -> {node_group.name}")
+                        else:
+                            # Restore geometry node modifier reference (ref_type is obj_name, ref_name is mod_name)
+                            obj = bpy.data.objects.get(ref_type)
+                            if obj and hasattr(obj, 'modifiers'):
+                                mod = obj.modifiers.get(ref_name)
+                                if mod and mod.type == 'NODES':
+                                    mod.node_group = node_group
+                                    print(f"[GitBlend] Restored geometry node reference: {obj.name}.{mod.name} -> {node_group.name}")
+        
         print(f"[GitBlend] Added {len(target_data)} new {data_type}")
+    
+    def _resolve_node_group_duplicates(self, imported_node_groups):
+        """Resolve node group name conflicts by renaming duplicates"""
+        for node_group in imported_node_groups:
+            if not node_group:
+                continue
+                
+            original_name = node_group.name
+            existing_node_group = bpy.data.node_groups.get(original_name)
+            
+            if existing_node_group and existing_node_group != node_group:
+                # Name conflict - generate a unique name
+                base_name = original_name
+                counter = 1
+                new_name = f"{base_name}.{counter:03d}"
+                
+                while bpy.data.node_groups.get(new_name):
+                    counter += 1
+                    new_name = f"{base_name}.{counter:03d}"
+                
+                print(f"[GitBlend] Resolving node group name conflict: {original_name} -> {new_name}")
+                node_group.name = new_name
     
     def _cleanup_orphaned_data(self):
         """Clean up orphaned data blocks after reconstruction"""
@@ -667,6 +742,13 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 bpy.data.actions.remove(action, do_unlink=True)
                 removed_actions += 1
         
+        # Clean up node groups with no users
+        removed_node_groups = 0
+        for node_group in list(bpy.data.node_groups):
+            if node_group.users == 0 and not node_group.use_fake_user:
+                bpy.data.node_groups.remove(node_group, do_unlink=True)
+                removed_node_groups += 1
+        
         # Clean up texts with no users
         removed_texts = 0
         for text in list(bpy.data.texts):
@@ -676,7 +758,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
         
         print(f"[GitBlend] Cleanup complete: removed {removed_meshes} meshes, "
               f"{removed_materials} materials, {removed_images} images, "
-              f"{removed_actions} actions, {removed_texts} texts")
+              f"{removed_actions} actions, {removed_node_groups} node groups, {removed_texts} texts")
 
 
 def register():

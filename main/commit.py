@@ -139,7 +139,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 "materials": current_counts.get("materials", 0),
                 "images": current_counts.get("images", 0),
                 "texts": current_counts.get("texts", 0),
-                "actions": current_counts.get("actions", 0)
+                "actions": current_counts.get("actions", 0),
+                "node_groups": current_counts.get("node_groups", 0)
             }
             # For first commit, export everything
             all_data_blocks = self._get_all_data_blocks()
@@ -187,7 +188,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             "materials": {},
             "images": {},
             "texts": {},
-            "actions": {}
+            "actions": {},
+            "node_groups": {}
         }
         
         # Objects signature
@@ -266,7 +268,46 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             }
             signature["actions"][action.name] = action_sig
         
+        # Node groups signature - simplified counting approach for change detection
+        for node_group in bpy.data.node_groups:
+            node_group_sig = {
+                "name": node_group.name,
+                "type": getattr(node_group, 'type', 'UNKNOWN'),
+                "nodes_count": len(node_group.nodes) if hasattr(node_group, 'nodes') else 0,
+                "links_count": len(node_group.links) if hasattr(node_group, 'links') else 0,
+                # Simplified hash for detecting internal changes
+                "content_hash": self._calculate_simple_node_group_hash(node_group)
+            }
+            signature["node_groups"][node_group.name] = node_group_sig
+        
         return signature
+    
+    def _calculate_simple_node_group_hash(self, node_group):
+        """Calculate a simplified hash for node group change detection using basic counting"""
+        try:
+            # Use node count and basic node type counts for change detection
+            node_type_counts = {}
+            for node in node_group.nodes:
+                node_type = getattr(node, 'type', 'UNKNOWN')
+                node_type_counts[node_type] = node_type_counts.get(node_type, 0) + 1
+            
+            # Create a simple hash from counts
+            hash_data = [
+                len(node_group.nodes),
+                len(node_group.links),
+                str(sorted(node_type_counts.items()))
+            ]
+            
+            hash_string = '_'.join(map(str, hash_data))
+            return hashlib.md5(hash_string.encode()).hexdigest()
+            
+        except Exception as e:
+            # Fallback to basic counting if detailed analysis fails
+            try:
+                basic_data = f"{len(node_group.nodes)}_{len(node_group.links)}"
+                return hashlib.md5(basic_data.encode()).hexdigest()
+            except Exception:
+                return "unknown"
     
     def _calculate_mesh_geometry_hash(self, mesh):
         """Calculate a hash of mesh geometry to detect vertex-level changes - optimized version"""
@@ -574,10 +615,11 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             'materials': bpy.data.materials,
             'images': bpy.data.images,
             'texts': bpy.data.texts,
-            'actions': bpy.data.actions
+            'actions': bpy.data.actions,
+            'node_groups': bpy.data.node_groups
         }
         
-        for data_type in ["objects", "meshes", "materials", "images", "texts", "actions"]:
+        for data_type in ["objects", "meshes", "materials", "images", "texts", "actions", "node_groups"]:
             current_items = current_sig.get(data_type, {})
             previous_items = previous_sig.get(data_type, {})
             collection = data_collections[data_type]
@@ -638,7 +680,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             'materials': bpy.data.materials,
             'images': bpy.data.images,
             'texts': bpy.data.texts,
-            'actions': bpy.data.actions
+            'actions': bpy.data.actions,
+            'node_groups': bpy.data.node_groups
         }
         
         for collection_name, collection in data_collections.items():
@@ -654,19 +697,90 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             self._export_data_blocks(export_path)
             return
         
-        # Add dependencies for the changed data blocks
-        data_blocks_to_write = set(changed_data_blocks)
+        # Check if this commit involves node group changes
+        has_node_changes = any(hasattr(block, 'bl_rna') and 
+                               hasattr(block.bl_rna, 'identifier') and 
+                               block.bl_rna.identifier == 'NodeTree' 
+                               for block in changed_data_blocks)
         
-        # Resolve dependencies
-        self._add_dependencies(data_blocks_to_write, changed_data_blocks)
+        if has_node_changes:
+            # For node changes, export whole node groups and all related objects
+            data_blocks_to_write = self._get_node_related_data_blocks(changed_data_blocks)
+        else:
+            # Regular delta export logic
+            data_blocks_to_write = set(changed_data_blocks)
+            # Resolve dependencies
+            self._add_dependencies(data_blocks_to_write, changed_data_blocks)
         
-        # Write only the changed data blocks and their dependencies
+        # Write the data blocks
         try:
             bpy.data.libraries.write(export_path, data_blocks_to_write, fake_user=True)
         except Exception as e:
             # Fallback to full export if delta export fails
             print(f"Delta export failed: {e}, falling back to full export")
             self._export_data_blocks(export_path)
+    
+    def _get_node_related_data_blocks(self, changed_data_blocks):
+        """Get all data blocks related to node changes - including whole node groups and related objects"""
+        data_blocks_to_write = set()
+        
+        # Find all changed node groups
+        changed_node_groups = set()
+        for block in changed_data_blocks:
+            if hasattr(block, 'bl_rna') and hasattr(block.bl_rna, 'identifier') and block.bl_rna.identifier == 'NodeTree':
+                changed_node_groups.add(block)
+        
+        # Add ALL node groups (not just changed ones) to avoid dependency issues
+        for node_group in bpy.data.node_groups:
+            data_blocks_to_write.add(node_group)
+        
+        # Find all objects that use geometry nodes or have material nodes
+        objects_using_nodes = set()
+        for obj in bpy.data.objects:
+            # Check for geometry node modifiers
+            if hasattr(obj, 'modifiers'):
+                for mod in obj.modifiers:
+                    if mod.type == 'NODES' and hasattr(mod, 'node_group') and mod.node_group:
+                        objects_using_nodes.add(obj)
+                        break
+            
+            # Check for material nodes
+            if hasattr(obj, 'material_slots'):
+                for slot in obj.material_slots:
+                    if slot.material and slot.material.use_nodes and slot.material.node_tree:
+                        objects_using_nodes.add(obj)
+                        break
+        
+        # Add all objects using nodes and their dependencies
+        for obj in objects_using_nodes:
+            data_blocks_to_write.add(obj)
+            # Add object's mesh data
+            if obj.data:
+                data_blocks_to_write.add(obj.data)
+            # Add object's materials
+            if hasattr(obj, 'material_slots'):
+                for slot in obj.material_slots:
+                    if slot.material:
+                        data_blocks_to_write.add(slot.material)
+        
+        # Add all materials that use nodes (even if not on objects using geometry nodes)
+        for material in bpy.data.materials:
+            if material.use_nodes and material.node_tree:
+                data_blocks_to_write.add(material)
+        
+        # Add all images that might be used in node trees
+        for image in bpy.data.images:
+            data_blocks_to_write.add(image)
+        
+        # Add other changed data blocks that are not node groups
+        for block in changed_data_blocks:
+            if not (hasattr(block, 'bl_rna') and hasattr(block.bl_rna, 'identifier') and block.bl_rna.identifier == 'NodeTree'):
+                data_blocks_to_write.add(block)
+        
+        print(f"[GitBlend] Node-related export: {len(data_blocks_to_write)} data blocks")
+        print(f"[GitBlend] Including: {len(objects_using_nodes)} objects with nodes, {len(list(bpy.data.node_groups))} node groups")
+        
+        return data_blocks_to_write
     
     def _add_dependencies(self, data_blocks_to_write, changed_data_blocks):
         """Add necessary dependencies for changed data blocks"""
@@ -707,6 +821,18 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             if hasattr(data_block, 'animation_data') and data_block.animation_data:
                 if data_block.animation_data.action:
                     data_blocks_to_write.add(data_block.animation_data.action)
+            
+            # Node group dependencies
+            if hasattr(data_block, 'node_tree') and data_block.node_tree:
+                data_blocks_to_write.add(data_block.node_tree)
+            
+            # Geometry node modifier dependencies
+            if hasattr(data_block, 'modifiers'):
+                for mod in data_block.modifiers:
+                    if mod.type == 'NODES' and hasattr(mod, 'node_group') and mod.node_group:
+                        data_blocks_to_write.add(mod.node_group)
+                        # Add any node groups referenced by this node group
+                        self._add_nested_node_group_dependencies(mod.node_group, data_blocks_to_write)
             
             # Modifier dependencies
             if hasattr(data_block, 'modifiers'):
@@ -761,6 +887,27 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
         for data_block in list(changed_data_blocks):
             add_block_dependencies(data_block)
     
+    def _add_nested_node_group_dependencies(self, node_group, data_blocks_to_write, visited=None):
+        """Recursively add dependencies for node groups that reference other node groups"""
+        if visited is None:
+            visited = set()
+        
+        if node_group in visited:
+            return  # Avoid infinite recursion
+        
+        visited.add(node_group)
+        
+        try:
+            # Check all nodes in this node group for references to other node groups
+            for node in node_group.nodes:
+                if hasattr(node, 'node_tree') and node.node_tree:
+                    # This node references another node group
+                    data_blocks_to_write.add(node.node_tree)
+                    # Recursively add dependencies of that node group
+                    self._add_nested_node_group_dependencies(node.node_tree, data_blocks_to_write, visited)
+        except Exception as e:
+            print(f"[GitBlend] Warning: Could not analyze node group dependencies for {node_group.name}: {e}")
+    
     def _get_data_block_counts(self):
         """Get counts of current data blocks"""
         return {
@@ -769,7 +916,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             "materials": len(bpy.data.materials),
             "images": len(bpy.data.images),
             "texts": len(bpy.data.texts),
-            "actions": len(bpy.data.actions)
+            "actions": len(bpy.data.actions),
+            "node_groups": len(bpy.data.node_groups)
         }
     
     def _get_previous_data_block_counts(self, previous_blend_path):
@@ -802,7 +950,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             'materials': bpy.data.materials,
             'images': bpy.data.images,
             'texts': bpy.data.texts,
-            'actions': bpy.data.actions
+            'actions': bpy.data.actions,
+            'node_groups': bpy.data.node_groups
         }
         
         # Collect all data blocks to write
