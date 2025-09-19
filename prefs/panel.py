@@ -1,6 +1,11 @@
 import bpy # type: ignore
 from ..main.initialize import check_initialized_status
 
+class GITBLEND_UL_commit_history(bpy.types.UIList):
+    bl_idname = "GITBLEND_UL_commit_history"
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        pass
 
 class GITBLEND_Panel(bpy.types.Panel):
     bl_label = "Git Blend"
