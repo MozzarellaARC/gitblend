@@ -1,19 +1,20 @@
 import bpy # type: ignore
+import time
 
-class GITBLEND_MT_stash_specials(bpy.types.Menu):
-    """Special operations menu for stash list."""
-    bl_idname = "GITBLEND_MT_stash_specials"
-    bl_label = "Stash Specials"
+# class GITBLEND_MT_stash_specials(bpy.types.Menu):
+#     """Special operations menu for stash list."""
+#     bl_idname = "GITBLEND_MT_stash_specials"
+#     bl_label = "Stash Specials"
 
-    def draw(self, context):
-        layout = self.layout
-        props = context.scene.gitblend_props
+#     def draw(self, context):
+#         layout = self.layout
+#         props = context.scene.gitblend_props
         
-        # Unstash option
-        if props.stashed_objects and props.stashed_objects_index >= 0:
-            layout.operator("gitblend.unstash", text="Unstash", icon='IMPORT')
-        else:
-            layout.label(text="No stash selected", icon='INFO')
+#         # Unstash option
+#         if props.stashed_objects and props.stashed_objects_index >= 0:
+#             layout.operator("gitblend.unstash", text="Unstash", icon='IMPORT')
+#         else:
+#             layout.label(text="No stash selected", icon='INFO')
 
 
 class GITBLEND_UL_commit_history(bpy.types.UIList):
@@ -27,18 +28,8 @@ class GITBLEND_UL_commit_history(bpy.types.UIList):
             # Truncate hash for display
             short_hash = commit.hash[:8] if commit.hash else "<none>"
             
-            # Check if this commit has branches created from it
+            # Simple icon for commits (removed branch checking for now)
             commit_icon = 'FILE_BLEND'
-            try:
-                from pathlib import Path
-                from ..main.initialize import has_branches_from_commit
-                blend_path = bpy.data.filepath
-                if blend_path and commit.hash:
-                    project_dir = Path(blend_path).resolve().parent
-                    if has_branches_from_commit(project_dir, commit.hash):
-                        commit_icon = 'OUTLINER_OB_GROUP_INSTANCE'  # Different icon for commits with branches
-            except Exception:
-                pass
             
             row.label(text=short_hash, icon=commit_icon)
             # Show timestamp (fallback to blank if missing)
@@ -59,30 +50,30 @@ class GITBLEND_UL_commit_history(bpy.types.UIList):
         return flt_flags, flt_neworder
 
 
-class GITBLEND_UL_stash_list(bpy.types.UIList):
-    """UIList showing stashed objects."""
-    bl_idname = "GITBLEND_UL_stash_list"
+# class GITBLEND_UL_stash_list(bpy.types.UIList):
+#     """UIList showing stashed objects."""
+#     bl_idname = "GITBLEND_UL_stash_list"
 
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):  # noqa: D401
-        stash = item
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            row = layout.row(align=True)
-            # Show UID
-            short_uid = stash.uid[:8] if stash.uid else "<none>"
-            row.label(text=short_uid, icon='OBJECT_DATA')
-            # Show original object names (truncated)
-            original_names = getattr(stash, 'original_names', '') or ''
-            row.label(text=original_names[:50])
-        elif self.layout_type in {'GRID'}:
-            layout.alignment = 'CENTER'
-            layout.label(text=stash.uid[:8])
+#     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):  # noqa: D401
+#         stash = item
+#         if self.layout_type in {'DEFAULT', 'COMPACT'}:
+#             row = layout.row(align=True)
+#             # Show UID
+#             short_uid = stash.uid[:8] if stash.uid else "<none>"
+#             row.label(text=short_uid, icon='OBJECT_DATA')
+#             # Show original object names (truncated)
+#             original_names = getattr(stash, 'original_names', '') or ''
+#             row.label(text=original_names[:50])
+#         elif self.layout_type in {'GRID'}:
+#             layout.alignment = 'CENTER'
+#             layout.label(text=stash.uid[:8])
 
-    def filter_items(self, context, data, propname):  # noqa: D401
-        # No filtering yet
-        items = getattr(data, propname)
-        flt_flags = [self.bitflag_filter_item] * len(items)
-        flt_neworder = []
-        return flt_flags, flt_neworder
+#     def filter_items(self, context, data, propname):  # noqa: D401
+#         # No filtering yet
+#         items = getattr(data, propname)
+#         flt_flags = [self.bitflag_filter_item] * len(items)
+#         flt_neworder = []
+#         return flt_flags, flt_neworder
 
 
 class GITBLEND_Panel(bpy.types.Panel):
@@ -145,52 +136,6 @@ class GITBLEND_Panel(bpy.types.Panel):
                 # Everything is set up
                 row_init.label(text="Initialized", icon='CHECKMARK')
                 box_repo.operator("gitblend.initialize", text="Sync", icon='FILE_REFRESH')
-            
-            # Branch status display (when initialized)
-            if gitblend_initialized:
-                # Only update branch status when necessary (not on every redraw)
-                try:
-                    # Check if we need to update branch status
-                    needs_update = False
-                    
-                    # Always update if we don't have branch display info
-                    if not props.current_branch_display:
-                        needs_update = True
-                    # Check if we're missing branch enum value
-                    elif not props.branch_enum:
-                        needs_update = True
-                    # Periodically refresh (every ~2 seconds of redraws, roughly)
-                    elif not hasattr(props, '_last_branch_update_time') or (time.time() - getattr(props, '_last_branch_update_time', 0)) > 2.0:
-                        needs_update = True
-                    
-                    if needs_update:
-                        from ..main.initialize import update_branch_status
-                        import time
-                        update_branch_status(context)
-                        props._last_branch_update_time = time.time()
-                except Exception:
-                    pass
-                
-                # Branch info row
-                branch_row = box_repo.row(align=True)
-                branch_row.label(text=f"Branch: {props.current_branch_display}", icon='OUTLINER_OB_GROUP_INSTANCE')
-                
-                # HEAD status indicator
-                if props.is_on_head:
-                    branch_row.label(text="HEAD", icon='CHECKMARK')
-                else:
-                    branch_row.label(text="DETACHED", icon='ERROR')
-                
-                # Branch selection dropdown (always show if initialized)
-                try:
-                    from pathlib import Path
-                    from ..main.initialize import get_branch_names
-                    project_dir = Path(bpy.data.filepath).resolve().parent
-                    branch_names = get_branch_names(project_dir)
-                    if branch_names:  # Show if any branches exist
-                        box_repo.prop(props, "branch_enum", text="Branch")
-                except Exception:
-                    pass
 
         # Commit History Section (Collapsible)
         box_history = layout.box()
@@ -203,94 +148,63 @@ class GITBLEND_Panel(bpy.types.Panel):
         if props.show_history_section:
             col = box_history.column(align=True)
             
-            # Only update branch-filtered commits when necessary (not on every redraw)
+            # Populate commits for display (simplified without branch filtering)
             if gitblend_initialized:
                 try:
-                    # Check if branch commits need refreshing
-                    needs_refresh = False
-                    
-                    # Check if branch_commits is empty
-                    if not props.branch_commits:
-                        needs_refresh = True
-                    # Check if current branch has changed
-                    elif hasattr(props, '_last_panel_branch') and props._last_panel_branch != props.current_branch_display:
-                        needs_refresh = True
-                    # Check if branch_commits count doesn't match expected count
-                    elif hasattr(props, '_last_panel_commit_count') and props._last_panel_commit_count != len(props.commits):
-                        needs_refresh = True
-                    
-                    if needs_refresh:
-                        from ..main.initialize import populate_branch_commits
-                        populate_branch_commits(context)
-                        # Cache the current state to avoid unnecessary refreshes
-                        props._last_panel_branch = props.current_branch_display
-                        props._last_panel_commit_count = len(props.commits)
+                    # Simple refresh of commits without branch filtering
+                    if not props.commits or len(props.commits) != len(props.branch_commits):
+                        from ..main.initialize import populate_ui_from_metadata
+                        populate_ui_from_metadata(context)
+                        # Copy commits to branch_commits for display
+                        props.branch_commits.clear()
+                        for commit in props.commits:
+                            branch_commit = props.branch_commits.add()
+                            branch_commit.hash = commit.hash
+                            branch_commit.message = commit.message
+                            branch_commit.timestamp = commit.timestamp
                 except Exception:
                     pass
             
             col.template_list("GITBLEND_UL_commit_history", "", props, "branch_commits", props, "branch_commits_index", rows=5)
             
-            # Show commit controls if initialized
+            # Show commit controls if initialized (simplified)
             if gitblend_initialized:
-                # Show different input fields based on HEAD status
-                if props.is_on_head:
-                    # On HEAD: show commit message input
-                    box_history.prop(props, "commit_message", text="Message")
-                    row = box_history.row(align=True)
-                    row.operator("gitblend.commit", text="Commit", icon='FILE_TICK')
-                else:
-                    # Detached: check if we should show commit or create branch button
-                    try:
-                        from ..main.initialize import should_show_commit_button_on_detached
-                        show_commit = should_show_commit_button_on_detached(context)
-                    except Exception:
-                        show_commit = False
-                    
-                    if show_commit:
-                        # Show commit message input and commit button (committing to empty branch)
-                        box_history.prop(props, "commit_message", text="Message")
-                        row = box_history.row(align=True)
-                        row.operator("gitblend.commit", text="Commit", icon='FILE_TICK')
-                        # Show info about which branch will be updated
-                        info_row = box_history.row()
-                        info_row.label(text=f"Will commit to branch: {props.branch_enum}", icon='INFO')
-                    else:
-                        # Show branch name input and create branch button
-                        box_history.prop(props, "branch_name", text="New Branch")
-                        row = box_history.row(align=True)
-                        row.operator("gitblend.create_branch", text="Create Branch", icon='OUTLINER_OB_GROUP_INSTANCE')
+                # Always show commit message input and commit button
+                box_history.prop(props, "commit_message", text="Message")
+                row = box_history.row(align=True)
+                row.operator("gitblend.commit", text="Commit", icon='FILE_TICK')
             elif blend_saved and not gitblend_initialized:
                 # Only show "Not initialized" warning if blend file is saved but not initialized
                 warn_box = box_history.box()
                 warn_box.label(text="Not initialized", icon='ERROR')
 
-        # Stash section (Already collapsible)
-        layout.separator()
-        stash_box = layout.box()
+        # # Stash section (commented out for now)
+        # layout.separator()
+        # stash_box = layout.box()
         
-        # Collapsible header for stash section
-        stash_header = stash_box.row()
-        stash_header.prop(props, "show_stash_section", 
-                         icon="TRIA_DOWN" if props.show_stash_section else "TRIA_RIGHT", 
-                         icon_only=True, emboss=False)
-        stash_header.label(text="Object Stash")
+        # # Collapsible header for stash section
+        # stash_header = stash_box.row()
+        # stash_header.prop(props, "show_stash_section", 
+        #                  icon="TRIA_DOWN" if props.show_stash_section else "TRIA_RIGHT", 
+        #                  icon_only=True, emboss=False)
+        # stash_header.label(text="Object Stash")
         
-        # Show stash content only if expanded
-        if props.show_stash_section:
-            # Stash UIList with vertex groups-style layout
-            row_stash = stash_box.row()
+        # # Show stash content only if expanded
+        # if props.show_stash_section:
+        #     # Stash UIList with vertex groups-style layout
+        #     row_stash = stash_box.row()
             
-            # Left side: UIList
-            col_list = row_stash.column()
-            col_list.template_list("GITBLEND_UL_stash_list", "", props, "stashed_objects", props, "stashed_objects_index", rows=3)
+        #     # Left side: UIList
+        #     col_list = row_stash.column()
+        #     col_list.template_list("GITBLEND_UL_stash_list", "", props, "stashed_objects", props, "stashed_objects_index", rows=3)
             
-            # Right side: Plus/Minus buttons (similar to vertex groups)
-            col_buttons = row_stash.column(align=True)
-            col_buttons.operator("gitblend.stash", text="", icon='ADD')
+        #     # Right side: Plus/Minus buttons (similar to vertex groups)
+        #     col_buttons = row_stash.column(align=True)
+        #     col_buttons.operator("gitblend.stash", text="", icon='ADD')
             
-            # Minus button (delete selected stash) - only enabled if stash is selected
-            col_buttons.operator("gitblend.delete_stash", text="", icon='REMOVE')
+        #     # Minus button (delete selected stash) - only enabled if stash is selected
+        #     col_buttons.operator("gitblend.delete_stash", text="", icon='REMOVE')
             
-            # Submenu button for additional actions (unstash)
-            col_buttons.separator()
-            col_buttons.menu("GITBLEND_MT_stash_specials", icon='DOWNARROW_HLT', text="")
+        #     # Submenu button for additional actions (unstash)
+        #     col_buttons.separator()
+        #     col_buttons.menu("GITBLEND_MT_stash_specials", icon='DOWNARROW_HLT', text="")
