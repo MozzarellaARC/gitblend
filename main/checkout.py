@@ -83,22 +83,15 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 self.report({'ERROR'}, "Failed to build commit chain")
                 return {'CANCELLED'}
             
-            # Clear current scene
-            self._clear_scene()
+            # Load target commit signature to know what complete scene should look like
+            target_signature = self._load_commit_signature(gitblend_dir, target_commit['hash'])
+            if not target_signature:
+                self.report({'ERROR'}, "Could not load target commit signature")
+                return {'CANCELLED'}
             
-            # Apply commits in order (initial + deltas for reconstruction)
-            print(f"[GitBlend] Reconstructing scene with {len(commit_chain)} commits")
-            for i, commit in enumerate(commit_chain):
-                commit_file = gitblend_dir / f"{commit['hash']}.blend"
-                
-                if not commit_file.exists():
-                    self.report({'ERROR'}, f"Commit file {commit['hash'][:8]} not found")
-                    return {'CANCELLED'}
-                
-                # Load and apply this commit's data
-                is_delta = commit.get('delta_export', False)
-                print(f"[GitBlend] Applying commit {i+1}/{len(commit_chain)}: {commit['hash'][:8]} ({'delta' if is_delta else 'full'})")
-                self._apply_commit_data(str(commit_file), is_delta)
+            # Use signature-based reconstruction instead of clearing everything
+            print(f"[GitBlend] Reconstructing scene to match target signature")
+            self._reconstruct_scene_from_signature(gitblend_dir, commit_chain, target_signature)
             
             # Simple cleanup of any remaining orphaned data blocks
             print(f"[GitBlend] Final cleanup of orphaned data blocks")
@@ -149,6 +142,210 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             print(f"  {i+1}. {commit['hash'][:8]}: {commit['message']} ({'delta' if is_delta else 'full'})")
         
         return chain
+    
+    def _load_commit_signature(self, gitblend_dir, commit_hash):
+        """Load the signature file for a commit to know what objects should exist"""
+        signature_file = gitblend_dir / f"{commit_hash}_signature.json"
+        
+        if not signature_file.exists():
+            print(f"[GitBlend] Warning: No signature file found for commit {commit_hash[:8]}")
+            return None
+        
+        try:
+            with signature_file.open('r') as f:
+                signature = json.load(f)
+            print(f"[GitBlend] Loaded signature for commit {commit_hash[:8]}: "
+                  f"{len(signature.get('objects', {}))} objects expected")
+            return signature
+        except Exception as e:
+            print(f"[GitBlend] Error loading signature for commit {commit_hash[:8]}: {e}")
+            return None
+    
+    def _reconstruct_scene_from_signature(self, gitblend_dir, commit_chain, target_signature):
+        """Reconstruct scene to match target signature by intelligently applying commits"""
+        print(f"[GitBlend] Starting signature-based reconstruction")
+        
+        # Clear current scene first
+        self._clear_scene()
+        
+        # Step 1: Apply the initial commit (full state)
+        initial_commit = commit_chain[0]
+        initial_file = gitblend_dir / f"{initial_commit['hash']}.blend"
+        print(f"[GitBlend] Loading initial commit: {initial_commit['hash'][:8]}")
+        self._load_full_commit(str(initial_file))
+        
+        # Step 2: Apply each delta commit
+        for i, commit in enumerate(commit_chain[1:], 1):
+            commit_file = gitblend_dir / f"{commit['hash']}.blend"
+            is_delta = commit.get('delta_export', False)
+            print(f"[GitBlend] Applying delta commit {i}/{len(commit_chain)-1}: {commit['hash'][:8]}")
+            
+            if is_delta:
+                self._apply_delta_commit(str(commit_file))
+            else:
+                # If it's not a delta (shouldn't happen after initial), treat as full
+                self._load_full_commit(str(commit_file))
+        
+        # Step 3: Ensure final scene matches target signature exactly
+        self._enforce_signature_compliance(gitblend_dir, commit_chain, target_signature)
+    
+    def _enforce_signature_compliance(self, gitblend_dir, commit_chain, target_signature):
+        """Ensure the final scene exactly matches what the target signature expects"""
+        print(f"[GitBlend] Enforcing signature compliance")
+        
+        expected_objects = set(target_signature.get('objects', {}).keys())
+        current_objects = set(obj.name for obj in bpy.data.objects)
+        
+        print(f"[GitBlend] Expected: {len(expected_objects)} objects")
+        print(f"[GitBlend] Current: {len(current_objects)} objects")
+        
+        # Handle missing objects
+        missing_objects = expected_objects - current_objects
+        if missing_objects:
+            print(f"[GitBlend] Missing {len(missing_objects)} objects: {missing_objects}")
+            self._restore_missing_objects_from_chain(gitblend_dir, commit_chain, missing_objects)
+        
+        # Handle extra objects  
+        extra_objects = current_objects - expected_objects
+        if extra_objects:
+            print(f"[GitBlend] Removing {len(extra_objects)} extra objects: {extra_objects}")
+            self._remove_extra_objects(extra_objects)
+        
+        # Verify final state
+        final_objects = set(obj.name for obj in bpy.data.objects)
+        if final_objects == expected_objects:
+            print(f"[GitBlend] ✓ Scene successfully reconstructed with {len(final_objects)} objects")
+        else:
+            missing_final = expected_objects - final_objects
+            extra_final = final_objects - expected_objects
+            print(f"[GitBlend] ⚠ Scene reconstruction incomplete:")
+            if missing_final:
+                print(f"[GitBlend]   Still missing: {missing_final}")
+            if extra_final:
+                print(f"[GitBlend]   Still extra: {extra_final}")
+    
+    def _restore_missing_objects_from_chain(self, gitblend_dir, commit_chain, missing_objects):
+        """Try to restore missing objects by searching through all commits in the chain"""
+        print(f"[GitBlend] Searching commit chain for {len(missing_objects)} missing objects")
+        
+        # Search commits in reverse order (newest first) to get latest versions
+        for commit in reversed(commit_chain):
+            if not missing_objects:  # All objects found
+                break
+                
+            commit_file = gitblend_dir / f"{commit['hash']}.blend"
+            if not commit_file.exists():
+                continue
+            
+            try:
+                # Check what objects are available in this commit
+                with bpy.data.libraries.load(str(commit_file), link=False) as (data_from, data_to):
+                    available_objects = set(data_from.objects)
+                    found_objects = missing_objects & available_objects
+                    
+                    if found_objects:
+                        print(f"[GitBlend] Found {len(found_objects)} objects in commit {commit['hash'][:8]}")
+                        
+                        # Load the found objects
+                        data_to.objects = list(found_objects)
+                        data_to.meshes = data_from.meshes
+                        data_to.materials = data_from.materials  
+                        data_to.images = data_from.images
+                        data_to.actions = data_from.actions
+                
+                # Link found objects to scene
+                scene = bpy.context.scene
+                for obj in data_to.objects:
+                    if obj and obj.name not in scene.objects:
+                        scene.collection.objects.link(obj)
+                        print(f"[GitBlend] Restored missing object: {obj.name}")
+                        missing_objects.discard(obj.name)
+                        
+            except Exception as e:
+                print(f"[GitBlend] Error searching commit {commit['hash'][:8]}: {e}")
+        
+        if missing_objects:
+            print(f"[GitBlend] Warning: Could not find {len(missing_objects)} objects in commit chain: {missing_objects}")
+    
+    def _apply_final_commit_with_signature(self, blend_file_path, target_signature, is_delta=False):
+        """Apply final commit ensuring complete scene matches signature"""
+        print(f"[GitBlend] Applying final commit with signature verification")
+        
+        # First apply the commit normally
+        self._apply_commit_data(blend_file_path, is_delta)
+        
+        # Now ensure scene matches the expected signature
+        expected_objects = set(target_signature.get('objects', {}).keys())
+        current_objects = set(obj.name for obj in bpy.data.objects)
+        
+        print(f"[GitBlend] Expected objects: {len(expected_objects)}")
+        print(f"[GitBlend] Current objects: {len(current_objects)}")
+        
+        # Find missing objects that should exist but don't
+        missing_objects = expected_objects - current_objects
+        if missing_objects:
+            print(f"[GitBlend] Missing objects detected: {missing_objects}")
+            self._restore_missing_objects(blend_file_path, missing_objects, target_signature)
+        
+        # Find extra objects that exist but shouldn't
+        extra_objects = current_objects - expected_objects  
+        if extra_objects:
+            print(f"[GitBlend] Extra objects detected: {extra_objects}")
+            self._remove_extra_objects(extra_objects)
+    
+    def _restore_missing_objects(self, blend_file_path, missing_objects, target_signature):
+        """Restore objects that are missing from the current scene"""
+        print(f"[GitBlend] Attempting to restore {len(missing_objects)} missing objects")
+        
+        # Try to load missing objects from the commit file
+        try:
+            with bpy.data.libraries.load(blend_file_path, link=False) as (data_from, data_to):
+                # Only load missing objects that are available in the commit file
+                available_objects = set(data_from.objects)
+                objects_to_load = list(missing_objects & available_objects)
+                
+                if objects_to_load:
+                    data_to.objects = objects_to_load
+                    # Also load their dependencies
+                    data_to.meshes = data_from.meshes
+                    data_to.materials = data_from.materials
+                    data_to.images = data_from.images
+                    data_to.actions = data_from.actions
+                    
+                    print(f"[GitBlend] Loaded {len(objects_to_load)} missing objects from commit")
+            
+            # Link restored objects to scene
+            scene = bpy.context.scene
+            for obj in data_to.objects:
+                if obj and obj.name not in scene.objects:
+                    scene.collection.objects.link(obj)
+                    print(f"[GitBlend] Restored object to scene: {obj.name}")
+        
+        except Exception as e:
+            print(f"[GitBlend] Error restoring missing objects: {e}")
+        
+        # For objects still missing, they might need to be reconstructed from earlier commits
+        still_missing = missing_objects - set(obj.name for obj in bpy.data.objects)
+        if still_missing:
+            print(f"[GitBlend] Warning: Could not restore {len(still_missing)} objects: {still_missing}")
+    
+    def _remove_extra_objects(self, extra_objects):
+        """Remove objects that shouldn't exist according to the target signature"""
+        print(f"[GitBlend] Removing {len(extra_objects)} extra objects")
+        
+        scene = bpy.context.scene
+        for obj_name in extra_objects:
+            obj = bpy.data.objects.get(obj_name)
+            if obj:
+                try:
+                    # Remove from scene
+                    if obj.name in scene.objects:
+                        scene.collection.objects.unlink(obj)
+                    # Remove from data
+                    bpy.data.objects.remove(obj, do_unlink=True)
+                    print(f"[GitBlend] Removed extra object: {obj_name}")
+                except Exception as e:
+                    print(f"[GitBlend] Warning: Failed to remove extra object {obj_name}: {e}")
     
     def _clear_scene(self):
         """Clear all data blocks from the current scene"""
