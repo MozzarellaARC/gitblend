@@ -86,8 +86,9 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             # Clear current scene
             self._clear_scene()
             
-            # Apply commits in order (delta reconstruction)
-            for commit in commit_chain:
+            # Apply commits in order (initial + deltas for reconstruction)
+            print(f"[GitBlend] Reconstructing scene with {len(commit_chain)} commits")
+            for i, commit in enumerate(commit_chain):
                 commit_file = gitblend_dir / f"{commit['hash']}.blend"
                 
                 if not commit_file.exists():
@@ -95,7 +96,13 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                     return {'CANCELLED'}
                 
                 # Load and apply this commit's data
-                self._apply_commit_data(str(commit_file), commit.get('delta_export', False))
+                is_delta = commit.get('delta_export', False)
+                print(f"[GitBlend] Applying commit {i+1}/{len(commit_chain)}: {commit['hash'][:8]} ({'delta' if is_delta else 'full'})")
+                self._apply_commit_data(str(commit_file), is_delta)
+            
+            # Clean up orphaned data blocks after reconstruction
+            print(f"[GitBlend] Cleaning up orphaned data blocks")
+            self._cleanup_orphaned_data()
             
             # Update UI to show we're on this commit
             props = context.scene.gitblend_props
@@ -134,6 +141,12 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
         
         # Reverse to get chronological order (initial -> target)
         chain.reverse()
+        
+        # Debug: Print the commit chain
+        print(f"[GitBlend] Commit chain for reconstruction ({len(chain)} commits):")
+        for i, commit in enumerate(chain):
+            is_delta = commit.get('delta_export', False)
+            print(f"  {i+1}. {commit['hash'][:8]}: {commit['message']} ({'delta' if is_delta else 'full'})")
         
         return chain
     
@@ -213,140 +226,78 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 break
     
     def _apply_commit_data(self, blend_file_path, is_delta=False):
-        """Apply data from a commit file (handles both full and delta exports)"""
-        # Use append to merge data from the commit file
-        with bpy.data.libraries.load(blend_file_path, link=False) as (data_from, data_to):
-            # Load all data blocks specified in data.instructions.md
-            
-            # Objects - these pull in their dependencies automatically
-            data_to.objects = data_from.objects
-            
-            # For delta commits, we want to replace existing data blocks with same names
-            if is_delta:
-                # Track what we're importing to handle replacements
-                imported_objects = set(data_from.objects)
-                imported_meshes = set(data_from.meshes)
-                imported_materials = set(data_from.materials)
-                imported_images = set(data_from.images)
-                imported_texts = set(data_from.texts)
-                imported_actions = set(data_from.actions)
+        """Apply data from a commit file by appending all data blocks"""
+        print(f"[GitBlend] Applying commit data from: {blend_file_path} (delta: {is_delta})")
+        
+        try:
+            # Use append to merge data from the commit file
+            with bpy.data.libraries.load(blend_file_path, link=False) as (data_from, data_to):
+                # Load all data blocks specified in data.instructions.md
+                # Blender's append system will automatically handle naming conflicts
+                # by adding .001, .002 suffixes to duplicates
                 
-                # Load all data types for delta reconstruction
+                data_to.objects = data_from.objects
                 data_to.meshes = data_from.meshes
                 data_to.materials = data_from.materials
                 data_to.images = data_from.images
                 data_to.texts = data_from.texts
                 data_to.actions = data_from.actions
-            else:
-                # For full exports, load everything
-                data_to.meshes = data_from.meshes
-                data_to.materials = data_from.materials
-                data_to.images = data_from.images
-                data_to.texts = data_from.texts
-                data_to.actions = data_from.actions
-        
-        # Link loaded objects to the scene
-        scene = bpy.context.scene
-        for obj in data_to.objects:
-            if obj and obj.name not in scene.objects:
-                scene.collection.objects.link(obj)
-        
-        # Handle replacements for delta commits
-        if is_delta:
-            self._handle_delta_replacements(data_to)
-    
-    def _handle_delta_replacements(self, imported_data):
-        """Handle replacements of existing data blocks for delta reconstruction"""
-        # For delta commits, newer versions should replace older ones
-        # This is handled by Blender's append system which renames duplicates
-        # We need to clean up the renamed versions and keep the latest
-        
-        # Process objects
-        for obj in imported_data.objects:
-            if not obj:
-                continue
             
-            # Check if this is a replacement (has .001 suffix or similar)
-            base_name = obj.name.rsplit('.', 1)[0]
+            # Link loaded objects to the scene
+            scene = bpy.context.scene
+            for obj in data_to.objects:
+                if obj and obj.name not in scene.objects:
+                    scene.collection.objects.link(obj)
             
-            # Find and remove older version if it exists
-            old_obj = bpy.data.objects.get(base_name)
-            if old_obj and old_obj != obj:
-                # Replace old object with new one in scene
-                for scene in bpy.data.scenes:
-                    if old_obj.name in scene.objects:
-                        scene.collection.objects.unlink(old_obj)
-                
-                # Remove old object
-                bpy.data.objects.remove(old_obj, do_unlink=True)
-                
-                # Rename new object to original name
-                obj.name = base_name
-        
-        # Process meshes
-        for mesh in imported_data.meshes:
-            if not mesh:
-                continue
-            
-            base_name = mesh.name.rsplit('.', 1)[0]
-            old_mesh = bpy.data.meshes.get(base_name)
-            if old_mesh and old_mesh != mesh:
-                # Update references in objects
-                for obj in bpy.data.objects:
-                    if obj.type == 'MESH' and obj.data == old_mesh:
-                        obj.data = mesh
-                
-                # Remove old mesh
-                bpy.data.meshes.remove(old_mesh, do_unlink=True)
-                
-                # Rename new mesh
-                mesh.name = base_name
-        
-        # Process materials
-        for mat in imported_data.materials:
-            if not mat:
-                continue
-            
-            base_name = mat.name.rsplit('.', 1)[0]
-            old_mat = bpy.data.materials.get(base_name)
-            if old_mat and old_mat != mat:
-                # Update references
-                for obj in bpy.data.objects:
-                    if hasattr(obj.data, 'materials'):
-                        for i, slot_mat in enumerate(obj.data.materials):
-                            if slot_mat == old_mat:
-                                obj.data.materials[i] = mat
-                
-                # Remove old material
-                bpy.data.materials.remove(old_mat, do_unlink=True)
-                
-                # Rename new material
-                mat.name = base_name
-        
-        # Clean up orphaned data blocks
-        self._cleanup_orphaned_data()
+            print(f"[GitBlend] Successfully applied {len(data_to.objects)} objects, "
+                  f"{len(data_to.meshes)} meshes, {len(data_to.materials)} materials")
+                  
+        except Exception as e:
+            print(f"[GitBlend] Error applying commit data: {e}")
+            raise
     
     def _cleanup_orphaned_data(self):
-        """Clean up orphaned data blocks after delta replacement"""
+        """Clean up orphaned data blocks after reconstruction"""
+        print(f"[GitBlend] Cleaning up orphaned data blocks...")
+        
         # Clean up meshes with no users
+        removed_meshes = 0
         for mesh in list(bpy.data.meshes):
             if mesh.users == 0:
                 bpy.data.meshes.remove(mesh, do_unlink=True)
+                removed_meshes += 1
         
         # Clean up materials with no users
+        removed_materials = 0
         for mat in list(bpy.data.materials):
             if mat.users == 0 and not mat.use_fake_user:
                 bpy.data.materials.remove(mat, do_unlink=True)
+                removed_materials += 1
         
         # Clean up images with no users
+        removed_images = 0
         for img in list(bpy.data.images):
             if img.users == 0 and not img.use_fake_user:
                 bpy.data.images.remove(img, do_unlink=True)
+                removed_images += 1
         
         # Clean up actions with no users
+        removed_actions = 0
         for action in list(bpy.data.actions):
             if action.users == 0 and not action.use_fake_user:
                 bpy.data.actions.remove(action, do_unlink=True)
+                removed_actions += 1
+        
+        # Clean up texts with no users
+        removed_texts = 0
+        for text in list(bpy.data.texts):
+            if text.users == 0:
+                bpy.data.texts.remove(text, do_unlink=True)
+                removed_texts += 1
+        
+        print(f"[GitBlend] Cleanup complete: removed {removed_meshes} meshes, "
+              f"{removed_materials} materials, {removed_images} images, "
+              f"{removed_actions} actions, {removed_texts} texts")
 
 
 def register():
