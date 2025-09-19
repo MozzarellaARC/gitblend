@@ -19,7 +19,7 @@ An SCM like version control system but for binaries and deals with .blend files 
             - timestamp
             - commit message (from operator input)
             - parent commit hash (null for initial commit)
-    - generate .blend file using sha-256 of the current blend content using bpy.data.libraries.write
+    - generate .blend file using sha-256 of the indvidual .blend content using bpy.data.libraries.write
     - the bpy.data.libraries.write should include bpy.data blocks from `data.instructions.md`
 
 ## Technical Commit
@@ -31,3 +31,7 @@ An SCM like version control system but for binaries and deals with .blend files 
         - timestamp
         - commit message (from operator input)
         - parent commit hash (if exists)
+    - generate .blend file using sha-256 of the indvidual .blend content using bpy.data.libraries.write
+    - diff the new .blend file with the previous commit/initial .blend file
+        - if no changes, throws info message and aborts
+        - if changes, keep the new .blend file and update the metadata json file with the new commit hash
