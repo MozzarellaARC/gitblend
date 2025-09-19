@@ -484,10 +484,20 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             print(f"[GitBlend] Delta contains: {len(delta_objects)} objects, {len(delta_meshes)} meshes, "
                   f"{len(delta_materials)} materials, {len(delta_images)} images")
             
+            # IMPORTANT: For mesh-only deltas, we need to preserve existing objects
+            # Store object-mesh relationships before replacing meshes
+            object_mesh_map = {}
+            if delta_meshes and not delta_objects:
+                # This is a mesh-only delta (like editing vertices)
+                for obj in bpy.data.objects:
+                    if obj.type == 'MESH' and obj.data and obj.data.name in delta_meshes:
+                        object_mesh_map[obj.data.name] = obj
+                        print(f"[GitBlend] Preserving object '{obj.name}' for mesh '{obj.data.name}'")
+            
             # Now surgically replace each type of data block
             # Process in order: data blocks first, then objects that depend on them
             if delta_meshes:
-                self._replace_data_blocks(blend_file_path, 'meshes', delta_meshes)
+                self._replace_data_blocks_with_preservation(blend_file_path, 'meshes', delta_meshes, object_mesh_map)
             if delta_materials:
                 self._replace_data_blocks(blend_file_path, 'materials', delta_materials)
             if delta_images:
@@ -634,6 +644,67 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                             print(f"[GitBlend] Warning: Object {obj_name} no longer exists, skipping material reference")
         
         print(f"[GitBlend] Added {len(target_data)} new {data_type}")
+    
+    def _replace_data_blocks_with_preservation(self, blend_file_path, data_type, block_names, object_mesh_map=None):
+        """Surgically replace specific data blocks while preserving object relationships"""
+        print(f"[GitBlend] Replacing {len(block_names)} {data_type} with preservation")
+        
+        # Get the appropriate Blender data collection
+        collections_map = {
+            'meshes': bpy.data.meshes,
+            'materials': bpy.data.materials,
+            'images': bpy.data.images,
+            'texts': bpy.data.texts,
+            'actions': bpy.data.actions
+        }
+        
+        collection = collections_map.get(data_type)
+        if not collection:
+            print(f"[GitBlend] Unknown data type: {data_type}")
+            return
+        
+        # For meshes, we need special handling to preserve object references
+        if data_type == 'meshes' and object_mesh_map:
+            # Load new meshes from delta commit
+            loaded_meshes = {}
+            with bpy.data.libraries.load(blend_file_path, link=False) as (data_from, data_to):
+                # Load only the specific meshes we want
+                data_to.meshes = [name for name in data_from.meshes if name in block_names]
+            
+            # Store the loaded meshes by name
+            for mesh in data_to.meshes:
+                if mesh:
+                    loaded_meshes[mesh.name] = mesh
+                    print(f"[GitBlend] Loaded mesh: {mesh.name}")
+            
+            # Replace mesh data on existing objects
+            for mesh_name, obj in object_mesh_map.items():
+                if mesh_name in loaded_meshes:
+                    old_mesh = obj.data
+                    new_mesh = loaded_meshes[mesh_name]
+                    
+                    # Preserve mesh name if it changed
+                    if new_mesh.name != mesh_name:
+                        # Rename to avoid conflicts
+                        new_mesh.name = mesh_name
+                    
+                    # Update object's mesh reference
+                    obj.data = new_mesh
+                    print(f"[GitBlend] Updated object '{obj.name}' with new mesh '{new_mesh.name}'")
+                    
+                    # Remove old mesh if it has no users
+                    if old_mesh and old_mesh.users == 0:
+                        bpy.data.meshes.remove(old_mesh, do_unlink=True)
+                        print(f"[GitBlend] Removed old mesh: {old_mesh.name}")
+            
+            # Handle any meshes that weren't linked to objects (shouldn't happen in mesh-only delta)
+            for mesh_name in block_names:
+                if mesh_name not in object_mesh_map and mesh_name in loaded_meshes:
+                    print(f"[GitBlend] Warning: Mesh '{mesh_name}' has no associated object")
+                    # The mesh is already loaded, it will be available if an object needs it
+        else:
+            # Fall back to original replacement method for non-mesh data blocks
+            self._replace_data_blocks(blend_file_path, data_type, block_names)
     
     def _cleanup_orphaned_data(self):
         """Clean up orphaned data blocks after reconstruction"""

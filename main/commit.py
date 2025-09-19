@@ -673,6 +673,16 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
         # Keep track of what we've already processed to avoid infinite loops
         processed = set()
         
+        # Check if we have any mesh changes without their parent objects
+        mesh_blocks = {block for block in changed_data_blocks if isinstance(block, bpy.types.Mesh)}
+        if mesh_blocks:
+            # Find objects that use these meshes
+            for obj in bpy.data.objects:
+                if obj.type == 'MESH' and obj.data in mesh_blocks:
+                    # Add the object to maintain the object-mesh relationship
+                    data_blocks_to_write.add(obj)
+                    print(f"[GitBlend] Adding object '{obj.name}' as dependency for mesh '{obj.data.name}'")
+        
         def add_block_dependencies(data_block):
             if data_block in processed:
                 return
