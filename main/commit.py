@@ -187,7 +187,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             "materials": {},
             "images": {},
             "texts": {},
-            "actions": {}
+            "actions": {},
+            "node_groups": {}
         }
         
         # Objects signature
@@ -265,6 +266,57 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 "fcurves_count": len(action.fcurves) if hasattr(action, 'fcurves') else 0
             }
             signature["actions"][action.name] = action_sig
+        
+        # Node groups signature (for geometry nodes, shader nodes, etc.)
+        for node_group in bpy.data.node_groups:
+            node_group_sig = {
+                "name": node_group.name,
+                "type": getattr(node_group, 'type', 'Unknown'),
+                "nodes_count": len(node_group.nodes) if hasattr(node_group, 'nodes') else 0,
+                "links_count": len(node_group.links) if hasattr(node_group, 'links') else 0,
+                "inputs_count": len(node_group.inputs) if hasattr(node_group, 'inputs') else 0,
+                "outputs_count": len(node_group.outputs) if hasattr(node_group, 'outputs') else 0
+            }
+            
+            # Add node-specific signatures for better change detection
+            if hasattr(node_group, 'nodes'):
+                nodes_data = []
+                for node in node_group.nodes:
+                    node_data = {
+                        "name": node.name,
+                        "type": node.type,
+                        "location": [round(x, 2) for x in node.location] if hasattr(node, 'location') else None
+                    }
+                    # Include node input values for geometry nodes
+                    if hasattr(node, 'inputs'):
+                        input_values = {}
+                        for input_socket in node.inputs:
+                            if hasattr(input_socket, 'default_value'):
+                                try:
+                                    # Handle different input types
+                                    val = input_socket.default_value
+                                    # Convert Vector and other Blender types to JSON-serializable formats
+                                    if hasattr(val, '__iter__') and not isinstance(val, str):
+                                        # Convert Vector/Color/Euler to list
+                                        input_values[input_socket.name] = [round(float(x), 4) for x in val]
+                                    elif isinstance(val, (int, float)):
+                                        input_values[input_socket.name] = round(float(val), 4)
+                                    elif isinstance(val, bool):
+                                        input_values[input_socket.name] = val
+                                    elif isinstance(val, str):
+                                        input_values[input_socket.name] = val
+                                    else:
+                                        # For other types, try to convert to string
+                                        input_values[input_socket.name] = str(val)
+                                except Exception:
+                                    # Skip values that can't be serialized
+                                    pass
+                        if input_values:
+                            node_data["inputs"] = input_values
+                    nodes_data.append(node_data)
+                node_group_sig["nodes_data"] = nodes_data
+            
+            signature["node_groups"][node_group.name] = node_group_sig
         
         return signature
     
@@ -574,10 +626,11 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             'materials': bpy.data.materials,
             'images': bpy.data.images,
             'texts': bpy.data.texts,
-            'actions': bpy.data.actions
+            'actions': bpy.data.actions,
+            'node_groups': bpy.data.node_groups
         }
         
-        for data_type in ["objects", "meshes", "materials", "images", "texts", "actions"]:
+        for data_type in ["objects", "meshes", "materials", "images", "texts", "actions", "node_groups"]:
             current_items = current_sig.get(data_type, {})
             previous_items = previous_sig.get(data_type, {})
             collection = data_collections[data_type]
@@ -638,7 +691,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             'materials': bpy.data.materials,
             'images': bpy.data.images,
             'texts': bpy.data.texts,
-            'actions': bpy.data.actions
+            'actions': bpy.data.actions,
+            'node_groups': bpy.data.node_groups
         }
         
         for collection_name, collection in data_collections.items():
@@ -769,7 +823,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             "materials": len(bpy.data.materials),
             "images": len(bpy.data.images),
             "texts": len(bpy.data.texts),
-            "actions": len(bpy.data.actions)
+            "actions": len(bpy.data.actions),
+            "node_groups": len(bpy.data.node_groups)
         }
     
     def _get_previous_data_block_counts(self, previous_blend_path):
