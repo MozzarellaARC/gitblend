@@ -252,7 +252,6 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                         data_to.materials = data_from.materials  
                         data_to.images = data_from.images
                         data_to.actions = data_from.actions
-                        data_to.node_groups = data_from.node_groups
                 
                 # Link found objects to scene
                 scene = bpy.context.scene
@@ -312,7 +311,6 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                     data_to.materials = data_from.materials
                     data_to.images = data_from.images
                     data_to.actions = data_from.actions
-                    data_to.node_groups = data_from.node_groups
                     
                     print(f"[GitBlend] Loaded {len(objects_to_load)} missing objects from commit")
             
@@ -491,6 +489,8 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             
             # Now surgically replace each type of data block
             # Process in order: data blocks first, then objects that depend on them
+            if delta_node_groups:
+                self._replace_data_blocks(blend_file_path, 'node_groups', delta_node_groups)
             if delta_meshes:
                 self._replace_data_blocks(blend_file_path, 'meshes', delta_meshes)
             if delta_materials:
@@ -501,8 +501,6 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 self._replace_data_blocks(blend_file_path, 'texts', delta_texts)
             if delta_actions:
                 self._replace_data_blocks(blend_file_path, 'actions', delta_actions)
-            if delta_node_groups:
-                self._replace_data_blocks(blend_file_path, 'node_groups', delta_node_groups)
             
             # Process objects last, after their dependencies are in place
             if delta_objects:
@@ -547,7 +545,6 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 data_to.materials = data_from.materials
                 data_to.images = data_from.images
                 data_to.actions = data_from.actions
-                data_to.node_groups = data_from.node_groups
             
             # Link new objects to scene
             added_objects = []
@@ -598,6 +595,26 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                                 dependent_relationships[mat.name] = []
                             dependent_relationships[mat.name].append((obj.name, i))
         
+        # Handle node_groups dependencies (geometry nodes, shader nodes, etc.)
+        elif data_type == 'node_groups':
+            for obj in bpy.data.objects:
+                # Check geometry node modifiers
+                if hasattr(obj, 'modifiers'):
+                    for mod in obj.modifiers:
+                        if mod.type == 'NODES' and hasattr(mod, 'node_group') and mod.node_group and mod.node_group.name in block_names:
+                            if mod.node_group.name not in dependent_relationships:
+                                dependent_relationships[mod.node_group.name] = []
+                            dependent_relationships[mod.node_group.name].append(('modifier', obj.name, mod.name))
+            
+            # Check material nodes
+            for mat in bpy.data.materials:
+                if mat.use_nodes and mat.node_tree:
+                    for node in mat.node_tree.nodes:
+                        if hasattr(node, 'node_tree') and node.node_tree and node.node_tree.name in block_names:
+                            if node.node_tree.name not in dependent_relationships:
+                                dependent_relationships[node.node_tree.name] = []
+                            dependent_relationships[node.node_tree.name].append(('material_node', mat.name, node.name))
+        
         # Remove existing data blocks
         for block_name in block_names:
             existing_block = collection.get(block_name)
@@ -642,6 +659,34 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                         else:
                             print(f"[GitBlend] Warning: Object {obj_name} no longer exists, skipping material reference")
         
+        elif data_type == 'node_groups':
+            for node_group in target_data:
+                if node_group and node_group.name in dependent_relationships:
+                    for relationship_type, parent_name, item_name in dependent_relationships[node_group.name]:
+                        if relationship_type == 'modifier':
+                            obj = bpy.data.objects.get(parent_name)
+                            if obj and hasattr(obj, 'modifiers'):
+                                mod = obj.modifiers.get(item_name)
+                                if mod and mod.type == 'NODES':
+                                    mod.node_group = node_group
+                                    print(f"[GitBlend] Restored node group reference: {obj.name}.{mod.name} -> {node_group.name}")
+                                else:
+                                    print(f"[GitBlend] Warning: Modifier {item_name} no longer exists on {parent_name}")
+                            else:
+                                print(f"[GitBlend] Warning: Object {parent_name} no longer exists, skipping modifier reference")
+                        
+                        elif relationship_type == 'material_node':
+                            mat = bpy.data.materials.get(parent_name)
+                            if mat and mat.use_nodes and mat.node_tree:
+                                node = mat.node_tree.nodes.get(item_name)
+                                if node and hasattr(node, 'node_tree'):
+                                    node.node_tree = node_group
+                                    print(f"[GitBlend] Restored node group reference: {mat.name}.{node.name} -> {node_group.name}")
+                                else:
+                                    print(f"[GitBlend] Warning: Node {item_name} no longer exists in material {parent_name}")
+                            else:
+                                print(f"[GitBlend] Warning: Material {parent_name} no longer exists, skipping node reference")
+        
         print(f"[GitBlend] Added {len(target_data)} new {data_type}")
     
     def _cleanup_orphaned_data(self):
@@ -661,6 +706,13 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             if mat.users == 0 and not mat.use_fake_user:
                 bpy.data.materials.remove(mat, do_unlink=True)
                 removed_materials += 1
+        
+        # Clean up node_groups with no users
+        removed_node_groups = 0
+        for node_group in list(bpy.data.node_groups):
+            if node_group.users == 0 and not node_group.use_fake_user:
+                bpy.data.node_groups.remove(node_group, do_unlink=True)
+                removed_node_groups += 1
         
         # Clean up images with no users
         removed_images = 0
@@ -684,7 +736,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 removed_texts += 1
         
         print(f"[GitBlend] Cleanup complete: removed {removed_meshes} meshes, "
-              f"{removed_materials} materials, {removed_images} images, "
+              f"{removed_materials} materials, {removed_node_groups} node_groups, {removed_images} images, "
               f"{removed_actions} actions, {removed_texts} texts")
 
 
