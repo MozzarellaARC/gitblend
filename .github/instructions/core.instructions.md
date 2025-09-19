@@ -8,7 +8,13 @@ applyTo: '**'
 - scene src: the current working scene
 
 ## Concept
-An SCM like version control system but for binaries and deals with .blend files specifically, by saving delta changes of the indvidual bpy.data blocks.
+An SCM like version control system but for binaries and deals with .blend files specifically, by saving delta changes of the indvidual bpy.data blocks that has changes.
+
+# Don'ts
+- write the scene properties during panel's draw method
+
+## Technical Properties
+- use properties update callback wherever possible instead of drawing in the panel for property changes
 
 ## Technical Initialize
 - When the initialize operator gets executed:
