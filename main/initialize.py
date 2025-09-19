@@ -39,7 +39,7 @@ class GITBLEND_OT_Initialize(bpy.types.Operator):
     commit_message: bpy.props.StringProperty(
         name="Initial Commit Message",
         description="Message for the initial commit",
-        default="Initial commit"
+        default="init"
     )
     
     @classmethod
@@ -446,9 +446,6 @@ class GITBLEND_OT_Initialize(bpy.types.Operator):
                 return hashlib.md5(basic_data.encode()).hexdigest()
             except Exception:
                 return "unknown_constraints"
-    
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
 
 
 def register_initialize():
