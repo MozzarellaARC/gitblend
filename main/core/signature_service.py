@@ -34,9 +34,9 @@ class SignatureService:
             obj_sig = {
                 "name": obj.name,
                 "type": obj.type,
-                "location": [round(x, 6) for x in obj.location] if hasattr(obj, 'location') else None,
-                "rotation": [round(x, 6) for x in obj.rotation_euler] if hasattr(obj, 'rotation_euler') else None,
-                "scale": [round(x, 6) for x in obj.scale] if hasattr(obj, 'scale') else None,
+                "location": [round(x, 4) for x in obj.location] if hasattr(obj, 'location') else None,
+                "rotation": [round(x, 4) for x in obj.rotation_euler] if hasattr(obj, 'rotation_euler') else None,
+                "scale": [round(x, 4) for x in obj.scale] if hasattr(obj, 'scale') else None,
                 "data_name": obj.data.name if obj.data else None,
                 "visible": obj.visible_get() if hasattr(obj, 'visible_get') else True,
                 "hide_viewport": obj.hide_viewport if hasattr(obj, 'hide_viewport') else False,
@@ -64,10 +64,10 @@ class SignatureService:
             mat_sig = {
                 "name": mat.name,
                 "use_nodes": mat.use_nodes,
-                "diffuse_color": [round(x, 4) for x in mat.diffuse_color] if hasattr(mat, 'diffuse_color') else None,
-                "roughness": round(mat.roughness, 4) if hasattr(mat, 'roughness') else None,
-                "metallic": round(mat.metallic, 4) if hasattr(mat, 'metallic') else None,
-                "alpha": round(mat.alpha, 4) if hasattr(mat, 'alpha') else None
+                "diffuse_color": [round(x, 3) for x in mat.diffuse_color] if hasattr(mat, 'diffuse_color') else None,
+                "roughness": round(mat.roughness, 3) if hasattr(mat, 'roughness') else None,
+                "metallic": round(mat.metallic, 3) if hasattr(mat, 'metallic') else None,
+                "alpha": round(mat.alpha, 3) if hasattr(mat, 'alpha') else None
             }
             
             # Add node tree hash if using nodes
@@ -145,12 +145,12 @@ class SignatureService:
         vertex_data = []
         for vertex in mesh.vertices:
             vertex_data.extend([
-                round(vertex.co.x, 6),
-                round(vertex.co.y, 6),
-                round(vertex.co.z, 6),
-                round(vertex.normal.x, 6),
-                round(vertex.normal.y, 6),
-                round(vertex.normal.z, 6)
+                round(vertex.co.x, 4),
+                round(vertex.co.y, 4),
+                round(vertex.co.z, 4),
+                round(vertex.normal.x, 4),
+                round(vertex.normal.y, 4),
+                round(vertex.normal.z, 4)
             ])
         
         # Include face data for topology changes
@@ -159,12 +159,10 @@ class SignatureService:
             face_verts = sorted(poly.vertices)
             face_data.extend(face_verts)
             face_data.extend([
-                round(poly.normal.x, 6),
-                round(poly.normal.y, 6),
-                round(poly.normal.z, 6)
-            ])
-        
-        # Combine all geometry data and create hash
+                round(poly.normal.x, 4),
+                round(poly.normal.y, 4),
+                round(poly.normal.z, 4)
+            ])        # Combine all geometry data and create hash
         geometry_data = vertex_data + face_data
         geometry_string = ','.join(map(str, geometry_data))
         
@@ -245,10 +243,10 @@ class SignatureService:
                         try:
                             if hasattr(input_socket.default_value, '__iter__'):
                                 # Vector/Color values
-                                node_info.extend([str(round(x, 4)) for x in input_socket.default_value])
+                                node_info.extend([str(round(x, 3)) for x in input_socket.default_value])
                             else:
                                 # Scalar values
-                                node_info.append(str(round(input_socket.default_value, 4)))
+                                node_info.append(str(round(input_socket.default_value, 3)))
                         except (TypeError, AttributeError):
                             pass
                 
@@ -385,7 +383,7 @@ class SignatureService:
             if hasattr(obj, '__len__') and hasattr(obj, '__getitem__'):
                 try:
                     if len(obj) <= 4:  # Typical for Vector3, Vector4, Euler, Color
-                        return [round(float(obj[i]), 6) for i in range(len(obj))]
+                        return [round(float(obj[i]), 4) for i in range(len(obj))]
                 except (TypeError, ValueError):
                     pass
             

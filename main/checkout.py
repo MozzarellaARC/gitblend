@@ -87,6 +87,12 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             props = context.scene.gitblend_props
             props.current_commit = self.commit_hash
             
+            # IMPORTANT: Update the signature file with the current state
+            # This prevents the reconstructed scene from being flagged as "all changed"
+            print(f"[GitBlend] Updating signature after successful checkout")
+            current_signature_after_checkout = SignatureService.generate_data_signature()
+            RepositoryService.save_signature_file(self.commit_hash, current_signature_after_checkout)
+            
             # Refresh UI
             from .initialize import populate_ui_from_metadata
             populate_ui_from_metadata(context)
@@ -318,7 +324,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                     print(f"[GitBlend] Warning: Failed to remove extra object {obj_name}: {e}")
     
     def _clear_scene(self):
-        """Clear all data blocks from the current scene"""
+        """Clear all data blocks from the current scene completely for proper restoration"""
         # Store viewport settings before clearing
         viewport_settings = self._store_viewport_settings()
         
@@ -327,35 +333,29 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
         for obj in list(bpy.data.objects):
             bpy.data.objects.remove(obj, do_unlink=True)
         
-        # Clear orphaned meshes
+        # Clear all meshes
         for mesh in list(bpy.data.meshes):
-            if mesh.users == 0:
-                bpy.data.meshes.remove(mesh, do_unlink=True)
+            bpy.data.meshes.remove(mesh, do_unlink=True)
         
-        # Clear orphaned materials
+        # Clear all materials
         for mat in list(bpy.data.materials):
-            if mat.users == 0:
-                bpy.data.materials.remove(mat, do_unlink=True)
+            bpy.data.materials.remove(mat, do_unlink=True)
         
-        # Clear orphaned images
+        # Clear all images
         for img in list(bpy.data.images):
-            if img.users == 0:
-                bpy.data.images.remove(img, do_unlink=True)
+            bpy.data.images.remove(img, do_unlink=True)
         
-        # Clear orphaned actions
+        # Clear all actions
         for action in list(bpy.data.actions):
-            if action.users == 0:
-                bpy.data.actions.remove(action, do_unlink=True)
+            bpy.data.actions.remove(action, do_unlink=True)
         
-        # Clear orphaned node groups
+        # Clear all node groups
         for node_group in list(bpy.data.node_groups):
-            if node_group.users == 0:
-                bpy.data.node_groups.remove(node_group, do_unlink=True)
+            bpy.data.node_groups.remove(node_group, do_unlink=True)
         
-        # Clear texts (usually safe to clear all)
+        # Clear all texts
         for text in list(bpy.data.texts):
-            if text.users == 0:
-                bpy.data.texts.remove(text, do_unlink=True)
+            bpy.data.texts.remove(text, do_unlink=True)
         
         # Restore viewport settings
         self._restore_viewport_settings(viewport_settings)

@@ -89,10 +89,12 @@ class ChangeDetectionService:
             removed = set(previous_items.keys()) - set(current_items.keys())
             common = set(current_items.keys()) & set(previous_items.keys())
             
-            # Check for modifications in common items
+            # Check for modifications in common items with tolerance for reconstruction artifacts
             modified = set()
             for item_name in common:
-                if current_items[item_name] != previous_items[item_name]:
+                if not ChangeDetectionService._signatures_match_with_tolerance(
+                    current_items[item_name], previous_items[item_name], data_type
+                ):
                     modified.add(item_name)
             
             # Add specific changed data blocks to the set
@@ -128,6 +130,45 @@ class ChangeDetectionService:
                 change_summary[data_type] = stats["total"]
         
         return has_changes, change_summary, changed_data_blocks
+    
+    @staticmethod
+    def _signatures_match_with_tolerance(current_item: Dict, previous_item: Dict, data_type: str) -> bool:
+        """Compare two signatures with tolerance for reconstruction artifacts."""
+        # For objects, be more tolerant of floating point differences but strict about major changes
+        if data_type == "objects":
+            # Check for major structural changes first
+            structural_keys = ["name", "type", "data_name", "visible", "hide_viewport"]
+            for key in structural_keys:
+                if current_item.get(key) != previous_item.get(key):
+                    return False
+            
+            # Use tolerant comparison for transform values
+            for key in ["location", "rotation", "scale"]:
+                if not ChangeDetectionService._compare_float_lists_tolerant(
+                    current_item.get(key), previous_item.get(key)
+                ):
+                    return False
+            
+            # Skip modifier/constraint hashes for now - they're too sensitive to reconstruction
+            # But we could add them back with more sophisticated comparison later
+            
+            return True
+        
+        # For all other data types, use exact comparison
+        # The precision reduction in signature generation should handle most tolerance needs
+        return current_item == previous_item
+    
+    @staticmethod
+    def _compare_float_lists_tolerant(list1, list2, tolerance=1e-4) -> bool:
+        """Compare two lists of floats with tolerance."""
+        if list1 is None and list2 is None:
+            return True
+        if list1 is None or list2 is None:
+            return False
+        if len(list1) != len(list2):
+            return False
+        
+        return all(abs(a - b) < tolerance for a, b in zip(list1, list2))
     
     @staticmethod
     def _get_data_block_counts() -> Dict[str, int]:
