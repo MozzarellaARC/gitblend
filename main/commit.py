@@ -203,7 +203,9 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 "scale": [round(x, 6) for x in obj.scale] if hasattr(obj, 'scale') else None,
                 "data_name": obj.data.name if obj.data else None,
                 "visible": obj.visible_get() if hasattr(obj, 'visible_get') else True,
-                "hide_viewport": obj.hide_viewport if hasattr(obj, 'hide_viewport') else False
+                "hide_viewport": obj.hide_viewport if hasattr(obj, 'hide_viewport') else False,
+                "modifiers_hash": self._calculate_modifiers_hash(obj),
+                "constraints_hash": self._calculate_constraints_hash(obj)
             }
             signature["objects"][obj.name] = obj_sig
         
@@ -368,6 +370,221 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             except Exception:
                 return "unknown"
     
+    def _calculate_modifiers_hash(self, obj):
+        """Calculate a hash of object modifiers to detect modifier changes"""
+        try:
+            if not hasattr(obj, 'modifiers') or not obj.modifiers:
+                return "no_modifiers"
+            
+            modifier_data = []
+            
+            for mod in obj.modifiers:
+                mod_info = [
+                    mod.name,
+                    mod.type,
+                    str(mod.show_viewport),
+                    str(mod.show_render)
+                ]
+                
+                # Add type-specific properties for common modifiers
+                if mod.type == 'SUBSURF':
+                    mod_info.extend([
+                        str(mod.levels),
+                        str(mod.render_levels),
+                        str(mod.use_limit_surface)
+                    ])
+                elif mod.type == 'MIRROR':
+                    mod_info.extend([
+                        str(mod.use_axis[0]), str(mod.use_axis[1]), str(mod.use_axis[2]),
+                        str(mod.use_bisect_axis[0]), str(mod.use_bisect_axis[1]), str(mod.use_bisect_axis[2]),
+                        str(mod.use_clip),
+                        str(mod.merge_threshold)
+                    ])
+                elif mod.type == 'ARRAY':
+                    mod_info.extend([
+                        str(mod.count),
+                        str(mod.use_relative_offset),
+                        str(mod.use_constant_offset),
+                        str([round(x, 4) for x in mod.relative_offset_displace]),
+                        str([round(x, 4) for x in mod.constant_offset_displace])
+                    ])
+                elif mod.type == 'SOLIDIFY':
+                    mod_info.extend([
+                        str(round(mod.thickness, 6)),
+                        str(round(mod.offset, 6)),
+                        str(mod.use_even_offset),
+                        str(mod.use_quality_normals)
+                    ])
+                elif mod.type == 'BEVEL':
+                    mod_info.extend([
+                        str(round(mod.width, 6)),
+                        str(mod.segments),
+                        str(mod.profile),
+                        str(mod.limit_method)
+                    ])
+                elif mod.type == 'EDGE_SPLIT':
+                    mod_info.extend([
+                        str(mod.use_edge_angle),
+                        str(mod.use_edge_sharp),
+                        str(round(mod.split_angle, 4))
+                    ])
+                elif mod.type == 'DECIMATE':
+                    mod_info.extend([
+                        str(mod.decimate_type),
+                        str(round(mod.ratio, 6)) if hasattr(mod, 'ratio') else '',
+                        str(round(mod.angle_limit, 4)) if hasattr(mod, 'angle_limit') else ''
+                    ])
+                elif mod.type == 'TRIANGULATE':
+                    mod_info.extend([
+                        str(mod.quad_method),
+                        str(mod.ngon_method),
+                        str(mod.min_vertices)
+                    ])
+                elif mod.type == 'ARMATURE':
+                    mod_info.extend([
+                        str(mod.object.name) if mod.object else 'None',
+                        str(mod.use_vertex_groups),
+                        str(mod.use_bone_envelopes)
+                    ])
+                elif mod.type == 'BOOLEAN':
+                    mod_info.extend([
+                        str(mod.operation),
+                        str(mod.object.name) if mod.object else 'None',
+                        str(mod.solver)
+                    ])
+                elif mod.type == 'SCREW':
+                    mod_info.extend([
+                        str(round(mod.angle, 4)),
+                        str(round(mod.screw_offset, 6)),
+                        str(mod.iterations),
+                        str(mod.axis)
+                    ])
+                elif mod.type == 'WAVE':
+                    mod_info.extend([
+                        str(mod.use_x), str(mod.use_y), str(mod.use_z),
+                        str(round(mod.height, 6)),
+                        str(round(mod.width, 6)),
+                        str(round(mod.speed, 6)),
+                        str(round(mod.offset, 6))
+                    ])
+                elif mod.type == 'DISPLACE':
+                    mod_info.extend([
+                        str(round(mod.strength, 6)),
+                        str(mod.direction),
+                        str(mod.texture.name) if mod.texture else 'None'
+                    ])
+                
+                # Add common properties that most modifiers have
+                try:
+                    if hasattr(mod, 'vertex_group') and mod.vertex_group:
+                        mod_info.append(f"vgroup:{mod.vertex_group}")
+                    if hasattr(mod, 'invert_vertex_group'):
+                        mod_info.append(f"invert_vg:{mod.invert_vertex_group}")
+                except AttributeError:
+                    pass
+                
+                modifier_data.extend(mod_info)
+            
+            # Create hash from all modifier data
+            modifier_string = ','.join(modifier_data)
+            return hashlib.md5(modifier_string.encode()).hexdigest()
+            
+        except Exception as e:
+            # Fallback: basic modifier count and types
+            try:
+                basic_data = f"{len(obj.modifiers)}_{'_'.join([mod.type for mod in obj.modifiers])}"
+                return hashlib.md5(basic_data.encode()).hexdigest()
+            except Exception:
+                return "unknown_modifiers"
+    
+    def _calculate_constraints_hash(self, obj):
+        """Calculate a hash of object constraints to detect constraint changes"""
+        try:
+            if not hasattr(obj, 'constraints') or not obj.constraints:
+                return "no_constraints"
+            
+            constraint_data = []
+            
+            for constraint in obj.constraints:
+                constraint_info = [
+                    constraint.name,
+                    constraint.type,
+                    str(constraint.mute),
+                    str(constraint.influence)
+                ]
+                
+                # Add type-specific properties for common constraints
+                if constraint.type == 'COPY_LOCATION':
+                    constraint_info.extend([
+                        str(constraint.target.name) if constraint.target else 'None',
+                        str(constraint.subtarget),
+                        str(constraint.use_x), str(constraint.use_y), str(constraint.use_z),
+                        str(constraint.use_offset)
+                    ])
+                elif constraint.type == 'COPY_ROTATION':
+                    constraint_info.extend([
+                        str(constraint.target.name) if constraint.target else 'None',
+                        str(constraint.subtarget),
+                        str(constraint.use_x), str(constraint.use_y), str(constraint.use_z),
+                        str(constraint.use_offset)
+                    ])
+                elif constraint.type == 'COPY_SCALE':
+                    constraint_info.extend([
+                        str(constraint.target.name) if constraint.target else 'None',
+                        str(constraint.subtarget),
+                        str(constraint.use_x), str(constraint.use_y), str(constraint.use_z),
+                        str(constraint.use_offset)
+                    ])
+                elif constraint.type == 'TRACK_TO':
+                    constraint_info.extend([
+                        str(constraint.target.name) if constraint.target else 'None',
+                        str(constraint.subtarget),
+                        str(constraint.track_axis),
+                        str(constraint.up_axis)
+                    ])
+                elif constraint.type == 'LIMIT_LOCATION':
+                    constraint_info.extend([
+                        str(constraint.use_min_x), str(constraint.use_max_x),
+                        str(constraint.use_min_y), str(constraint.use_max_y),
+                        str(constraint.use_min_z), str(constraint.use_max_z),
+                        str(round(constraint.min_x, 6)), str(round(constraint.max_x, 6)),
+                        str(round(constraint.min_y, 6)), str(round(constraint.max_y, 6)),
+                        str(round(constraint.min_z, 6)), str(round(constraint.max_z, 6))
+                    ])
+                elif constraint.type == 'LIMIT_ROTATION':
+                    constraint_info.extend([
+                        str(constraint.use_limit_x), str(constraint.use_limit_y), str(constraint.use_limit_z),
+                        str(round(constraint.min_x, 4)), str(round(constraint.max_x, 4)),
+                        str(round(constraint.min_y, 4)), str(round(constraint.max_y, 4)),
+                        str(round(constraint.min_z, 4)), str(round(constraint.max_z, 4))
+                    ])
+                elif constraint.type == 'CHILD_OF':
+                    constraint_info.extend([
+                        str(constraint.target.name) if constraint.target else 'None',
+                        str(constraint.subtarget)
+                    ])
+                elif constraint.type == 'FOLLOW_PATH':
+                    constraint_info.extend([
+                        str(constraint.target.name) if constraint.target else 'None',
+                        str(round(constraint.offset_factor, 6)),
+                        str(constraint.forward_axis),
+                        str(constraint.up_axis)
+                    ])
+                
+                constraint_data.extend(constraint_info)
+            
+            # Create hash from all constraint data
+            constraint_string = ','.join(constraint_data)
+            return hashlib.md5(constraint_string.encode()).hexdigest()
+            
+        except Exception as e:
+            # Fallback: basic constraint count and types
+            try:
+                basic_data = f"{len(obj.constraints)}_{'_'.join([c.type for c in obj.constraints])}"
+                return hashlib.md5(basic_data.encode()).hexdigest()
+            except Exception:
+                return "unknown_constraints"
+    
     def _compare_signatures_and_get_deltas(self, current_sig, previous_sig):
         """Compare two data signatures and return changes detected plus specific changed data blocks"""
         changes = {}
@@ -514,6 +731,55 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             if hasattr(data_block, 'animation_data') and data_block.animation_data:
                 if data_block.animation_data.action:
                     data_blocks_to_write.add(data_block.animation_data.action)
+            
+            # Modifier dependencies
+            if hasattr(data_block, 'modifiers'):
+                for mod in data_block.modifiers:
+                    # Boolean modifier object dependency
+                    if mod.type == 'BOOLEAN' and hasattr(mod, 'object') and mod.object:
+                        data_blocks_to_write.add(mod.object)
+                        add_block_dependencies(mod.object)
+                    
+                    # Array modifier object dependencies
+                    elif mod.type == 'ARRAY':
+                        if hasattr(mod, 'offset_object') and mod.offset_object:
+                            data_blocks_to_write.add(mod.offset_object)
+                        if hasattr(mod, 'start_cap') and mod.start_cap:
+                            data_blocks_to_write.add(mod.start_cap)
+                        if hasattr(mod, 'end_cap') and mod.end_cap:
+                            data_blocks_to_write.add(mod.end_cap)
+                    
+                    # Mirror modifier object dependency
+                    elif mod.type == 'MIRROR' and hasattr(mod, 'mirror_object') and mod.mirror_object:
+                        data_blocks_to_write.add(mod.mirror_object)
+                    
+                    # Armature modifier dependency
+                    elif mod.type == 'ARMATURE' and hasattr(mod, 'object') and mod.object:
+                        data_blocks_to_write.add(mod.object)
+                        # Also include the armature data
+                        if mod.object.data:
+                            data_blocks_to_write.add(mod.object.data)
+                    
+                    # Curve modifier dependency
+                    elif mod.type == 'CURVE' and hasattr(mod, 'object') and mod.object:
+                        data_blocks_to_write.add(mod.object)
+                        if mod.object.data:
+                            data_blocks_to_write.add(mod.object.data)
+                    
+                    # Displace modifier texture dependency
+                    elif mod.type == 'DISPLACE' and hasattr(mod, 'texture') and mod.texture:
+                        data_blocks_to_write.add(mod.texture)
+                        # If texture uses an image, include that too
+                        if hasattr(mod.texture, 'image') and mod.texture.image:
+                            data_blocks_to_write.add(mod.texture.image)
+            
+            # Constraint dependencies
+            if hasattr(data_block, 'constraints'):
+                for constraint in data_block.constraints:
+                    # Add constraint target objects as dependencies
+                    if hasattr(constraint, 'target') and constraint.target:
+                        data_blocks_to_write.add(constraint.target)
+                        add_block_dependencies(constraint.target)
         
         # Add dependencies for all changed blocks
         for data_block in list(changed_data_blocks):
