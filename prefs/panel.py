@@ -9,7 +9,7 @@ class GITBLEND_UL_commit_history(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
             # Display commit info
-            split = layout.split(factor=0.7)
+            split = layout.split(factor=0.4)
             
             # Hash (shortened)
             col = split.column()
