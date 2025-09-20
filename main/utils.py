@@ -135,3 +135,129 @@ def save_commit_metadata(gitblend_dir: Path, metadata: Dict[str, Any]) -> None:
     metadata_file = gitblend_dir / "commits.json"
     with open(metadata_file, 'w') as f:
         json.dump(metadata, f, indent=2)
+
+
+def resolve_commit_hash(metadata: Dict[str, Any], commit_ref: str) -> str:
+    """Resolve a commit reference (hash, 'HEAD', etc.) to a full commit hash."""
+    if commit_ref == "HEAD" or commit_ref is None:
+        return metadata.get("current_commit")
+    
+    # Check if it's already a full hash
+    if commit_ref in metadata.get("commits", {}):
+        return commit_ref
+    
+    # Check if it's a partial hash (first 8 characters)
+    if len(commit_ref) >= 7:
+        for commit_hash in metadata.get("commits", {}):
+            if commit_hash.startswith(commit_ref):
+                return commit_hash
+    
+    return None
+
+
+def validate_tree_hash(serialized_data: Dict[str, Any], expected_tree_hash: str) -> bool:
+    """Validate that the current data state matches the expected tree hash."""
+    current_tree_hash = generate_tree_hash(serialized_data)
+    return current_tree_hash == expected_tree_hash
+
+
+def clear_scene_data():
+    """Clear all data blocks from the current scene for clean checkout."""
+    # Remove all objects from all collections
+    for collection in bpy.data.collections:
+        for obj in list(collection.objects):
+            collection.objects.unlink(obj)
+    
+    # Remove all objects from the scene
+    for obj in list(bpy.data.objects):
+        bpy.data.objects.remove(obj, do_unlink=True)
+    
+    # Clear mesh data
+    for mesh in list(bpy.data.meshes):
+        if mesh.users == 0:
+            bpy.data.meshes.remove(mesh)
+    
+    # Clear materials
+    for material in list(bpy.data.materials):
+        if material.users == 0:
+            bpy.data.materials.remove(material)
+    
+    # Clear images
+    for image in list(bpy.data.images):
+        if image.users == 0:
+            bpy.data.images.remove(image)
+    
+    # Clear texts
+    for text in list(bpy.data.texts):
+        bpy.data.texts.remove(text)
+    
+    # Clear actions
+    for action in list(bpy.data.actions):
+        if action.users == 0:
+            bpy.data.actions.remove(action)
+    
+    # Clear node groups
+    for node_group in list(bpy.data.node_groups):
+        if node_group.users == 0:
+            bpy.data.node_groups.remove(node_group)
+
+
+def import_data_blocks_from_blend(blend_filepath: Path, data_categories: List[str] = None) -> bool:
+    """Import data blocks from a .blend file using bpy.ops.wm.append."""
+    if not blend_filepath.exists():
+        print(f"Blend file does not exist: {blend_filepath}")
+        return False
+    
+    # Convert to string and use forward slashes for Blender internal paths
+    blend_file_str = str(blend_filepath).replace("\\", "/")
+    
+    if data_categories is None:
+        data_categories = ["Object", "Mesh", "Material", "Image", "Text", "Action", "NodeTree"]
+    
+    try:
+        success = False
+        
+        # Try to import all data blocks at once using a more direct approach
+        try:
+            bpy.ops.wm.append(
+                filepath=blend_file_str,
+                directory=blend_file_str + "/",
+                link=False,
+                autoselect=False,
+                active_collection=True,
+                instance_collections=False
+            )
+            print(f"Successfully appended all data blocks from {blend_filepath.name}")
+            return True
+        except Exception as direct_error:
+            print(f"Direct append failed: {direct_error}")
+        
+        # If direct append fails, try category by category
+        for category in data_categories:
+            try:
+                # Create the internal path for this category (use forward slashes)
+                internal_path = f"{blend_file_str}/{category}/"
+                
+                # Use append operation with the internal path
+                bpy.ops.wm.append(
+                    filepath=internal_path,
+                    directory=internal_path,
+                    link=False,
+                    autoselect=False,
+                    active_collection=True,
+                    instance_collections=False
+                )
+                
+                print(f"Successfully appended {category} data blocks")
+                success = True
+                
+            except Exception as category_error:
+                # This is expected for categories that don't exist in the file
+                print(f"No {category} data blocks found: {category_error}")
+                continue
+        
+        return success
+        
+    except Exception as e:
+        print(f"Error importing data blocks: {e}")
+        return False
