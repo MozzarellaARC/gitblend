@@ -36,9 +36,10 @@ applyTo: '**'
 - use the .blend file hash as the key in the JSON file and the value is the pointers to the data blocks that were exported
 
 # Commit Architecture
-- utilize `bpy.data.libraries.write` to export .blend data blocks
+- gatekeep the commit with Diffing Architecture
+- utilize `bpy.data.libraries.write` to export .blend data blocks - delta
 - .blend file name uses sha-256 hash
-- data blocks to export:
+- data blocks - delta to export:
  	- bpy.data.objects
  	- bpy.data.meshes
  	- bpy.data.materials
@@ -46,13 +47,12 @@ applyTo: '**'
  	- bpy.data.texts
  	- bpy.data.actions
  	- bpy.data.node_groups
-- serialize the data block that gets exported into a JSON file
-- use the .blend file hash as the key in the JSON file and the value is the pointers to the data blocks that were exported
+- serialize the data block - delta that gets exported into a JSON file
+- use the .blend file hash as the key in the JSON file and the value is the pointers to the data blocks - delta that were exported
 - read the JSON file for subsequent commits to determine which data blocks to export
 - for subsequent commits if a data block already exists in the JSON file:
     - if modified (export again and update the pointer in the JSON file) and mark as modified
     - if not modified (do not export and parse the previous pointers into the JSON file)
-
 
 # Checkout Architecture
 - read the JSON file in the .gitblend directory
