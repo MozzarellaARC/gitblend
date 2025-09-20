@@ -117,7 +117,6 @@ class GITBLEND_OT_commit(bpy.types.Operator):
                 props.changes_log[-1].uid = uid
         except Exception:
             pass
-        props.commit_message = ""
         request_redraw()
         self.report({'INFO'}, "Commit snapshot created in gitblend")
         return {'FINISHED'}
