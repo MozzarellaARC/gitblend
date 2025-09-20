@@ -44,53 +44,18 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 self.report({'ERROR'}, f"Blend file {blend_file} not found")
                 return {'CANCELLED'}
             
-            # Clear existing data blocks that will be replaced
-            data_blocks_to_restore = commit_data.get("data_blocks", {})
+            # Get the exact state that should exist after checkout
+            target_data_blocks = commit_data.get("data_blocks", {})
             
-            # Remove existing data blocks that will be replaced
-            for category, blocks_info in data_blocks_to_restore.items():
-                if category == "objects":
-                    collection = bpy.data.objects
-                elif category == "meshes":
-                    collection = bpy.data.meshes
-                elif category == "materials":
-                    collection = bpy.data.materials
-                elif category == "images":
-                    collection = bpy.data.images
-                elif category == "texts":
-                    collection = bpy.data.texts
-                elif category == "actions":
-                    collection = bpy.data.actions
-                elif category == "node_groups":
-                    collection = bpy.data.node_groups
-                else:
-                    continue
-                
-                # Remove existing blocks that will be replaced
-                block_names = {block_info["name"] for block_info in blocks_info}
-                blocks_to_remove = [block for block in collection if block.name in block_names]
-                
-                for block in blocks_to_remove:
-                    try:
-                        collection.remove(block)
-                    except:
-                        pass  # Some blocks might be in use and can't be removed
+            # Step 1: Clear ALL existing data blocks (complete reset)
+            self.clear_all_data_blocks()
             
-            # Append data blocks from the commit blend file
-            with bpy.data.libraries.load(str(blend_filepath)) as (data_from, data_to):
-                # Get all available data from the blend file
-                data_to.objects = data_from.objects
-                data_to.meshes = data_from.meshes
-                data_to.materials = data_from.materials
-                data_to.images = data_from.images
-                data_to.texts = data_from.texts
-                data_to.actions = data_from.actions
-                data_to.node_groups = data_from.node_groups
+            # Step 2: Append all data blocks from the commit
+            success = self.append_commit_data_blocks(str(blend_filepath), target_data_blocks)
             
-            # Link objects to the current scene if they're not already linked
-            for obj in data_to.objects:
-                if obj and obj.name not in bpy.context.scene.collection.objects:
-                    bpy.context.scene.collection.objects.link(obj)
+            if not success:
+                self.report({'ERROR'}, "Failed to restore commit state")
+                return {'CANCELLED'}
             
             # Update current commit in metadata
             metadata["current_commit"] = self.commit_hash
@@ -103,3 +68,82 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
         except Exception as e:
             self.report({'ERROR'}, f"Failed to checkout commit: {str(e)}")
             return {'CANCELLED'}
+    
+    def clear_all_data_blocks(self):
+        """Clear all data blocks to prepare for commit state reconstruction."""
+        # Clear objects from scene first
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.delete(use_global=False)
+        
+        # Clear all data blocks
+        data_collections = [
+            bpy.data.meshes,
+            bpy.data.materials, 
+            bpy.data.textures,
+            bpy.data.images,
+            bpy.data.actions,
+            bpy.data.node_groups,
+            bpy.data.texts
+        ]
+        
+        for collection in data_collections:
+            for item in list(collection):
+                try:
+                    collection.remove(item)
+                except:
+                    # Some items might be in use and can't be removed
+                    pass
+    
+    def append_commit_data_blocks(self, blend_filepath: str, target_data_blocks: dict) -> bool:
+        """Append all data blocks from the commit to reconstruct the exact state."""
+        try:
+            # Use bpy.ops.wm.append with proper directory structure
+            # First, let's append everything from the blend file
+            
+            # Get list of all data types and their names from target_data_blocks
+            append_operations = [
+                ("Object", target_data_blocks.get("objects", [])),
+                ("Mesh", target_data_blocks.get("meshes", [])),
+                ("Material", target_data_blocks.get("materials", [])),
+                ("NodeTree", target_data_blocks.get("node_groups", [])),
+                ("Text", target_data_blocks.get("texts", [])),
+                ("Action", target_data_blocks.get("actions", [])),
+                ("Image", target_data_blocks.get("images", []))
+            ]
+            
+            for data_type, data_list in append_operations:
+                if not data_list:
+                    continue
+                    
+                for item_info in data_list:
+                    item_name = item_info.get("name", "")
+                    if not item_name:
+                        continue
+                    
+                    try:
+                        # Construct the filepath for this specific data block
+                        item_filepath = f"{blend_filepath}/{data_type}/{item_name}"
+                        directory = f"{blend_filepath}/{data_type}/"
+                        
+                        bpy.ops.wm.append(
+                            filepath=item_filepath,
+                            directory=directory,
+                            filename=item_name,
+                            link=False,
+                            autoselect=False,
+                            active_collection=True,
+                            instance_collections=False,
+                            instance_object_data=True,
+                            set_fake=False,
+                            use_recursive=True
+                        )
+                        
+                    except Exception as e:
+                        print(f"Warning: Could not append {data_type} '{item_name}': {e}")
+                        continue
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error in append_commit_data_blocks: {e}")
+            return False
