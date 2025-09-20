@@ -103,39 +103,3 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
         except Exception as e:
             self.report({'ERROR'}, f"Failed to checkout commit: {str(e)}")
             return {'CANCELLED'}
-
-
-class GITBLEND_OT_ListCommits(bpy.types.Operator):
-    """List all available commits."""
-    bl_idname = "gitblend.list_commits"
-    bl_label = "List Commits"
-    bl_description = "List all available commits"
-    bl_options = {'REGISTER'}
-    
-    def execute(self, context):
-        try:
-            gitblend_dir = get_gitblend_dir()
-            if not gitblend_dir.exists():
-                self.report({'ERROR'}, "Git Blend not initialized.")
-                return {'CANCELLED'}
-            
-            metadata = load_commit_metadata(gitblend_dir)
-            commits = metadata.get("commits", {})
-            
-            if not commits:
-                self.report({'INFO'}, "No commits found")
-                return {'FINISHED'}
-            
-            print("\n=== Git Blend Commits ===")
-            for commit_hash, commit_data in commits.items():
-                message = commit_data.get("message", "No message")
-                timestamp = commit_data.get("timestamp", "Unknown time")
-                current = " (current)" if commit_hash == metadata.get("current_commit") else ""
-                print(f"{commit_hash[:8]}: {message} - {timestamp}{current}")
-            
-            self.report({'INFO'}, f"Found {len(commits)} commits (see console for details)")
-            return {'FINISHED'}
-            
-        except Exception as e:
-            self.report({'ERROR'}, f"Failed to list commits: {str(e)}")
-            return {'CANCELLED'}

@@ -84,7 +84,6 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
             # Refresh button
             row = box.row()
             row.operator("gitblend.refresh_commits", text="Refresh", icon='FILE_REFRESH')
-            row.operator("gitblend.list_commits", text="List in Console", icon='CONSOLE')
             
             # UIList for commits
             if hasattr(scene, 'gitblend'):
@@ -103,10 +102,3 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
                     box.operator("gitblend.checkout_selected", text="Checkout Selected", icon='IMPORT')
             else:
                 box.label(text="Properties not available")
-        
-        # Utility section
-        layout.separator()
-        col = layout.column(align=True)
-        col.label(text="Utilities", icon='TOOL_SETTINGS')
-        if is_initialized:
-            col.operator("gitblend.list_commits", text="List Commits", icon='TEXT')
