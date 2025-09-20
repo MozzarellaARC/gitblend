@@ -8,3 +8,4 @@ applyTo: '**'
 - bpy.data.images
 - bpy.data.texts
 - bpy.data.actions
+- bpy.data.node_groups
