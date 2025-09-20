@@ -1,8 +1,41 @@
 ---
 applyTo: '**'
 ---
+
+# Diffing Architecture
+- data blocks to diff:
+ 	- bpy.data.objects
+        - simple name and size diff
+ 	- bpy.data.meshes
+        - samples the vertices up to 1000 vertices for performance
+ 	- bpy.data.materials
+        - sample the node count
+ 	- bpy.data.images
+        - simple name and size diff
+ 	- bpy.data.texts
+        - simple name and content diff
+ 	- bpy.data.actions
+        - simple name and fcurves count diff
+ 	- bpy.data.node_groups
+        - sample the node count
+
+# Initialize / Sync Architecture
+- create the .gitblend directory on the same level as the current .blend file directory
+- export the existing data blocks into the .gitblend directory
+- utilize `bpy.data.libraries.write` to export .blend data blocks
+- .blend file name uses sha-256 hash
+- data blocks to export:
+ 	- bpy.data.objects
+ 	- bpy.data.meshes
+ 	- bpy.data.materials
+ 	- bpy.data.images
+ 	- bpy.data.texts
+ 	- bpy.data.actions
+ 	- bpy.data.node_groups
+- serialize the data block that gets exported into a JSON file
+- use the .blend file hash as the key in the JSON file and the value is the pointers to the data blocks that were exported
+
 # Commit Architecture
-- generate .gitblend directory on the same level as the current .blend file directory
 - utilize `bpy.data.libraries.write` to export .blend data blocks
 - .blend file name uses sha-256 hash
 - data blocks to export:
