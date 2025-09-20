@@ -2,6 +2,7 @@ import bpy
 import time
 from .utils import (
     get_blend_file_hash,
+    generate_commit_hash,
     get_gitblend_dir,
     export_data_blocks_to_blend,
     serialize_data_blocks,
@@ -57,8 +58,9 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             # Load existing metadata
             metadata = load_commit_metadata(gitblend_dir)
             
-            # Generate new commit hash
-            new_hash = get_blend_file_hash()
+            # Generate new commit hash based on timestamp, message, and changes
+            commit_timestamp = time.time()
+            new_hash = generate_commit_hash(self.message, commit_timestamp, changes)
             
             # Collect only modified/added data blocks for delta export
             delta_data_blocks = []
@@ -142,7 +144,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             commit_data = {
                 "data_blocks": serialized_data,
                 "blend_file": f"{new_hash}.blend" if blend_filepath else None,
-                "timestamp": time.time(),
+                "timestamp": commit_timestamp,
                 "message": self.message,
                 "changes": changes
             }

@@ -3,6 +3,7 @@ import bpy
 import json
 import hashlib
 import os
+import time
 from pathlib import Path
 from typing import Dict, List, Any, Tuple
 
@@ -16,6 +17,13 @@ def get_blend_file_hash() -> str:
     with open(bpy.data.filepath, 'rb') as f:
         content = f.read()
         return hashlib.sha256(content).hexdigest()
+
+
+def generate_commit_hash(message: str, timestamp: float, changes: Dict) -> str:
+    """Generate a unique commit hash based on message, timestamp, and changes."""
+    # Create a string from the commit data
+    commit_data = f"{message}_{timestamp}_{json.dumps(changes, sort_keys=True)}"
+    return hashlib.sha256(commit_data.encode()).hexdigest()
 
 
 def get_gitblend_dir() -> Path:
