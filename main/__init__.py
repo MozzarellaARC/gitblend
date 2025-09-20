@@ -4,12 +4,10 @@ from .initialize import GITBLEND_OT_Initialize
 from .commit import GITBLEND_OT_Commit
 from .checkout import GITBLEND_OT_Checkout, GITBLEND_OT_ListCommits
 from .refresh import GITBLEND_OT_RefreshCommits, GITBLEND_OT_CheckoutSelected
-from .properties import register_properties, unregister_properties
 
 
 def register_operators():
 	# Register operators
-	register_properties()
 	bpy.utils.register_class(GITBLEND_OT_Initialize)
 	bpy.utils.register_class(GITBLEND_OT_Commit)
 	bpy.utils.register_class(GITBLEND_OT_Checkout)
@@ -19,7 +17,6 @@ def register_operators():
 
 def unregister_operators():
 	# Unregister operators
-	unregister_properties()
 	bpy.utils.unregister_class(GITBLEND_OT_CheckoutSelected)
 	bpy.utils.unregister_class(GITBLEND_OT_RefreshCommits)
 	bpy.utils.unregister_class(GITBLEND_OT_ListCommits)

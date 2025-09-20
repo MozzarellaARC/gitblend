@@ -26,14 +26,24 @@ class GITBLEND_OT_RefreshCommits(bpy.types.Operator):
             # Clear existing commits
             context.scene.gitblend.commits.clear()
             
+            # Sort commits by timestamp (newest first)
+            sorted_commits = sorted(
+                commits.items(), 
+                key=lambda x: x[1].get("timestamp", 0), 
+                reverse=True  # Newest first (top to bottom)
+            )
+            
             # Add commits to the property collection
-            for commit_hash, commit_data in commits.items():
+            for commit_hash, commit_data in sorted_commits:
                 item = context.scene.gitblend.commits.add()
                 item.hash = commit_hash
                 item.message = commit_data.get("message", "No message")
                 
-                # Format timestamp
+                # Store timestamp for sorting
                 timestamp = commit_data.get("timestamp", 0)
+                item.timestamp_float = timestamp
+                
+                # Format timestamp for display
                 if isinstance(timestamp, (int, float)) and timestamp > 0:
                     try:
                         dt = datetime.fromtimestamp(timestamp)
