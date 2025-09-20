@@ -59,7 +59,5 @@ applyTo: '**'
 # Checkout Architecture
 - read the JSON file in the .gitblend directory
 - for each data block pointer in the JSON file:
- 	- check if the data block already exists in bpy.data
- 	- if it does not exist, import data block
- 	- if it does exist, overwrite data block
+ 	- check the add, modified, removed flag
 - utilize bpy.ops.wm.append to import data blocks from the .gitblend directory
