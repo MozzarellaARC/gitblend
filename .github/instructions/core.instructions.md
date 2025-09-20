@@ -58,6 +58,7 @@ applyTo: '**'
 
 # Checkout Architecture
 - read the JSON file in the .gitblend directory
-- for each data block pointer in the JSON file:
- 	- check the add, modified, removed flag
+- reconstruct the delta data blocks in the current .blend file based on the JSON file.
+- make sure to recursive purge when deleting data blocks
+- if delta reconstruction is successful, proceed to import
 - utilize bpy.ops.wm.append to import data blocks from the .gitblend directory
