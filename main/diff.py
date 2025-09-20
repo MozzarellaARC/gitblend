@@ -28,9 +28,19 @@ def compare_objects(current_objects: List, stored_objects: List) -> Tuple[List, 
             stored_obj = stored_dict[name]
             current_info = get_data_block_info(obj)
             
-            # Simple comparison based on type and basic properties
-            if (current_info.get("type") != stored_obj.get("type") or
-                len(obj.data.vertices) != stored_obj.get("vertex_count", 0) if hasattr(obj.data, 'vertices') else False):
+            # Debug object comparison
+            type_changed = current_info.get("type") != stored_obj.get("type")
+            
+            # For objects, we should not compare vertex count here as that's handled in mesh comparison
+            # Objects should only be compared for basic properties like type
+            
+            if type_changed:
+                print(f"=== OBJECT COMPARISON DEBUG: {name} ===")
+                print(f"Type: current={current_info.get('type')}, stored={stored_obj.get('type')}, changed={type_changed}")
+                print("======================================")
+            
+            # Simple comparison based on type only (mesh changes are handled separately)
+            if type_changed:
                 modified.append(obj)
     
     # Find removed objects
@@ -63,10 +73,27 @@ def compare_meshes(current_meshes: List, stored_meshes: List) -> Tuple[List, Lis
             current_vertices = sample_mesh_vertices(mesh)
             stored_vertices = stored_mesh.get("vertices_sample", [])
             
+            # Convert stored vertices to tuples for consistent comparison
+            stored_vertices_tuples = [tuple(v) if isinstance(v, list) else v for v in stored_vertices]
+            
+            # Debug: Print comparison details for troubleshooting
+            vertex_count_changed = len(mesh.vertices) != stored_mesh.get("vertex_count", 0)
+            face_count_changed = len(mesh.polygons) != stored_mesh.get("face_count", 0)
+            vertices_changed = current_vertices != stored_vertices_tuples
+            
+            if vertex_count_changed or face_count_changed or vertices_changed:
+                print(f"=== MESH COMPARISON DEBUG: {name} ===")
+                print(f"Vertex count: current={len(mesh.vertices)}, stored={stored_mesh.get('vertex_count', 0)}, changed={vertex_count_changed}")
+                print(f"Face count: current={len(mesh.polygons)}, stored={stored_mesh.get('face_count', 0)}, changed={face_count_changed}")
+                print(f"Vertices changed: {vertices_changed}")
+                if vertices_changed:
+                    print(f"Current vertices sample (first 3): {current_vertices[:3]}")
+                    print(f"Stored vertices sample (first 3): {stored_vertices[:3]}")
+                    print(f"Stored vertices as tuples (first 3): {stored_vertices_tuples[:3]}")
+                print("=====================================")
+            
             # Compare vertex count and sample
-            if (len(mesh.vertices) != stored_mesh.get("vertex_count", 0) or
-                len(mesh.polygons) != stored_mesh.get("face_count", 0) or
-                current_vertices != stored_vertices):
+            if (vertex_count_changed or face_count_changed or vertices_changed):
                 modified.append(mesh)
     
     # Find removed meshes

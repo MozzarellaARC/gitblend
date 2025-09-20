@@ -41,6 +41,16 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 for change_list in category_changes.values()
             )
             
+            # Debug: Print changes for troubleshooting
+            print("=== COMMIT DEBUG ===")
+            print(f"Changes detected: {changes}")
+            print(f"Has changes: {has_changes}")
+            for category, category_changes in changes.items():
+                total_changes = sum(len(change_list) for change_list in category_changes.values())
+                if total_changes > 0:
+                    print(f"{category}: {category_changes}")
+            print("==================")
+            
             if not has_changes:
                 self.report({'INFO'}, "No changes detected")
                 return {'CANCELLED'}
@@ -91,11 +101,20 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                     data_blocks_dict[category] = blocks
                     delta_data_blocks.extend(blocks)
             
+            # Debug: Print what we're about to export
+            print(f"Delta data blocks to export: {len(delta_data_blocks)}")
+            for category, blocks in data_blocks_dict.items():
+                if blocks:
+                    print(f"  {category}: {[block.name for block in blocks]}")
+            
             # Export delta data blocks if there are any
             blend_filepath = None
             if delta_data_blocks:
                 blend_filepath = export_data_blocks_to_blend(gitblend_dir, new_hash, delta_data_blocks)
                 self.report({'INFO'}, f"Exported {len(delta_data_blocks)} changed data blocks")
+            else:
+                self.report({'INFO'}, "No data blocks to export (changes detected but no exportable blocks)")
+                # Still continue to update metadata even if no blend file is created
             
             # For subsequent commits, merge with previous data
             if metadata.get("commits"):
