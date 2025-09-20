@@ -78,8 +78,8 @@ def export_data_blocks_to_blend(gitblend_dir: Path, file_hash: str, data_blocks:
     blend_filename = f"{file_hash}.blend"
     blend_filepath = gitblend_dir / blend_filename
     
-    # Create a list of data blocks to export
-    data_blocks_to_export = [db for db in data_blocks if db is not None]
+    # Create a set of data blocks to export (bpy.data.libraries.write expects a set)
+    data_blocks_to_export = {db for db in data_blocks if db is not None}
     
     if data_blocks_to_export:
         bpy.data.libraries.write(str(blend_filepath), data_blocks_to_export)
