@@ -3,6 +3,7 @@ import time
 from .utils import (
     get_blend_file_hash,
     generate_commit_hash,
+    generate_tree_hash,
     get_gitblend_dir,
     export_data_blocks_to_blend,
     serialize_data_blocks,
@@ -48,9 +49,29 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             # Load existing metadata
             metadata = load_commit_metadata(gitblend_dir)
             
-            # Generate new commit hash based on timestamp, message, and changes
+            # Get parent commit hash (previous commit)
+            parent_hash = metadata.get("current_commit")
+            
+            # Commit timestamp
             commit_timestamp = time.time()
-            new_hash = generate_commit_hash(commit_message, commit_timestamp, changes)
+            
+            # Serialize all current data blocks for tree hash generation
+            all_current_data = {
+                "objects": list(bpy.data.objects),
+                "meshes": list(bpy.data.meshes),
+                "materials": list(bpy.data.materials),
+                "images": list(bpy.data.images),
+                "texts": list(bpy.data.texts),
+                "actions": list(bpy.data.actions),
+                "node_groups": list(bpy.data.node_groups)
+            }
+            serialized_data = serialize_data_blocks(all_current_data)
+            
+            # Generate tree hash from the complete serialized data
+            tree_hash = generate_tree_hash(serialized_data)
+            
+            # Generate commit hash using git-like approach
+            commit_hash = generate_commit_hash(commit_message, commit_timestamp, tree_hash, parent_hash)
             
             # Collect only modified/added data blocks for delta export
             delta_data_blocks = []
@@ -94,7 +115,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             # Export delta data blocks if there are any
             blend_filepath = None
             if delta_data_blocks:
-                blend_filepath = export_data_blocks_to_blend(gitblend_dir, new_hash, delta_data_blocks)
+                blend_filepath = export_data_blocks_to_blend(gitblend_dir, commit_hash, delta_data_blocks)
                 self.report({'INFO'}, f"Exported {len(delta_data_blocks)} changed data blocks")
             else:
                 self.report({'INFO'}, "No data blocks to export (changes detected but no exportable blocks)")
@@ -121,30 +142,21 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                                         # Add to current serialization (keeping previous data)
                                         pass  # We'll serialize current state below
             
-            # Serialize all current data blocks (not just delta)
-            all_current_data = {
-                "objects": list(bpy.data.objects),
-                "meshes": list(bpy.data.meshes),
-                "materials": list(bpy.data.materials),
-                "images": list(bpy.data.images),
-                "texts": list(bpy.data.texts),
-                "actions": list(bpy.data.actions),
-                "node_groups": list(bpy.data.node_groups)
-            }
-            serialized_data = serialize_data_blocks(all_current_data)
-            
-            # Create commit entry
+            # Create git-like commit entry
             commit_data = {
+                "commit": commit_hash,
+                "tree": tree_hash,
+                "parent": parent_hash,
                 "data_blocks": serialized_data,
-                "blend_file": f"{new_hash}.blend" if blend_filepath else None,
+                "blend_file": f"{commit_hash}.blend" if blend_filepath else None,
                 "timestamp": commit_timestamp,
                 "message": commit_message,
                 "changes": changes
             }
             
             # Update metadata
-            metadata["commits"][new_hash] = commit_data
-            metadata["current_commit"] = new_hash
+            metadata["commits"][commit_hash] = commit_data
+            metadata["current_commit"] = commit_hash
             
             # Save metadata
             save_commit_metadata(gitblend_dir, metadata)

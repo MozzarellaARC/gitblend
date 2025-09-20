@@ -19,10 +19,22 @@ def get_blend_file_hash() -> str:
         return hashlib.sha256(content).hexdigest()
 
 
-def generate_commit_hash(message: str, timestamp: float, changes: Dict) -> str:
-    """Generate a unique commit hash based on message, timestamp, and changes."""
-    # Create a string from the commit data
-    commit_data = f"{message}_{timestamp}_{json.dumps(changes, sort_keys=True)}"
+def generate_tree_hash(serialized_data: Dict[str, Any]) -> str:
+    """Generate a hash representing the complete state of all data blocks (tree hash)."""
+    # Create a canonical string representation of the complete data state
+    tree_data = json.dumps(serialized_data, sort_keys=True)
+    return hashlib.sha256(tree_data.encode()).hexdigest()
+
+
+def generate_commit_hash(message: str, timestamp: float, tree_hash: str, parent_hash: str = None) -> str:
+    """Generate a unique commit hash based on message, timestamp, tree hash, and parent hash."""
+    # Create a git-like commit data string
+    commit_data = f"tree {tree_hash}\n"
+    if parent_hash:
+        commit_data += f"parent {parent_hash}\n"
+    commit_data += f"timestamp {timestamp}\n"
+    commit_data += f"message {message}"
+    
     return hashlib.sha256(commit_data.encode()).hexdigest()
 
 

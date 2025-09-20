@@ -1,60 +1,6 @@
-=== OBJECT COMPARISON DEBUG: Cube ===
-Type: current=Object, stored=Object, changed=False
-Vertex count: current=8, stored=0, changed=True
-======================================
-=== MESH COMPARISON DEBUG: Cube ===
-Vertex count: current=8, stored=8, changed=False
-Face count: current=6, stored=6, changed=False
-Vertices changed: True
-Current vertices sample (first 3): [(1.0, 1.0, 1.0), (1.0, 1.0, -1.0), (1.0, -1.0, 1.0)]
-Stored vertices sample (first 3): [[1.0, 1.0, 1.0], [1.0, 1.0, -1.0], [1.0, -1.0, 1.0]]
-=====================================
-=== COMMIT DEBUG ===
-Changes detected: {'objects': {'added': [], 'modified': ['Cube'], 'removed': []}, 'meshes': {'added': [], 'modified': ['Cube'], 'removed': []}, 'materials': {'added': [], 'modified': [], 'removed': []}, 'images': {'added': [], 'modified': [], 'removed': []}, 'texts': {'added': [], 'modified': [], 'removed': []}, 'actions': {'added': [], 'modified': [], 'removed': []}, 'node_groups': {'added': [], 'modified': [], 'removed': []}}
-Has changes: True
-objects: {'added': [], 'modified': ['Cube'], 'removed': []}
-meshes: {'added': [], 'modified': ['Cube'], 'removed': []}
-==================
-Delta data blocks to export: 2
-  objects: ['Cube']
-  meshes: ['Cube']
-=== OBJECT COMPARISON DEBUG: Cube ===
-Type: current=Object, stored=Object, changed=False
-Vertex count: current=8, stored=0, changed=True
-======================================
-=== MESH COMPARISON DEBUG: Cube ===
-Vertex count: current=8, stored=8, changed=False
-Face count: current=6, stored=6, changed=False
-Vertices changed: True
-Current vertices sample (first 3): [(1.0, 1.0, 1.0), (1.0, 1.0, -1.0), (1.0, -1.0, 1.0)]
-Stored vertices sample (first 3): [[1.0, 1.0, 1.0], [1.0, 1.0, -1.0], [1.0, -1.0, 1.0]]
-=====================================
-=== COMMIT DEBUG ===
-Changes detected: {'objects': {'added': [], 'modified': ['Cube'], 'removed': []}, 'meshes': {'added': [], 'modified': ['Cube'], 'removed': []}, 'materials': {'added': [], 'modified': [], 'removed': []}, 'images': {'added': [], 'modified': [], 'removed': []}, 'texts': {'added': [], 'modified': [], 'removed': []}, 'actions': {'added': [], 'modified': [], 'removed': []}, 'node_groups': {'added': [], 'modified': [], 'removed': []}}
-Has changes: True
-objects: {'added': [], 'modified': ['Cube'], 'removed': []}
-meshes: {'added': [], 'modified': ['Cube'], 'removed': []}
-==================
-Delta data blocks to export: 2
-  objects: ['Cube']
-  meshes: ['Cube']
-=== OBJECT COMPARISON DEBUG: Cube ===
-Type: current=Object, stored=Object, changed=False
-Vertex count: current=8, stored=0, changed=True
-======================================
-=== MESH COMPARISON DEBUG: Cube ===
-Vertex count: current=8, stored=8, changed=False
-Face count: current=6, stored=6, changed=False
-Vertices changed: True
-Current vertices sample (first 3): [(1.0, 1.0, 1.0), (1.0, 1.0, -1.0), (1.0, -1.0, 1.0)]
-Stored vertices sample (first 3): [[1.0, 1.0, 1.0], [1.0, 1.0, -1.0], [1.0, -1.0, 1.0]]
-=====================================
-=== COMMIT DEBUG ===
-Changes detected: {'objects': {'added': [], 'modified': ['Cube'], 'removed': []}, 'meshes': {'added': [], 'modified': ['Cube'], 'removed': []}, 'materials': {'added': [], 'modified': [], 'removed': []}, 'images': {'added': [], 'modified': [], 'removed': []}, 'texts': {'added': [], 'modified': [], 'removed': []}, 'actions': {'added': [], 'modified': [], 'removed': []}, 'node_groups': {'added': [], 'modified': [], 'removed': []}}
-Has changes: True
-objects: {'added': [], 'modified': ['Cube'], 'removed': []}
-meshes: {'added': [], 'modified': ['Cube'], 'removed': []}
-==================
-Delta data blocks to export: 2
-  objects: ['Cube']
-  meshes: ['Cube']
+this is what happened on checkout testing:
+a scene has a cube
+user duplicate cube in commit 1, scene has cube and cube.001
+user duplicate cube and cube.001 in commit 2, scene has cube, cube.001, cube.002, cube.003
+user checkout commit 1, scene have cube and cube.001, cube.002
+user checkout commit 2, scene have cube, cube.001, cube.002, cube.003, cube.004
