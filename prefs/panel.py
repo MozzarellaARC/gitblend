@@ -13,7 +13,7 @@ class GITBLEND_UL_commit_history(bpy.types.UIList):
             
             # Hash (shortened)
             col = split.column()
-            col.label(text=f"#{item.hash[:8]}")
+            col.label(text=f"{item.hash[:8]}")
             
             # Timestamp
             col = split.column()
