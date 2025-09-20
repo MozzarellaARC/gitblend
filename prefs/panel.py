@@ -11,19 +11,16 @@ class GITBLEND_UL_commit_history(bpy.types.UIList):
             # Display commit info
             split = layout.split(factor=0.7)
             
-            # Message and hash
-            col = split.column()
-            if item.is_current:
-                col.label(text=f"● {item.message}", icon='RADIOBUT_ON')
-            else:
-                col.label(text=item.message, icon='RADIOBUT_OFF')
-            
             # Hash (shortened)
+            col = split.column()
             col.label(text=f"#{item.hash[:8]}")
             
             # Timestamp
             col = split.column()
             col.label(text=item.timestamp)
+
+            # Commit message
+            split.label(text=f"{item.message}")
         
         elif self.layout_type == 'GRID':
             layout.alignment = 'CENTER'
