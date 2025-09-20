@@ -1,16 +1,16 @@
 import bpy # type: ignore
 
-from .initialize import register_initialize, unregister_initialize
-from .commit import register_commit, unregister_commit
+from .initialize import GITBLEND_OT_Initialize
+from .commit import GITBLEND_OT_Commit
 
 
 def register_operators():
-    register_initialize()
-    register_commit()
+    bpy.utils.register_class(GITBLEND_OT_Initialize)
+    bpy.utils.register_class(GITBLEND_OT_Commit)
 
 def unregister_operators():
-    unregister_commit()
-    unregister_initialize()
+    bpy.utils.unregister_class(GITBLEND_OT_Commit)
+    bpy.utils.unregister_class(GITBLEND_OT_Initialize)
 
 __all__ = (
     "register_operators",

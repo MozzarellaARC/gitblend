@@ -1,10 +1,5 @@
 import bpy
-import os
 import json
-import hashlib
-import time
-from datetime import datetime
-from pathlib import Path
 
 
 class GITBLEND_OT_Initialize(bpy.types.Operator):
