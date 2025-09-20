@@ -76,6 +76,8 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
             # Commit section
             box = layout.box()
             box.label(text="Commit Changes", icon='FILE_TICK')
+            # Add commit message input
+            box.prop(scene.gitblend, "commit_message", text="Message")
             box.operator("gitblend.commit", text="Commit", icon='PLUS')
             
             # Commit history section

@@ -18,21 +18,11 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
     bl_description = "Commit current changes to git blend repository"
     bl_options = {'REGISTER', 'UNDO'}
     
-    message: bpy.props.StringProperty(
-        name="Commit Message",
-        description="Message describing the changes",
-        default="Update blend file"
-    )
-    
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
-    
-    def draw(self, context):
-        layout = self.layout
-        layout.prop(self, "message")
-    
     def execute(self, context):
         try:
+            # Get commit message from scene properties
+            commit_message = context.scene.gitblend.commit_message if hasattr(context.scene, 'gitblend') else "Update blend file"
+            
             # Check if git_blend is initialized
             gitblend_dir = get_gitblend_dir()
             if not gitblend_dir.exists():
@@ -60,7 +50,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             
             # Generate new commit hash based on timestamp, message, and changes
             commit_timestamp = time.time()
-            new_hash = generate_commit_hash(self.message, commit_timestamp, changes)
+            new_hash = generate_commit_hash(commit_message, commit_timestamp, changes)
             
             # Collect only modified/added data blocks for delta export
             delta_data_blocks = []
@@ -145,7 +135,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 "data_blocks": serialized_data,
                 "blend_file": f"{new_hash}.blend" if blend_filepath else None,
                 "timestamp": commit_timestamp,
-                "message": self.message,
+                "message": commit_message,
                 "changes": changes
             }
             
@@ -156,7 +146,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             # Save metadata
             save_commit_metadata(gitblend_dir, metadata)
             
-            self.report({'INFO'}, f"Committed changes: {self.message}")
+            self.report({'INFO'}, f"Committed changes: {commit_message}")
             return {'FINISHED'}
             
         except Exception as e:

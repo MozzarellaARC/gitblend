@@ -16,6 +16,12 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
     """Main property group for git_blend."""
     commits: CollectionProperty(type=GITBLEND_CommitItem, name="Commits")
     active_commit_index: IntProperty(name="Active Commit Index", default=-1)
+    commit_message: StringProperty(
+        name="Commit Message",
+        description="Message for the next commit",
+        default="Update blend file",
+        maxlen=256
+    )
     
     
 def register_properties():
