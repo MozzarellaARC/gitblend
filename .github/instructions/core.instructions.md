@@ -2,23 +2,6 @@
 applyTo: '**'
 ---
 
-# Diffing Architecture
-- data blocks to diff:
- 	- bpy.data.objects
-        - simple name and size diff
- 	- bpy.data.meshes
-        - samples the vertices up to 1000 vertices for performance
- 	- bpy.data.materials
-        - sample the node count
- 	- bpy.data.images
-        - simple name and size diff
- 	- bpy.data.texts
-        - simple name and content diff
- 	- bpy.data.actions
-        - simple name and fcurves count diff
- 	- bpy.data.node_groups
-        - sample the node count
-
 # Initialize / Sync Architecture
 - create the .gitblend directory on the same level as the current .blend file directory
 - export the existing data blocks into the .gitblend directory
@@ -32,8 +15,25 @@ applyTo: '**'
  	- bpy.data.texts
  	- bpy.data.actions
  	- bpy.data.node_groups
-- serialize the data block that gets exported into a JSON file
+- serialize the data block that gets exported into a JSON file in diffable format
 - use the .blend file hash as the key in the JSON file and the value is the pointers to the data blocks that were exported
+
+# Diffing Architecture
+- data blocks to diff:
+ 	- compare json to bpy.data.objects
+        - simple name and size diff
+ 	- compare json to bpy.data.meshes
+        - samples the vertices up to 1000 vertices for performance
+ 	- compare json to bpy.data.materials
+        - sample the node count
+ 	- compare json to bpy.data.images
+        - simple name and size diff
+ 	- compare json to bpy.data.texts
+        - simple name and content diff
+ 	- compare json to bpy.data.actions
+        - simple name and fcurves count diff
+ 	- compare json to bpy.data.node_groups
+        - sample the node count
 
 # Commit Architecture
 - gatekeep the commit with Diffing Architecture
@@ -47,7 +47,7 @@ applyTo: '**'
  	- bpy.data.texts
  	- bpy.data.actions
  	- bpy.data.node_groups
-- serialize the data block - delta that gets exported into a JSON file
+- serialize the data block - delta that gets exported into a JSON file in diffable format
 - use the .blend file hash as the key in the JSON file and the value is the pointers to the data blocks - delta that were exported
 - read the JSON file for subsequent commits to determine which data blocks to export
 - for subsequent commits if a data block already exists in the JSON file:
