@@ -13,7 +13,10 @@ class GITBLEND_UL_commit_history(bpy.types.UIList):
             
             # Hash (shortened)
             col = split.column()
-            col.label(text=f"{item.hash[:8]}")
+            if item.is_current:
+                col.label(text=f"● {item.hash[:8]}", icon='RADIOBUT_ON')
+            else:
+                col.label(text=f"{item.hash[:8]}", icon='RADIOBUT_OFF')
             
             # Timestamp
             col = split.column()
@@ -96,9 +99,5 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
                     "active_commit_index",
                     rows=5
                 )
-                
-                # Checkout button
-                if scene.gitblend.commits:
-                    box.operator("gitblend.checkout_selected", text="Checkout Selected", icon='IMPORT')
             else:
                 box.label(text="Properties not available")
