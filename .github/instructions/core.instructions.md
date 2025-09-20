@@ -21,8 +21,10 @@ applyTo: '**'
 # Diffing Architecture
 - data blocks to diff:
  	- compare json to bpy.data.objects
+        - simple transform (location, rotation, scale) diff
         - simple name and size diff
  	- compare json to bpy.data.meshes
+        - simple transform (location, rotation, scale) diff
         - samples the vertices up to 1000 vertices for performance
  	- compare json to bpy.data.materials
         - sample the node count
