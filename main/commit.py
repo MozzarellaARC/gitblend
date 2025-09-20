@@ -149,6 +149,9 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             # Save metadata
             save_commit_metadata(gitblend_dir, metadata)
             
+            # Refresh the commit list to show the new commit
+            bpy.ops.gitblend.refresh_commits()
+
             self.report({'INFO'}, f"Committed changes: {commit_message}")
             return {'FINISHED'}
             
