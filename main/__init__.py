@@ -1,5 +1,9 @@
 import bpy # type: ignore
 
+from .checkout import (
+	GITBLEND_OT_Checkout
+)
+
 from .commit import (
 	GITBLEND_OT_Commit
 )

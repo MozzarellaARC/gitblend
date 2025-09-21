@@ -1,5 +1,12 @@
 import bpy
 
+class GITBLEND_UL_Commit_List(bpy.types.UIList):
+    """UIList to display commit items"""
+    bl_idname = "GITBLEND_UL_commit_list"
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        pass
+
 class GITBLEND_PT_Panel(bpy.types.Panel):
     bl_label = "Git Blend"
     bl_idname = "GITBLEND_PT_panel"
@@ -12,6 +19,9 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
         scene = context.scene.gitblend_props
 
         row0 = layout.row()
-        row0.prop(scene, "commit_message", icon='TEXT', text='')
+        row0.prop(scene, "message", icon='TEXT', text='')
         row1 = layout.row()
         row1.operator("gitblend.commit", text="Commit Changes", icon='FILE_TICK')
+
+        row2 = layout.row()
+        row2.template_list("GITBLEND_UL_commit_list", "", scene, "gitblend_props", scene, "gitblend_props_index")
