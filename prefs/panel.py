@@ -5,7 +5,7 @@ class GITBLEND_UL_History_List(bpy.types.UIList):
     bl_idname = "GITBLEND_UL_commit_list"
 
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        self.layout.type = 'GRID'
+        pass
 
 class GITBLEND_PT_Panel(bpy.types.Panel):
     bl_label = "Git Blend"
@@ -29,4 +29,5 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
                            dataptr=scene, 
                            propname="gitblend_props",
                            active_dataptr=scene,
-                           active_propname="gitblend_props_index")
+                           active_propname="gitblend_props_index",
+                           type='DEFAULT')
