@@ -217,7 +217,48 @@ def import_data_blocks_from_blend(blend_filepath: Path, data_categories: List[st
     try:
         success = False
         
-        # Try to import all data blocks at once using a more direct approach
+        # Use bpy.data.libraries.load for more precise control
+        with bpy.data.libraries.load(str(blend_filepath), link=False) as (data_from, data_to):
+            # Load objects
+            if hasattr(data_from, 'objects'):
+                data_to.objects = data_from.objects
+            
+            # Load meshes
+            if hasattr(data_from, 'meshes'):
+                data_to.meshes = data_from.meshes
+            
+            # Load materials
+            if hasattr(data_from, 'materials'):
+                data_to.materials = data_from.materials
+            
+            # Load images
+            if hasattr(data_from, 'images'):
+                data_to.images = data_from.images
+            
+            # Load texts
+            if hasattr(data_from, 'texts'):
+                data_to.texts = data_from.texts
+            
+            # Load actions
+            if hasattr(data_from, 'actions'):
+                data_to.actions = data_from.actions
+            
+            # Load node groups
+            if hasattr(data_from, 'node_groups'):
+                data_to.node_groups = data_from.node_groups
+        
+        # Link loaded objects to the scene
+        for obj in data_to.objects:
+            if obj and obj.name not in bpy.context.scene.collection.objects:
+                bpy.context.scene.collection.objects.link(obj)
+        
+        print(f"Successfully loaded data blocks from {blend_filepath.name}")
+        return True
+        
+    except Exception as e:
+        print(f"Error importing data blocks: {e}")
+        
+        # Fallback to append method
         try:
             bpy.ops.wm.append(
                 filepath=blend_file_str,
@@ -227,37 +268,15 @@ def import_data_blocks_from_blend(blend_filepath: Path, data_categories: List[st
                 active_collection=True,
                 instance_collections=False
             )
-            print(f"Successfully appended all data blocks from {blend_filepath.name}")
+            print(f"Successfully appended data blocks using fallback method")
             return True
-        except Exception as direct_error:
-            print(f"Direct append failed: {direct_error}")
-        
-        # If direct append fails, try category by category
-        for category in data_categories:
-            try:
-                # Create the internal path for this category (use forward slashes)
-                internal_path = f"{blend_file_str}/{category}/"
-                
-                # Use append operation with the internal path
-                bpy.ops.wm.append(
-                    filepath=internal_path,
-                    directory=internal_path,
-                    link=False,
-                    autoselect=False,
-                    active_collection=True,
-                    instance_collections=False
-                )
-                
-                print(f"Successfully appended {category} data blocks")
-                success = True
-                
-            except Exception as category_error:
-                # This is expected for categories that don't exist in the file
-                print(f"No {category} data blocks found: {category_error}")
-                continue
-        
-        return success
-        
-    except Exception as e:
-        print(f"Error importing data blocks: {e}")
-        return False
+        except Exception as append_error:
+            print(f"Append fallback also failed: {append_error}")
+            return False
+
+
+def purge_orphan_data():
+    """Purge orphan data blocks that have no users."""
+    # Purge orphan data multiple times to ensure all orphans are removed
+    for _ in range(3):
+        bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=False, do_recursive=True)

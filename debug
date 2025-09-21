@@ -1,66 +1,17 @@
-Error: 'C:\Users\M\Desktop\test\.gitblend\a1970829d79e8269bf65953ed46b612227c51417fe5d722fb84f01337e397f00.blend': nothing indicated
-Error importing data blocks: Error: 'C:\Users\M\Desktop\test\.gitblend\a1970829d79e8269bf65953ed46b612227c51417fe5d722fb84f01337e397f00.blend': nothing indicated
-
+addon_utils.disable: bl_ext.vscode_development.git_blend not loaded
+Info: Refreshed 2 commits
+Info: Refreshed 3 commits
+Info: Refreshed 4 commits
 Info: Refreshed 5 commits
-Info: Checking out commit: a1970829 - Initial commit
-Info: Clearing current scene data...
-Info: Importing data blocks from a1970829d79e8269bf65953ed46b612227c51417fe5d722fb84f01337e397f00.blend...
-Warning: Failed to import some data blocks from blend file
-Info: Successfully checked out commit a1970829
-Info: Refreshed 5 commits
-Error: 'C:\Users\M\Desktop\test\.gitblend\1a5b6ac08fd345145927472e94d0a454322b9d199dd2fb3f0b41323226a24d98.blend': nothing indicated
-Error importing data blocks: Error: 'C:\Users\M\Desktop\test\.gitblend\1a5b6ac08fd345145927472e94d0a454322b9d199dd2fb3f0b41323226a24d98.blend': nothing indicated
-
-Info: Refreshed 5 commits
-Info: Checking out commit: 1a5b6ac0 - 1
-Info: Clearing current scene data...
-Info: Importing data blocks from 1a5b6ac08fd345145927472e94d0a454322b9d199dd2fb3f0b41323226a24d98.blend...
-Warning: Failed to import some data blocks from blend file
-Info: Validating reconstructed state...
-Warning: ⚠ Current state doesn't match tree hash, but stored data is valid
-Info: Parent: a1970829
-Info: Tree: 38a2ce6d
-Info: Successfully checked out commit 1a5b6ac0
-Info: Refreshed 5 commits
-Error: 'C:\Users\M\Desktop\test\.gitblend\cfc9d717835acb50229b5b7a4d13d2b0bae060abe89e0e48a2f82fb566ed41b6.blend': nothing indicated
-Error importing data blocks: Error: 'C:\Users\M\Desktop\test\.gitblend\cfc9d717835acb50229b5b7a4d13d2b0bae060abe89e0e48a2f82fb566ed41b6.blend': nothing indicated
-
-Info: Refreshed 5 commits
-Info: Checking out commit: cfc9d717 - 2
-Info: Clearing current scene data...
-Info: Importing data blocks from cfc9d717835acb50229b5b7a4d13d2b0bae060abe89e0e48a2f82fb566ed41b6.blend...
-Warning: Failed to import some data blocks from blend file
-Info: Validating reconstructed state...
-Warning: ⚠ Current state doesn't match tree hash, but stored data is valid
-Info: Parent: 1a5b6ac0
-Info: Tree: dcbf57a5
-Info: Successfully checked out commit cfc9d717
-Info: Refreshed 5 commits
-Error: 'C:\Users\M\Desktop\test\.gitblend\b3da6b92b275f4f222bd5716abee930cdd041e262e863412f97bda8878724393.blend': nothing indicated
-Error importing data blocks: Error: 'C:\Users\M\Desktop\test\.gitblend\b3da6b92b275f4f222bd5716abee930cdd041e262e863412f97bda8878724393.blend': nothing indicated
-
-Info: Refreshed 5 commits
-Info: Checking out commit: b3da6b92 - 3
-Info: Clearing current scene data...
-Info: Importing data blocks from b3da6b92b275f4f222bd5716abee930cdd041e262e863412f97bda8878724393.blend...
-Warning: Failed to import some data blocks from blend file
-Info: Validating reconstructed state...
-Warning: ⚠ Current state doesn't match tree hash, but stored data is valid
-Info: Parent: cfc9d717
-Info: Tree: 70576dfb
-Info: Successfully checked out commit b3da6b92
-Info: Refreshed 5 commits
-Error: 'C:\Users\M\Desktop\test\.gitblend\f04226571b2394cc310f9892018575e5666240434038fed9bf7263831255de0e.blend': nothing indicated
-Error importing data blocks: Error: 'C:\Users\M\Desktop\test\.gitblend\f04226571b2394cc310f9892018575e5666240434038fed9bf7263831255de0e.blend': nothing indicated
-
-Info: Refreshed 5 commits
-Info: Checking out commit: f0422657 - 4
-Info: Clearing current scene data...
-Info: Importing data blocks from f04226571b2394cc310f9892018575e5666240434038fed9bf7263831255de0e.blend...
-Warning: Failed to import some data blocks from blend file
-Info: Validating reconstructed state...
-Warning: ⚠ Current state doesn't match tree hash, but stored data is valid
-Info: Parent: b3da6b92
-Info: Tree: 4f1b58c9
-Info: Successfully checked out commit f0422657
-Info: Refreshed 5 commits
+Info: Clearing current scene...
+Info: Applying commit 663a9e05...
+Error: Checkout failed: 'tree_hash'
+Info: Clearing current scene...
+Info: Applying commit 663a9e05...
+Error: Checkout failed: 'tree_hash'
+Info: Clearing current scene...
+Info: Applying commit 663a9e05...
+Error: Checkout failed: 'tree_hash'
+Info: Clearing current scene...
+Info: Applying commit 663a9e05...
+Error: Checkout failed: 'tree_hash'
