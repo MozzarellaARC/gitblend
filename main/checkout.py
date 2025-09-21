@@ -15,5 +15,13 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
         index = scene.commit_history[scene.i]
         filepath = gitblend_dir / index.filename
 
-        bpy.data.libraries.load(str(filepath), link=False)
+        with bpy.data.libraries.load(str(filepath), link=False) as (data_from, data_to):
+            # Loead based on message
+            data_to.objects = [name for name in data_from.objects if name.startswith(index.message)]
+            
+        # Link the loaded objects to the current scene
+        for obj in data_to.objects:
+            if obj is not None:
+                context.collection.objects.link(obj)
+
         return {'FINISHED'}
