@@ -81,7 +81,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                     self.report({'WARNING'}, f"Commit {commit_hash[:8]} has no tree hash. Available keys: {list(commit.keys())}. Using commit hash as fallback.")
                     tree_hash = commit_hash
                 
-                # Primary data source: use data_blocks directly from commit metadata
+                # Use data_blocks directly from commit metadata
                 if "data_blocks" in commit:
                     self.report({'INFO'}, f"Using data_blocks from commit {commit_hash[:8]} directly")
                     self._update_reconstructed_blocks(reconstructed_blocks, commit["data_blocks"])
@@ -94,26 +94,8 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                         if not success:
                             self.report({'WARNING'}, f"Failed to import blend data from commit {commit_hash[:8]}")
                 else:
-                    # Fallback: try JSON and blend files (legacy approach)
-                    json_filename = f"{tree_hash}.json"
-                    json_file = gitblend_dir / json_filename
-                    
-                    if json_file.exists():
-                        with open(json_file, 'r') as f:
-                            commit_data = json.load(f)
-                        self._update_reconstructed_blocks(reconstructed_blocks, commit_data)
-                        self.report({'INFO'}, f"Loaded data from JSON file for commit {commit_hash[:8]}")
-                    else:
-                        self.report({'WARNING'}, f"No data available for commit {commit_hash[:8]} - skipping")
-                        continue
-                    
-                    # Import blend file if available
-                    blend_filename = commit.get("blend_file", f"{tree_hash}.blend")
-                    blend_file = gitblend_dir / blend_filename
-                    if blend_file.exists():
-                        success = import_data_blocks_from_blend(blend_file)
-                        if not success:
-                            self.report({'WARNING'}, f"Failed to import blend data from commit {commit_hash[:8]}")
+                    self.report({'ERROR'}, f"No data available for commit {commit_hash[:8]} - missing data_blocks")
+                    return {'CANCELLED'}
             
             
             # Validate the reconstruction (optional)
