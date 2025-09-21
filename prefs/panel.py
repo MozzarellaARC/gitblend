@@ -5,7 +5,15 @@ class GITBLEND_UL_History_List(bpy.types.UIList):
     bl_idname = "GITBLEND_UL_commit_list"
 
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        pass
+        commit = item
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            # Split layout for message and timestamp
+            split = layout.split(factor=0.7)
+            split.prop(commit, "message", text="", emboss=False, icon='FILE_TICK')
+            split.label(text=commit.timestamp, icon='TIME')
+        elif self.layout_type in {'GRID'}:
+            layout.alignment = 'CENTER'
+            layout.label(text="", icon='FILE_TICK')
 
 class GITBLEND_PT_Panel(bpy.types.Panel):
     bl_label = "Git Blend"
@@ -24,10 +32,15 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
         row1.operator("gitblend.commit", text="Commit Changes", icon='FILE_TICK')
 
         row2 = layout.row()
-        row2.template_list(listtype_name="GITBLEND_UL_History_List",
-                           list_id="gitblend_props_list",
+        row2.template_list(listtype_name="GITBLEND_UL_commit_list",
+                           list_id="commit_history",
                            dataptr=scene, 
-                           propname="gitblend_props",
+                           propname="commit_history",
                            active_dataptr=scene,
-                           active_propname="gitblend_props_index",
+                           active_propname="commit_history_index",
                            type='DEFAULT')
+        
+        # Add action buttons column next to the list
+        col = row2.column(align=True)
+        col.operator("gitblend.refresh", text="", icon='FILE_REFRESH')
+        col.operator("gitblend.checkout", text="", icon='IMPORT')

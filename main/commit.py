@@ -3,6 +3,7 @@ import bpy
 from pathlib import Path
 import time
 import uuid
+from .refresh import refresh_commit_history
 
 class GITBLEND_OT_Commit(bpy.types.Operator):
     bl_idname = "gitblend.commit"
@@ -13,6 +14,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
     def execute(self, context):
         scene = context.scene.gitblend_props
         selected = bpy.context.selected_objects
+        name = bpy.context.active_object.name
 
         # Directory setup
         gitblend_dir = Path(bpy.data.filepath).parent / ".gitblend"
@@ -21,7 +23,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
         # Export selected objects to a .blend file in the .gitblend directory
         timestamp = time.strftime("%y-%m-%d")
         uid = str(uuid.uuid4())[:8]
-        filename = f"{scene.message}_{timestamp}_{uid}.blend"
+        filename = f"{name}_{timestamp}_{uid}.blend"
         
         bpy.data.libraries.write(
             filepath=str(gitblend_dir / filename),
@@ -29,4 +31,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             fake_user=True,
             compress=True,
         )
+        
+        # Refresh commit history to show the new commit
+        refresh_commit_history(context)
+
         return {'FINISHED'}
