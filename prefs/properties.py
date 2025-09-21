@@ -32,7 +32,7 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
         description="List of all commits"
     )
     
-    commit_history_index: bpy.props.IntProperty(
+    i: bpy.props.IntProperty(
         name="Active Commit Index",
         description="Index of the active commit in the list",
         default=0

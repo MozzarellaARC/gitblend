@@ -35,7 +35,7 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
                            dataptr=scene, 
                            propname="commit_history",
                            active_dataptr=scene,
-                           active_propname="commit_history_index",
+                           active_propname="i",
                            type='DEFAULT')
         
         # Add action buttons column next to the list

@@ -1,4 +1,5 @@
 import bpy
+from pathlib import Path
 
 class GITBLEND_OT_Checkout(bpy.types.Operator):
     """Checkout a specific commit"""
@@ -6,6 +7,13 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
     bl_label = "Checkout Commit"
     bl_options = {'REGISTER', 'UNDO'}
 
+
     def execute(self, context):
-        bpy.data.libraries.load("path_to_your_gitblend_file.blend", link=False)
-        pass
+
+        scene = context.scene.gitblend_props
+        gitblend_dir = Path(bpy.data.filepath).parent / ".gitblend"
+        index = scene.commit_history[scene.i]
+        filepath = gitblend_dir / index.filename
+
+        bpy.data.libraries.load(str(filepath), link=False)
+        return {'FINISHED'}
