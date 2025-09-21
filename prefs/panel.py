@@ -25,3 +25,5 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
 
         row2 = layout.row()
         row2.template_list("GITBLEND_UL_History_List", "", scene, "gitblend_props", scene, "gitblend_props_index")
+
+        #TODO: add UIList here
