@@ -1,6 +1,6 @@
 import bpy
 
-class GITBLEND_UL_Commit_List(bpy.types.UIList):
+class GITBLEND_UL_History_List(bpy.types.UIList):
     """UIList to display commit items"""
     bl_idname = "GITBLEND_UL_commit_list"
 
@@ -24,4 +24,4 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
         row1.operator("gitblend.commit", text="Commit Changes", icon='FILE_TICK')
 
         row2 = layout.row()
-        row2.template_list("GITBLEND_UL_commit_list", "", scene, "gitblend_props", scene, "gitblend_props_index")
+        row2.template_list("GITBLEND_UL_History_List", "", scene, "gitblend_props", scene, "gitblend_props_index")
