@@ -8,7 +8,7 @@ class GITBLEND_UL_History_List(bpy.types.UIList):
         commit = item
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
             # Split layout for message and timestamp
-            split = layout.split(factor=0.7)
+            split = layout.split(factor=0.4)
             split.prop(commit, "message", text="", emboss=False, icon='FILE_TICK')
             split.label(text=commit.timestamp, icon='TIME')
         elif self.layout_type in {'GRID'}:
@@ -27,9 +27,7 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
         scene = context.scene.gitblend_props
 
         row0 = layout.row()
-        row0.prop(scene, "message", icon='TEXT', text='')
-        row1 = layout.row()
-        row1.operator("gitblend.commit", text="Commit Changes", icon='FILE_TICK')
+        row0.operator("gitblend.commit", text="Commit Changes", icon='FILE_TICK')
 
         row2 = layout.row()
         row2.template_list(listtype_name="GITBLEND_UL_commit_list",
