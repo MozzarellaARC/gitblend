@@ -70,28 +70,72 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
                 commit = metadata["commits"][commit_hash]
                 self.report({'INFO'}, f"Applying commit {commit_hash[:8]}...")
                 
-                # Load the JSON file for this commit
-                json_file = gitblend_dir / f"{commit['tree_hash']}.json"
-                if json_file.exists():
-                    with open(json_file, 'r') as f:
-                        commit_data = json.load(f)
+                # Handle different commit formats (defensive programming)
+                tree_hash = None
+                if "tree" in commit:
+                    tree_hash = commit["tree"]
+                elif "tree_hash" in commit:  # Legacy format
+                    tree_hash = commit["tree_hash"]
+                else:
+                    # Fallback: use commit hash as tree hash for older commits
+                    self.report({'WARNING'}, f"Commit {commit_hash[:8]} has no tree hash. Available keys: {list(commit.keys())}. Using commit hash as fallback.")
+                    tree_hash = commit_hash
+                
+                # Primary data source: use data_blocks directly from commit metadata
+                if "data_blocks" in commit:
+                    self.report({'INFO'}, f"Using data_blocks from commit {commit_hash[:8]} directly")
+                    self._update_reconstructed_blocks(reconstructed_blocks, commit["data_blocks"])
                     
-                    # Track which blocks are modified, new, or deleted
-                    self._update_reconstructed_blocks(reconstructed_blocks, commit_data)
-                    
-                    # Import the .blend file for this commit
-                    blend_file = gitblend_dir / f"{commit['tree_hash']}.blend"
+                    # Also try to import blend file if available for binary data
+                    blend_filename = commit.get("blend_file", f"{tree_hash}.blend")
+                    blend_file = gitblend_dir / blend_filename
                     if blend_file.exists():
                         success = import_data_blocks_from_blend(blend_file)
                         if not success:
-                            self.report({'WARNING'}, f"Failed to import some data from commit {commit_hash[:8]}")
+                            self.report({'WARNING'}, f"Failed to import blend data from commit {commit_hash[:8]}")
+                else:
+                    # Fallback: try JSON and blend files (legacy approach)
+                    json_filename = f"{tree_hash}.json"
+                    json_file = gitblend_dir / json_filename
+                    
+                    if json_file.exists():
+                        with open(json_file, 'r') as f:
+                            commit_data = json.load(f)
+                        self._update_reconstructed_blocks(reconstructed_blocks, commit_data)
+                        self.report({'INFO'}, f"Loaded data from JSON file for commit {commit_hash[:8]}")
+                    else:
+                        self.report({'WARNING'}, f"No data available for commit {commit_hash[:8]} - skipping")
+                        continue
+                    
+                    # Import blend file if available
+                    blend_filename = commit.get("blend_file", f"{tree_hash}.blend")
+                    blend_file = gitblend_dir / blend_filename
+                    if blend_file.exists():
+                        success = import_data_blocks_from_blend(blend_file)
+                        if not success:
+                            self.report({'WARNING'}, f"Failed to import blend data from commit {commit_hash[:8]}")
+            
             
             # Validate the reconstruction (optional)
-            if "tree_hash" in target_commit:
+            # Only validate against the target commit's tree hash (final state)
+            target_tree_hash = None
+            should_validate = False
+            
+            if "tree" in target_commit:
+                target_tree_hash = target_commit["tree"]
+                should_validate = True
+            elif "tree_hash" in target_commit:  # Legacy format
+                target_tree_hash = target_commit["tree_hash"]
+                should_validate = True
+            
+            # Only validate if we have a proper tree hash for the final target commit
+            if target_tree_hash and should_validate:
                 current_state = self._get_current_scene_state()
                 serialized = serialize_data_blocks(current_state)
-                if not validate_tree_hash(serialized, target_commit["tree_hash"]):
-                    self.report({'WARNING'}, "Tree hash mismatch after checkout. Data may be inconsistent.")
+                if not validate_tree_hash(serialized, target_tree_hash):
+                    self.report({'WARNING'}, f"Tree hash mismatch after checkout of {target_commit_hash[:8]}. Data may be inconsistent.")
+            else:
+                self.report({'INFO'}, f"Skipping validation for legacy commit {target_commit_hash[:8]} (no proper tree hash)")
             
             # Update current commit pointer
             metadata["current_commit"] = target_commit_hash
@@ -100,6 +144,9 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
             self.report({'INFO'}, f"Successfully checked out commit {target_commit_hash[:8]}")
             return {'FINISHED'}
             
+        except KeyError as e:
+            self.report({'ERROR'}, f"Checkout failed - missing key: {str(e)}")
+            return {'CANCELLED'}
         except Exception as e:
             self.report({'ERROR'}, f"Checkout failed: {str(e)}")
             return {'CANCELLED'}

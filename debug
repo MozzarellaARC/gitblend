@@ -1,17 +1,69 @@
-addon_utils.disable: bl_ext.vscode_development.git_blend not loaded
-Info: Refreshed 2 commits
-Info: Refreshed 3 commits
-Info: Refreshed 4 commits
+Info: Clearing current scene...
+Info: Applying commit 663a9e05...
+Warning: Commit 663a9e05 has no tree hash. Available keys: ['data_blocks', 'blend_file', 'timestamp', 'message']. Using commit hash as fallback.
+Warning: JSON file for commit 663a9e05 not found: C:\Users\M\Desktop\test\.gitblend\663a9e05158898aea9b196aca26125aa20cef65a3901bacac6b8bf06c8eb4d0f.json
+Info: Using data_blocks from commit 663a9e05 directly
+Info: Successfully checked out commit 663a9e05
 Info: Refreshed 5 commits
 Info: Clearing current scene...
 Info: Applying commit 663a9e05...
-Error: Checkout failed: 'tree_hash'
+Warning: Commit 663a9e05 has no tree hash. Available keys: ['data_blocks', 'blend_file', 'timestamp', 'message']. Using commit hash as fallback.
+Warning: JSON file for commit 663a9e05 not found: C:\Users\M\Desktop\test\.gitblend\663a9e05158898aea9b196aca26125aa20cef65a3901bacac6b8bf06c8eb4d0f.json
+Info: Using data_blocks from commit 663a9e05 directly
+Info: Applying commit f93d0030...
+Warning: JSON file for commit f93d0030 not found: C:\Users\M\Desktop\test\.gitblend\cb3a02f307a735c865645eaf97113a334caa49229257f58138743184b135c58f.json
+Info: Using data_blocks from commit f93d0030 directly
+Warning: Tree hash mismatch after checkout. Data may be inconsistent.
+Info: Successfully checked out commit f93d0030
+Info: Refreshed 5 commits
 Info: Clearing current scene...
 Info: Applying commit 663a9e05...
-Error: Checkout failed: 'tree_hash'
+Warning: Commit 663a9e05 has no tree hash. Available keys: ['data_blocks', 'blend_file', 'timestamp', 'message']. Using commit hash as fallback.
+Warning: JSON file for commit 663a9e05 not found: C:\Users\M\Desktop\test\.gitblend\663a9e05158898aea9b196aca26125aa20cef65a3901bacac6b8bf06c8eb4d0f.json
+Info: Using data_blocks from commit 663a9e05 directly
+Info: Applying commit f93d0030...
+Warning: JSON file for commit f93d0030 not found: C:\Users\M\Desktop\test\.gitblend\cb3a02f307a735c865645eaf97113a334caa49229257f58138743184b135c58f.json
+Info: Using data_blocks from commit f93d0030 directly
+Info: Applying commit 5064b2d9...
+Warning: JSON file for commit 5064b2d9 not found: C:\Users\M\Desktop\test\.gitblend\372930f04605b8c7311f6f96b9dd35c9a42ff373ed1ba39a521bf41b641b8a0f.json
+Info: Using data_blocks from commit 5064b2d9 directly
+Warning: Tree hash mismatch after checkout. Data may be inconsistent.
+Info: Successfully checked out commit 5064b2d9
+Info: Refreshed 5 commits
 Info: Clearing current scene...
 Info: Applying commit 663a9e05...
-Error: Checkout failed: 'tree_hash'
+Warning: Commit 663a9e05 has no tree hash. Available keys: ['data_blocks', 'blend_file', 'timestamp', 'message']. Using commit hash as fallback.
+Warning: JSON file for commit 663a9e05 not found: C:\Users\M\Desktop\test\.gitblend\663a9e05158898aea9b196aca26125aa20cef65a3901bacac6b8bf06c8eb4d0f.json
+Info: Using data_blocks from commit 663a9e05 directly
+Info: Applying commit f93d0030...
+Warning: JSON file for commit f93d0030 not found: C:\Users\M\Desktop\test\.gitblend\cb3a02f307a735c865645eaf97113a334caa49229257f58138743184b135c58f.json
+Info: Using data_blocks from commit f93d0030 directly
+Info: Applying commit 5064b2d9...
+Warning: JSON file for commit 5064b2d9 not found: C:\Users\M\Desktop\test\.gitblend\372930f04605b8c7311f6f96b9dd35c9a42ff373ed1ba39a521bf41b641b8a0f.json
+Info: Using data_blocks from commit 5064b2d9 directly
+Info: Applying commit ae805c76...
+Warning: JSON file for commit ae805c76 not found: C:\Users\M\Desktop\test\.gitblend\95d93078fd445f1a49e70e530c10c6df63adb49daf51ac389e276bad428196ff.json
+Info: Using data_blocks from commit ae805c76 directly
+Warning: Tree hash mismatch after checkout. Data may be inconsistent.
+Info: Successfully checked out commit ae805c76
+Info: Refreshed 5 commits
 Info: Clearing current scene...
 Info: Applying commit 663a9e05...
-Error: Checkout failed: 'tree_hash'
+Warning: Commit 663a9e05 has no tree hash. Available keys: ['data_blocks', 'blend_file', 'timestamp', 'message']. Using commit hash as fallback.
+Warning: JSON file for commit 663a9e05 not found: C:\Users\M\Desktop\test\.gitblend\663a9e05158898aea9b196aca26125aa20cef65a3901bacac6b8bf06c8eb4d0f.json
+Info: Using data_blocks from commit 663a9e05 directly
+Info: Applying commit f93d0030...
+Warning: JSON file for commit f93d0030 not found: C:\Users\M\Desktop\test\.gitblend\cb3a02f307a735c865645eaf97113a334caa49229257f58138743184b135c58f.json
+Info: Using data_blocks from commit f93d0030 directly
+Info: Applying commit 5064b2d9...
+Warning: JSON file for commit 5064b2d9 not found: C:\Users\M\Desktop\test\.gitblend\372930f04605b8c7311f6f96b9dd35c9a42ff373ed1ba39a521bf41b641b8a0f.json
+Info: Using data_blocks from commit 5064b2d9 directly
+Info: Applying commit ae805c76...
+Warning: JSON file for commit ae805c76 not found: C:\Users\M\Desktop\test\.gitblend\95d93078fd445f1a49e70e530c10c6df63adb49daf51ac389e276bad428196ff.json
+Info: Using data_blocks from commit ae805c76 directly
+Info: Applying commit d9f10db7...
+Warning: JSON file for commit d9f10db7 not found: C:\Users\M\Desktop\test\.gitblend\bb9df0048c3a43adb97ce07c2b7baa43b6be2b19fea78619c9ff0a9b27f14b6b.json
+Info: Using data_blocks from commit d9f10db7 directly
+Warning: Tree hash mismatch after checkout. Data may be inconsistent.
+Info: Successfully checked out commit d9f10db7
+Info: Refreshed 5 commits
