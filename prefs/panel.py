@@ -39,6 +39,7 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
                            type='DEFAULT')
         
         # Add action buttons column next to the list
-        col = row2.column(align=True)
+        col = row2.column()
         col.operator("gitblend.refresh", text="", icon='FILE_REFRESH')
         col.operator("gitblend.checkout", text="", icon='IMPORT')
+        
