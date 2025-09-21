@@ -8,7 +8,7 @@ class GITBLEND_UL_History_List(bpy.types.UIList):
         commit = item
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
             # Split layout for message and timestamp
-            split = layout.split(factor=0.4)
+            split = layout.split(factor=0.5)
             split.prop(commit, "message", text="", emboss=False, icon='FILE_TICK')
             split.label(text=commit.timestamp, icon='TIME')
         elif self.layout_type in {'GRID'}:
