@@ -3,6 +3,7 @@ from pathlib import Path
 import time
 import uuid
 from .refresh import refresh_commit_history
+from ..utils import commit_hash, parent_hash, tree_hash
 
 class GITBLEND_OT_Commit(bpy.types.Operator):
     bl_idname = "gitblend.commit"
