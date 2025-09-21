@@ -59,6 +59,9 @@ applyTo: '**'
 # Checkout Architecture
 - read the JSON file in the .gitblend directory
 - reconstruct the delta data blocks in the current .blend file based on the JSON file.
-- make sure to recursive purge when deleting data blocks
-- if delta reconstruction is successful, proceed to import
-- utilize bpy.ops.wm.append to import data blocks from the .gitblend directory
+- if delta reconstruction is successful, proceed to prepare the scene to reconstruct
+- setup the blender scene:
+	- clear existing objects when overwrite is inevitable, and purge their data (flagged as modified)
+	- purge missing object that is neither in the current scene nor in JSON pointers (flagged as deleted)
+	- import the remaining objects (flagged as new)
+- utilize bpy.ops.wm.append / bpy.data.libraries.load whichever suits best to import data blocks from the .gitblend directory
