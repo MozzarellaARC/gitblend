@@ -2,23 +2,5 @@
 ## Blender Git like version control
 Made for Blender 4.2 to 4.5
 
-### Change Logs
-1.0.3:
-- Switched from .toml to .json version tree parsing
-- The working collection name now fixed as "source"
-
-1.0.6 :
-- Now compares on scenes instead of collection
-- uses scene root instead of source collection as the working environment
-
-1.3.0 :
-- Complete rewrite
-
-1.3.1 :
-- Commit history UI now shows timestamp (YYYY-MM-DD HH:MM:SS) between hash and message
-
-1.4.0 :
-- Rewrite from scene based to library based
-
-1.5.1 :
-- Rewrite from global redraw to branch specific redraw
+## Change logs zxc
+- complete rewrite, manual this time no ai
