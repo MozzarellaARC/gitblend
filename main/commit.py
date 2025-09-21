@@ -1,4 +1,3 @@
-from bz2 import compress
 import bpy
 from pathlib import Path
 import time
@@ -13,8 +12,8 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
     
     def execute(self, context):
         scene = context.scene.gitblend_props
-        selected = bpy.context.selected_objects
-        name = bpy.context.active_object.name
+        selected = context.selected_objects
+        name = context.active_object.name
 
         # Directory setup
         gitblend_dir = Path(bpy.data.filepath).parent / ".gitblend"
@@ -31,7 +30,6 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             fake_user=True,
             compress=True,
         )
-        
         # Refresh commit history to show the new commit
         refresh_commit_history(context)
 
