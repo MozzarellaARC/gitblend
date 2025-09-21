@@ -13,11 +13,13 @@
 
 from . import prefs as prefs_module
 from . import main as main_module
+from .utils.event_listener import invoke_save_event_listener
 
 def register():
 	prefs_module.register_prefs()
 	main_module.register_operators()
-	
+	invoke_save_event_listener()
+
 def unregister():
 	main_module.unregister_operators()
 	prefs_module.unregister_prefs()

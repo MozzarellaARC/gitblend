@@ -5,4 +5,4 @@ def on_save_event_listener(self, context):
     pass
 
 def invoke_save_event_listener():
-	return bpy.app.handlers.save_post.remove(on_save_event_listener)
+	bpy.app.handlers.save_post.append(on_save_event_listener)

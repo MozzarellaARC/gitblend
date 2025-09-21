@@ -3,7 +3,7 @@ from pathlib import Path
 import time
 import uuid
 from .refresh import refresh_commit_history
-from ..utils import commit_hash, parent_hash, tree_hash
+from ..utils.hash import commit_hash, parent_hash, tree_hash
 from ..utils.event_listener import invoke_save_event_listener
 
 class GITBLEND_OT_Commit(bpy.types.Operator):
@@ -34,6 +34,5 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
         )
         # Refresh commit history to show the new commit
         refresh_commit_history(context)
-        invoke_save_event_listener()
 
         return {'FINISHED'}
