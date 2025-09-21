@@ -1,4 +1,5 @@
 import bpy
+from pathlib import Path
 
 class GITBLEND_OT_Commit(bpy.types.Operator):
     bl_idname = "gitblend.commit"
@@ -7,4 +8,12 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     def execute(self, context):
-        pass
+        scene = context.scene.gitblend_props
+        selected = bpy.context.selected_objects
+
+        bpy.data.libraries.write(
+            filepath=str(Path(bpy.data.filepath).parent / f"{scene.commit_message}.blend"),
+            datablocks=set(selected),
+            fake_user=True,
+        )
+        return {'FINISHED'}
