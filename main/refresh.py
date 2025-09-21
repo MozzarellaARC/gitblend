@@ -49,7 +49,7 @@ def refresh_commit_history(context):
         commit_item.filename = commit_data['filename']
     
     # Reset the active index
-    scene.commit_history_index = 0
+    scene.i = 0
 
 
 class GITBLEND_OT_Refresh(bpy.types.Operator):
