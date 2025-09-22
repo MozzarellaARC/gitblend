@@ -73,6 +73,9 @@ class GITBLEND_OT_Serde(bpy.types.Operator):
     # Get all object and their data
     def execute(self, context):
         for obj in bpy.data.objects:
-            ptrs = obj.data
-            print(f"{obj.name} -> {ptrs.name}")
+            obj_ptrs = obj.data
+            print(f"{obj.name} -> {obj_ptrs.name}")
+            # Get all modifiers
+            for mod in obj.modifiers:
+                print(f"-> {mod.name}")
         return {'FINISHED'}
