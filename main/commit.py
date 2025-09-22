@@ -46,7 +46,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             filepath=str(gitblend_dir / filename),
             datablocks=set(selected),
             fake_user=True,
-            compress=False,
+            compress=True,
         )
 
         # Refresh commit history to show the new commit

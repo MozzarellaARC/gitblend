@@ -10,7 +10,6 @@ from .commit import (
 
 from .refresh import (
 	GITBLEND_OT_Refresh,
-	GITBLEND_OT_Purge
 )
 
 
@@ -18,13 +17,11 @@ def register_operators():
 	bpy.utils.register_class(GITBLEND_OT_Checkout)
 	bpy.utils.register_class(GITBLEND_OT_Commit)
 	bpy.utils.register_class(GITBLEND_OT_Refresh)
-	bpy.utils.register_class(GITBLEND_OT_Purge)
 
 def unregister_operators():
 	bpy.utils.unregister_class(GITBLEND_OT_Checkout)
 	bpy.utils.unregister_class(GITBLEND_OT_Commit)
 	bpy.utils.unregister_class(GITBLEND_OT_Refresh)
-	bpy.utils.unregister_class(GITBLEND_OT_Purge)
 
 
 __all__ = (
