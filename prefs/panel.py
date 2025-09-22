@@ -80,7 +80,7 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
 	bl_idname = "GITBLEND_PT_panel"
 	bl_space_type = 'VIEW_3D'
 	bl_region_type = 'UI'
-	bl_category = 'Git Blend'
+	bl_category = '.gitblend'
 
 	def draw(self, context):
 		draw_gitblend_interface(self.layout, context)
