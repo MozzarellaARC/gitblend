@@ -3,8 +3,6 @@ import bpy
 import os
 from pathlib import Path
 import re
-from ..utils.hash import get_object_data, get_mesh_data, bpy_data_serde
-
 
 def refresh_commit_history(context):
     """Scan .gitblend directory and populate commit history"""
@@ -65,12 +63,3 @@ class GITBLEND_OT_Refresh(bpy.types.Operator):
         refresh_commit_history(context)
         return {'FINISHED'}
     
-class GITBLEND_OT_Serde(bpy.types.Operator):
-    bl_idname = "gitblend.serde"
-    bl_label = "Git Blend Serde"
-    bl_options = {'REGISTER', 'UNDO'}
-    
-    # Get all object and their data
-    def execute(self, context):
-        bpy_data_serde()
-        return {'FINISHED'}
