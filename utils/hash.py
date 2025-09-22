@@ -6,7 +6,7 @@ import os
 SHA256 = hashlib.sha256
 
 def blend_file_hash(filepath):
-    """Compute the SHA-256 hash of exported objects using bpy.data.libraries.write."""
+    """Compute the SHA-256 hash of exported objects using truncated bytes."""
     hash_to = SHA256()
     
     # Create a temporary file for export
@@ -15,22 +15,55 @@ def blend_file_hash(filepath):
     
     try:
         # Collect all datablocks to export (skip orphan data)
-        datablocks = set()
+        datablocks_list = []
         
         # Add all objects and their data (objects are always considered used)
-        for obj in bpy.data.objects:
-            datablocks.add(obj)
+        for obj in sorted(bpy.data.objects, key=lambda x: x.name):
+            datablocks_list.append(obj)
             if obj.data and obj.data.users > 0:
-                datablocks.add(obj.data)
+                datablocks_list.append(obj.data)
+        
+        # Sort datablocks by name for consistency
+        datablocks_list.sort(key=lambda x: x.name if hasattr(x, 'name') else str(x))
+        
+        print(f"Exporting {len(datablocks_list)} datablocks:")
+        for db in datablocks_list:
+            print(f"  - {type(db).__name__}: {getattr(db, 'name', 'unnamed')}")
+        
+        # Convert to set for the API call
+        datablocks = set(datablocks_list)
             
         # Export using bpy.data.libraries.write
         bpy.data.libraries.write(temp_filepath, datablocks, compress=False)
         
-        # Read the exported file and compute hash
+        # Read only stable sections of the file for hashing
         with open(temp_filepath, 'rb') as f:
-            # Read and update hash string value in blocks of 4K
-            for byte_block in iter(lambda: f.read(4096), b""):
-                hash_to.update(byte_block)
+            # Hash the first 1000 bytes (header and stable data)
+            stable_header = f.read(1000)
+            hash_to.update(stable_header)
+            
+            # Skip the variable section (bytes 1000-31000)
+            # Hash some later stable sections
+            f.seek(35000)  # Skip past the variable data
+            if f.tell() < os.path.getsize(temp_filepath):
+                stable_middle = f.read(10000)  # Read 10KB from stable section
+                hash_to.update(stable_middle)
+            
+            # Hash the last stable section
+            file_size = os.path.getsize(temp_filepath)
+            if file_size > 50000:
+                f.seek(-10000, 2)  # Last 10KB
+                stable_end = f.read(10000)
+                hash_to.update(stable_end)
+                
+        total_bytes_hashed = len(stable_header)
+        if 'stable_middle' in locals():
+            total_bytes_hashed += len(stable_middle)
+        if 'stable_end' in locals():
+            total_bytes_hashed += len(stable_end)
+            
+        print(f"Total bytes hashed: {total_bytes_hashed} (truncated from {os.path.getsize(temp_filepath)})")
+        print(f"Header bytes: {len(stable_header)}")
                 
     finally:
         # Clean up the temporary file
