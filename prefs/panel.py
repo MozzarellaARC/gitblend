@@ -27,7 +27,9 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
         scene = context.scene.gitblend_props
 
         row0 = layout.row()
-        row0.operator("gitblend.commit", text="Commit Changes", icon='FILE_TICK')
+        row0.operator("gitblend.commit",
+                      text="Commit Changes" if scene.commit_history.items() else "Initialize / Sync",
+                      icon='FILE_TICK')
 
         row2 = layout.row()
         row2.template_list(listtype_name="GITBLEND_UL_commit_list",

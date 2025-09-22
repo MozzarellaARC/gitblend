@@ -11,20 +11,20 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     def execute(self, context):
-        gitblend_dir = Path(bpy.data.filepath).parent / ".gitblend"
+        scene = context.scene.gitblend_props
 
+        # Ensure .gitblend directory exists
+        gitblend_dir = Path(bpy.data.filepath).parent / ".gitblend"
         if not bpy.data.filepath:
             self.report({'ERROR'}, "Please save the current Blender file before committing.")
             return {'CANCELLED'}
 
+        # Ensure .gitblend directory empty and commit history empty
         commit_exists = list(gitblend_dir.glob("*.blend"))
-        if commit_exists:
+        if commit_exists and not scene.commit_history.items():
             refresh_commit_history(context)
             self.report({'INFO'}, "Commits found in .gitblend, synchronize with existing history")
             return {'CANCELLED'}
-
-        # Placeholder scene properties access
-        # scene = context.scene.gitblend_props
 
         selected = context.selected_objects
         name = context.active_object.name
