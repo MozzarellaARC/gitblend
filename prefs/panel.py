@@ -15,12 +15,6 @@ class GITBLEND_UL_History_List(bpy.types.UIList):
 			layout.alignment = 'CENTER'
 			layout.label(text="", icon='FILE_TICK')
 	
-	def invoke(self, context, event):
-		"""Handle double-click to checkout"""
-			# Trigger checkout on double-click
-		bpy.ops.gitblend.checkout()
-		return {'FINISHED'}
-
 def draw_gitblend_interface(layout, context):
 	"""Shared function to draw the GitBlend interface"""
 	scene = context.scene.gitblend_props
