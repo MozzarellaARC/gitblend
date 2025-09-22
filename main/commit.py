@@ -29,6 +29,10 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
         selected = context.selected_objects
         name = context.active_object.name
 
+        if not selected:
+            self.report({'ERROR'}, "No objects selected for commit")
+            return {'CANCELLED'}
+
         # Directory setup
         gitblend_dir.mkdir(parents=True, exist_ok=True)
 

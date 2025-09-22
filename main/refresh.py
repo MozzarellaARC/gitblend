@@ -69,8 +69,6 @@ class GITBLEND_OT_Refresh(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-
-        
         refresh_commit_history(context)
         return {'FINISHED'}
     
