@@ -1,7 +1,9 @@
+from webbrowser import get
 import bpy
 import os
 from pathlib import Path
 import re
+from ..utils.hash import get_object_data, get_mesh_data
 
 
 def refresh_commit_history(context):
@@ -58,5 +60,19 @@ class GITBLEND_OT_Refresh(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
+
+        
         refresh_commit_history(context)
+        return {'FINISHED'}
+    
+class GITBLEND_OT_Serde(bpy.types.Operator):
+    bl_idname = "gitblend.serde"
+    bl_label = "Git Blend Serde"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    # Get all object and their data
+    def execute(self, context):
+        for obj in bpy.data.objects:
+            ptrs = obj.data
+            print(f"{obj.name} -> {ptrs.name}")
         return {'FINISHED'}

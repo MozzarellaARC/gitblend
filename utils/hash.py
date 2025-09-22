@@ -1,12 +1,12 @@
+import bpy
 import hashlib
 
 SHA256 = hashlib.sha256
 
-def commit_hash():
-    pass
+def get_object_data():
+    for obj in bpy.data.objects:
+        print(obj.name)
 
-def parent_hash():
-    pass
-
-def tree_hash():
-    pass
+def get_mesh_data():
+    for mesh in bpy.data.meshes:
+        print(mesh.name)

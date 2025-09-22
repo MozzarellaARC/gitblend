@@ -44,4 +44,5 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
         col = row2.column()
         col.operator("gitblend.refresh", text="", icon='FILE_REFRESH')
         col.operator("gitblend.checkout", text="", icon='IMPORT')
+        col.operator("gitblend.serde", text="", icon='QUESTION')
         
