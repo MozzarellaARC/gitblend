@@ -19,7 +19,9 @@ def draw_gitblend_interface(layout, context):
 	"""Shared function to draw the GitBlend interface"""
 	scene = context.scene.gitblend_props
 
-	row = layout.row()
+	box = layout.box()
+	box.label(text="Commit History", icon='IPO_BEZIER')
+	row = box.row()
 	row.template_list(listtype_name="GITBLEND_UL_commit_list",
 					   list_id="commit_history",
 					   dataptr=scene, 
@@ -98,9 +100,21 @@ class GITBLEND_OT_PopupWindow(bpy.types.Operator):
 	def invoke(self, context, event):
 		# Position the popup below the menu item using mouse coordinates
 		# Use invoke_popup to create a popup that appears at a specific location
-		return context.window_manager.invoke_popup(self, width=400)
+		return context.window_manager.invoke_popup(self, width=300)
 		
 def draw_gitblend_menu(self, context):
 	layout = self.layout
 	layout.operator("gitblend.popup_window", text=".gitblend")
 	
+
+def register_panel():
+	bpy.utils.register_class(GITBLEND_UL_History_List)
+	bpy.utils.register_class(GITBLEND_PT_Panel)
+	bpy.utils.register_class(GITBLEND_OT_PopupWindow)
+	bpy.types.VIEW3D_MT_editor_menus.append(draw_gitblend_menu)
+
+def unregister_panel():
+	bpy.types.VIEW3D_MT_editor_menus.remove(draw_gitblend_menu)
+	bpy.utils.unregister_class(GITBLEND_OT_PopupWindow)
+	bpy.utils.unregister_class(GITBLEND_PT_Panel)
+	bpy.utils.unregister_class(GITBLEND_UL_History_List)
