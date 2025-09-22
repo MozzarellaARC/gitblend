@@ -17,14 +17,13 @@ from . import utils as utils_module
 from .utils.event_listener import invoke_save_event_listener
 
 def register():
-	utils_module.register_utils()
 	prefs_module.register_prefs()
 	main_module.register_operators()
-	
-
+	utils_module.register_utils()
 	invoke_save_event_listener()
 
 def unregister():
+	utils_module.unregister_utils()
 	main_module.unregister_operators()
 	prefs_module.unregister_prefs()
-	utils_module.unregister_utils()
+	
