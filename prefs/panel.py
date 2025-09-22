@@ -78,4 +78,78 @@ class GITBLEND_PT_Panel(bpy.types.Panel):
                 # Show total commits count
                 row = box.row()
                 row.label(text=f"Commits: {len(scene.commit_history)}", icon='SEQUENCE')
+
+class GITBLEND_OT_PopupWindow(bpy.types.Operator):
+    """Open Git Blend in a popup window"""
+    bl_idname = "gitblend.popup_window"
+    bl_label = "Git Blend"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene.gitblend_props
+
+        # Same layout as the main panel
+        row0 = layout.row()
+        row0.operator("gitblend.commit",
+                      text="Commit Changes" if scene.commit_history.items() else "Initialize / Sync",
+                      icon='FILE_TICK')
+
+        row2 = layout.row()
+        row2.template_list(listtype_name="GITBLEND_UL_commit_list",
+                           list_id="commit_history",
+                           dataptr=scene, 
+                           propname="commit_history",
+                           active_dataptr=scene,
+                           active_propname="i",
+                           type='DEFAULT')
         
+        # Add action buttons column next to the list
+        col = row2.column()
+        col.operator("gitblend.refresh", text="", icon='FILE_REFRESH')
+        col.operator("gitblend.checkout", text="", icon='IMPORT')
+        col.operator("gitblend.serde", text="", icon='QUESTION')
+        col.operator("gitblend.purge", text="", icon='TRASH')
+        
+        # Show commit size info if available
+        if scene.commit_history.items():
+            box = layout.box()
+            box.label(text="Commit Info", icon='INFO')
+            
+            # Show current/selected commit info
+            if len(scene.commit_history) > 0 and scene.i < len(scene.commit_history):
+                current_commit = scene.commit_history[scene.i]
+                
+                # Try to get file size if the commit has size data
+                if hasattr(current_commit, 'file_size') and current_commit.file_size > 0:
+                    # Show file size in bytes
+                    size_str = f"{current_commit.file_size} bytes"
+                    
+                    row = box.row()
+                    row.label(text=f"Size: {size_str}", icon='FILE')
+                else:
+                    row = box.row()
+                    row.label(text="Size: Unknown", icon='FILE')
+                
+                # Show commit hash if available
+                if hasattr(current_commit, 'hash_value') and current_commit.hash_value:
+                    row = box.row()
+                    # Show only first 8 characters of hash
+                    short_hash = current_commit.hash_value[:8] if len(current_commit.hash_value) >= 8 else current_commit.hash_value
+                    row.label(text=f"Hash: {short_hash}", icon='KEYFRAME')
+                
+                # Show total commits count
+                row = box.row()
+                row.label(text=f"Commits: {len(scene.commit_history)}", icon='SEQUENCE')
+
+    def execute(self, context):
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        # Set the width and height of the popup
+        return context.window_manager.invoke_props_dialog(self, width=400)
+        
+def draw_gitblend_menu(self, context):
+    layout = self.layout
+    layout.operator("gitblend.popup_window", text=".gitblend")
+    
