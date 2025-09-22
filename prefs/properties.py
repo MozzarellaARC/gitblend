@@ -24,6 +24,18 @@ class GITBLEND_CommitItem(bpy.types.PropertyGroup):
         description="Blend file name for this commit",
         default=""
     )
+    
+    file_size: bpy.props.IntProperty(
+        name="File Size",
+        description="Size of the commit file in bytes",
+        default=0
+    )
+    
+    hash_value: bpy.props.StringProperty(
+        name="Hash Value",
+        description="SHA-256 hash of the commit content",
+        default=""
+    )
 
 class GITBLEND_Properties(bpy.types.PropertyGroup):
     commit_history: bpy.props.CollectionProperty(
