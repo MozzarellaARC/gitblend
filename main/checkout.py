@@ -16,8 +16,8 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
 		filepath = gitblend_dir / index.filename
 
 		with bpy.data.libraries.load(str(filepath), link=False) as (data_from, data_to):
-			# Loead based on message
-			data_to.objects = [name for name in data_from.objects if name.startswith(index.message)]
+			# Load based on message
+			data_to.objects = [name for name in data_from.objects if name == index.message]
 			
 		# Link the loaded objects to the current scene
 		for obj in data_to.objects:
