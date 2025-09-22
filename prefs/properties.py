@@ -37,6 +37,13 @@ class GITBLEND_CommitItem(bpy.types.PropertyGroup):
         default=""
     )
 
+def commit_selection_update(self, context):
+    """Callback function that triggers checkout when selection changes"""
+    # Only trigger checkout if we have commits and a valid selection
+    if len(self.commit_history) > 0 and 0 <= self.i < len(self.commit_history):
+        # Automatically trigger checkout
+        bpy.ops.gitblend.checkout()
+
 class GITBLEND_Properties(bpy.types.PropertyGroup):
     commit_history: bpy.props.CollectionProperty(
         type=GITBLEND_CommitItem,
@@ -47,5 +54,6 @@ class GITBLEND_Properties(bpy.types.PropertyGroup):
     i: bpy.props.IntProperty(
         name="Active Commit Index",
         description="Index of the active commit in the list",
-        default=0
+        default=0,
+        update=commit_selection_update
     )

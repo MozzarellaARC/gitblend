@@ -1,9 +1,10 @@
 import bpy
-from utils.purge import GITBLEND_OT_Purge
+from .purge import (
+    GITBLEND_OT_Purge,
+)
 
 from .hash import (
     GITBLEND_OT_Serde,
-    GITBLEND_OT_Purge
 )
 
 def register_utils():
