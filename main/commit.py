@@ -3,8 +3,6 @@ from pathlib import Path
 import time
 import uuid
 from .refresh import refresh_commit_history
-from ..utils.hash import commit_hash, parent_hash, tree_hash
-from ..utils.event_listener import invoke_save_event_listener
 
 class GITBLEND_OT_Commit(bpy.types.Operator):
     bl_idname = "gitblend.commit"
@@ -13,6 +11,11 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     def execute(self, context):
+
+        if not bpy.data.filepath:
+            self.report({'ERROR'}, "Please save the current Blender file before committing.")
+            return {'CANCELLED'}
+
         scene = context.scene.gitblend_props
         selected = context.selected_objects
         name = context.active_object.name
@@ -25,14 +28,19 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
         timestamp = time.strftime("%y-%m-%d")
         uid = str(uuid.uuid4())[:8]
         filename = f"{name}_{timestamp}_{uid}.blend"
-        
+      
+        # Invoke libraries.write module to save selected objects
         bpy.data.libraries.write(
             filepath=str(gitblend_dir / filename),
             datablocks=set(selected),
             fake_user=True,
             compress=True,
         )
+
         # Refresh commit history to show the new commit
         refresh_commit_history(context)
-
         return {'FINISHED'}
+
+        
+        
+        
