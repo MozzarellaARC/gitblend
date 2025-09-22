@@ -38,11 +38,11 @@ class GITBLEND_CommitItem(bpy.types.PropertyGroup):
     )
 
 def commit_selection_update(self, context):
-    """Callback function that triggers checkout when selection changes"""
-    # Only trigger checkout if we have commits and a valid selection
+    """Callback function that triggers pre-checkout when selection changes"""
+    # Only trigger pre-checkout if we have commits and a valid selection
     if len(self.commit_history) > 0 and 0 <= self.i < len(self.commit_history):
-        # Automatically trigger checkout
-        bpy.ops.gitblend.checkout()
+        # Automatically trigger pre-checkout for preview
+        bpy.ops.gitblend.pre_checkout()
 
 class GITBLEND_Properties(bpy.types.PropertyGroup):
     commit_history: bpy.props.CollectionProperty(
