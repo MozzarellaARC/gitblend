@@ -36,34 +36,25 @@ def blend_file_hash(filepath):
         # Export using bpy.data.libraries.write
         bpy.data.libraries.write(temp_filepath, datablocks, compress=False)
         
-        # Read only stable sections of the file for hashing
+        # Read only the most stable section of the file for hashing
         with open(temp_filepath, 'rb') as f:
-            # Hash the first 1000 bytes (header and stable data)
+            # Hash only the first 1000 bytes (header and stable data)
+            # This is the most reliable section that showed no variation
             stable_header = f.read(1000)
             hash_to.update(stable_header)
             
-            # Skip the variable section (bytes 1000-31000)
-            # Hash some later stable sections
-            f.seek(35000)  # Skip past the variable data
-            if f.tell() < os.path.getsize(temp_filepath):
-                stable_middle = f.read(10000)  # Read 10KB from stable section
-                hash_to.update(stable_middle)
-            
-            # Hash the last stable section
+            # Add file size as additional discriminator
             file_size = os.path.getsize(temp_filepath)
-            if file_size > 50000:
-                f.seek(-10000, 2)  # Last 10KB
-                stable_end = f.read(10000)
-                hash_to.update(stable_end)
-                
-        total_bytes_hashed = len(stable_header)
-        if 'stable_middle' in locals():
-            total_bytes_hashed += len(stable_middle)
-        if 'stable_end' in locals():
-            total_bytes_hashed += len(stable_end)
+            hash_to.update(file_size.to_bytes(8, byteorder='big'))
             
-        print(f"Total bytes hashed: {total_bytes_hashed} (truncated from {os.path.getsize(temp_filepath)})")
-        print(f"Header bytes: {len(stable_header)}")
+            # Add datablock count as additional discriminator
+            datablock_count = len(datablocks_list)
+            hash_to.update(datablock_count.to_bytes(4, byteorder='big'))
+                
+        total_bytes_hashed = len(stable_header) + 8 + 4  # header + file_size + count
+            
+        print(f"Total bytes hashed: {total_bytes_hashed} (header + file_size + count)")
+        print(f"Header bytes: {len(stable_header)}, File size: {file_size}, Datablock count: {datablock_count}")
                 
     finally:
         # Clean up the temporary file
