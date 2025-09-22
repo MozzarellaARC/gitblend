@@ -6,6 +6,7 @@ def cleanup_temp_objects():
 	temp_objects = [obj for obj in bpy.context.scene.objects if obj.name.endswith('_temp')]
 	for obj in temp_objects:
 		bpy.data.objects.remove(obj, do_unlink=True)
+	bpy.ops.outliner.orphans_purge(do_recursive=True)
 	return len(temp_objects)
 
 def has_temp_objects():
