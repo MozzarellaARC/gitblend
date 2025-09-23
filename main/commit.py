@@ -3,6 +3,7 @@ import bpy
 from pathlib import Path
 import time
 import uuid
+import json
 from .refresh import refresh_commit_history
 
 class GITBLEND_OT_Commit(bpy.types.Operator):
@@ -21,20 +22,45 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
 
         # Ensure .gitblend directory exists
         gitblend_dir = Path(bpy.data.filepath).parent / ".gitblend"
-        if not gitblend_dir.exists():
-            mkdir(gitblend_dir)
+        gitblend_dir.mkdir(exist_ok=True)
 
-        # If .gitblend exists and there are commits, proceed to sync
-        if gitblend_dir.exists() and any(gitblend_dir.iterdir()) and not scene.commit_history.items():
-            self.report({'WARNING'}, ".gitblend commit history exists proceed to synchronize.")
+        # Check for existing commits that need to be synchronized
+        # Check if commits.json exists and has commits
+        commits_file = gitblend_dir / "commits.json"
+        has_existing_commits = commits_file.exists()
+        if has_existing_commits:
+            try:
+                with open(commits_file, 'r') as f:
+                    commits_data = json.load(f)
+                    has_existing_commits = len(commits_data.get("commits", [])) > 0
+            except (json.JSONDecodeError, FileNotFoundError):
+                has_existing_commits = False
+        
+        has_loaded_history = len(scene.commit_history) > 0
+
+        # If there are existing commit files but no loaded history, sync first
+        if has_existing_commits and not has_loaded_history:
+            self.report({'WARNING'}, "Found existing commits. Synchronizing...")
             refresh_commit_history(context)
             return {'CANCELLED'}
 
         # Check if staging directory exists and has files
         staging_dir = gitblend_dir / "staging"
         if not staging_dir.exists() or not any(staging_dir.iterdir()):
-            self.report({'WARNING'}, "No staged files found. Save the file to stage changes.")
-            return {'CANCELLED'}
+            # If this is the first commit (no existing commits), trigger staging manually
+            if not has_existing_commits:
+                self.report({'INFO'}, "First commit: Staging current scene...")
+                # Manually trigger staging for initialization
+                from .stage import stage_obj_handler
+                stage_obj_handler(None, context)
+                
+                # Check again if staging worked
+                if not staging_dir.exists() or not any(staging_dir.iterdir()):
+                    self.report({'ERROR'}, "Failed to stage files for first commit.")
+                    return {'CANCELLED'}
+            else:
+                self.report({'WARNING'}, "No staged changes found. Save the file to stage changes.")
+                return {'CANCELLED'}
 
         # Create objects directory if it doesn't exist
         objects_dir = gitblend_dir / "objects"
@@ -54,6 +80,32 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
                 moved_files.append(file_path.name)
 
         if moved_files:
+            # Update the commits.json file
+            commits_file = gitblend_dir / "commits.json"
+            timestamp = time.strftime("%d-%m-%y")
+            
+            # Load existing commits or create new structure
+            if commits_file.exists():
+                with open(commits_file, 'r') as f:
+                    commits_data = json.load(f)
+            else:
+                commits_data = {"commits": []}
+            
+            # Add new commit record
+            new_commit = {
+                "uid": commit_uid,
+                "timestamp": timestamp,
+                "files": len(moved_files),
+                "file_list": moved_files,
+                "created_at": time.time()  # For sorting
+            }
+            
+            commits_data["commits"].append(new_commit)
+            
+            # Save updated commits.json
+            with open(commits_file, 'w') as f:
+                json.dump(commits_data, f, indent=2)
+            
             self.report({'INFO'}, f"Committed {len(moved_files)} file(s) to objects/{commit_uid}")
         else:
             self.report({'WARNING'}, "No files to commit from staging directory.")

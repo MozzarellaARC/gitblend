@@ -3,6 +3,7 @@ import bpy
 import os
 from pathlib import Path
 import re
+import json
 
 def refresh_commit_history(context):
     """Scan .gitblend directory and populate commit history"""
@@ -20,43 +21,41 @@ def refresh_commit_history(context):
     if not gitblend_dir.exists():
         return
     
-    # Pattern to match commit files: message_timestamp_uid.blend
-    commit_pattern = re.compile(r'^(.+?)_(\d{2}-\d{2}-\d{2})_([a-f0-9]{8})\.blend$')
+    # Load commits from commits.json
+    commits_file = gitblend_dir / "commits.json"
+    if not commits_file.exists():
+        return
     
-    # Find all .blend files in .gitblend directory
-    commit_files = []
-    for file_path in gitblend_dir.glob("*.blend"):
-        match = commit_pattern.match(file_path.name)
-        if match:
-            message, timestamp, uid = match.groups()
-            commit_files.append({
-                'filename': file_path.name,
-                'message': message.replace('_', ' '),  # Replace underscores with spaces
-                'timestamp': timestamp,
-                'uid': uid,
-                'mtime': file_path.stat().st_mtime  # For sorting by modification time
-            })
+    try:
+        with open(commits_file, 'r') as f:
+            commits_data = json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        return
     
-    # Sort by modification time (newest first)
-    commit_files.sort(key=lambda x: x['mtime'], reverse=True)
+    # Get commits list and sort by creation time (newest first)
+    commit_list = commits_data.get("commits", [])
+    commit_list.sort(key=lambda x: x.get("created_at", 0), reverse=True)
     
     # Add commits to the collection
-    for commit_data in commit_files:
+    for commit_data in commit_list:
         commit_item = scene.commit_history.add()
-        commit_item.message = commit_data['message']
-        commit_item.timestamp = commit_data['timestamp']
-        commit_item.uid = commit_data['uid']
-        commit_item.filename = commit_data['filename']
+        commit_item.message = commit_data.get("uid", "unknown")  # Use UID as message
+        commit_item.timestamp = commit_data.get("timestamp", "")
+        commit_item.uid = commit_data.get("uid", "")
+        commit_item.filename = f"{commit_data.get('uid', 'unknown')}_{commit_data.get('timestamp', '')}"
         
-        # Calculate file size
-        file_path = gitblend_dir / commit_data['filename']
-        if file_path.exists():
-            commit_item.file_size = file_path.stat().st_size
+        # Calculate file size of the objects directory
+        objects_dir = gitblend_dir / "objects" / commit_data.get("uid", "")
+        if objects_dir.exists():
+            total_size = sum(f.stat().st_size for f in objects_dir.rglob('*') if f.is_file())
+            commit_item.file_size = total_size
+        else:
+            commit_item.file_size = 0
         
         # Calculate hash (optional - could be expensive for large files)
-        # For now, we'll use a simple hash of the filename + size as placeholder
+        # For now, we'll use a simple hash of the uid + size as placeholder
         import hashlib
-        content = f"{commit_data['filename']}{commit_item.file_size}".encode('utf-8')
+        content = f"{commit_data.get('uid', 'unknown')}{commit_item.file_size}".encode('utf-8')
         commit_item.hash_value = hashlib.sha256(content).hexdigest()
     
     # Reset the active index

@@ -21,10 +21,19 @@ class GITBLEND_OT_ClearPreview(bpy.types.Operator):
 
 	def execute(self, context):
 		count = cleanup_temp_objects()
-		if count > 0:
-			self.report({'INFO'}, f"Cleared {count} preview object(s)")
+		
+		# Also clear all preview checkboxes
+		scene = context.scene.gitblend_props
+		cleared_checkboxes = 0
+		for commit in scene.commit_history:
+			if commit.is_previewed:
+				commit.is_previewed = False
+				cleared_checkboxes += 1
+		
+		if count > 0 or cleared_checkboxes > 0:
+			self.report({'INFO'}, f"Cleared {count} preview object(s) and {cleared_checkboxes} checkbox(es)")
 		else:
-			self.report({'INFO'}, "No preview objects to clear")
+			self.report({'INFO'}, "No preview objects or checkboxes to clear")
 		return {'FINISHED'}
 
 class GITBLEND_OT_PreCheckout(bpy.types.Operator):

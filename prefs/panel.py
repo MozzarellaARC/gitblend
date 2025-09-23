@@ -7,10 +7,16 @@ class GITBLEND_UL_History_List(bpy.types.UIList):
 	def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
 		commit = item
 		if self.layout_type in {'DEFAULT', 'COMPACT'}:
-			# Split layout for message and timestamp
-			split = layout.split(factor=0.5)
+			# Split layout for message, timestamp, and preview checkbox
+			split = layout.split(factor=0.4)
 			split.prop(commit, "message", text="", emboss=False, icon='FILE_TICK')
-			split.label(text=commit.timestamp, icon='TIME')
+			
+			split2 = split.split(factor=0.8)
+			split2.label(text=commit.timestamp, icon='TIME')
+			
+			# Add preview checkbox on the right
+			preview_col = split2.column()
+			preview_col.prop(commit, "is_previewed", text="", icon='HIDE_OFF' if commit.is_previewed else 'HIDE_ON')
 		elif self.layout_type in {'GRID'}:
 			layout.alignment = 'CENTER'
 			layout.label(text="", icon='FILE_TICK')
@@ -35,6 +41,7 @@ def draw_gitblend_interface(layout, context):
 	col = row.column()
 	col.operator("gitblend.refresh", text="", icon='FILE_REFRESH')
 	col.operator("gitblend.checkout", text="", icon='IMPORT')
+	col.operator("gitblend.clear_preview", text="", icon='HIDE_ON')
 	col.operator("gitblend.serde", text="", icon='QUESTION')
 	col.operator("gitblend.purge", text="", icon='TRASH')
 	
