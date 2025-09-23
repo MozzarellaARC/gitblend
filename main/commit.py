@@ -1,3 +1,4 @@
+from os import mkdir
 import bpy
 from pathlib import Path
 import time
@@ -13,11 +14,15 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
     def execute(self, context):
         scene = context.scene.gitblend_props
 
-        # Ensure .gitblend directory exists
-        gitblend_dir = Path(bpy.data.filepath).parent / ".gitblend"
+        # Ensure save
         if not bpy.data.filepath:
             self.report({'ERROR'}, "Please save the current Blender file before committing.")
             return {'CANCELLED'}
+
+        # Ensure .gitblend directory exists
+        gitblend_dir = Path(bpy.data.filepath).parent / ".gitblend"
+        if not gitblend_dir.exists():
+            mkdir(gitblend_dir)
 
         # Ensure .gitblend directory empty and commit history empty
         commit_exists = list(gitblend_dir.glob("*.blend"))
