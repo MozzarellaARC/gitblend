@@ -3,7 +3,7 @@ import bpy # type: ignore
 from .checkout import (
 	GITBLEND_OT_Checkout,
 	GITBLEND_OT_PreCheckout,
-	GITBLEND_OT_ClearPreview
+	GITBLEND_OT_Single_Object_Checkout
 )
 
 from .commit import (
@@ -20,7 +20,7 @@ from .stage import (
 cls = [
 	GITBLEND_OT_PreCheckout,
 	GITBLEND_OT_Checkout,
-	GITBLEND_OT_ClearPreview,
+	GITBLEND_OT_Single_Object_Checkout,
 	GITBLEND_OT_Commit,
 	GITBLEND_OT_Refresh,
 ]

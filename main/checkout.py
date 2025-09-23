@@ -13,27 +13,30 @@ def has_temp_objects():
 	"""Check if there are any temp objects in the scene"""
 	return any(obj.name.endswith('_temp') for obj in bpy.context.scene.objects)
 
-class GITBLEND_OT_ClearPreview(bpy.types.Operator):
-	"""Clear all preview objects"""
-	bl_idname = "gitblend.clear_preview"
-	bl_label = "Clear Preview"
+class GITBLEND_OT_Single_Object_Checkout(bpy.types.Operator):
+	"""Finalize the currently selected preview object (remove _temp suffix)"""
+	bl_idname = "gitblend.single_object_checkout"
+	bl_label = "Single Object Checkout"
 	bl_options = {'REGISTER', 'UNDO'}
 
 	def execute(self, context):
-		count = cleanup_temp_objects()
+		# Get the currently selected object
+		selected_obj = context.active_object
 		
-		# Also clear all preview checkboxes
-		scene = context.scene.gitblend_props
-		cleared_checkboxes = 0
-		for commit in scene.commit_history:
-			if commit.is_previewed:
-				commit.is_previewed = False
-				cleared_checkboxes += 1
+		if selected_obj is None:
+			self.report({'WARNING'}, "No object selected")
+			return {'CANCELLED'}
+
+		# Check if the selected object is a preview object (has _temp suffix)
+		if not selected_obj.name.endswith('_temp'):
+			self.report({'WARNING'}, f"'{selected_obj.name}' is not a preview object")
+			return {'CANCELLED'}
+
+		# Remove _temp suffix to finalize the object
+		original_name = selected_obj.name[:-5]  # Remove '_temp' (5 characters)
+		selected_obj.name = original_name
+		self.report({'INFO'}, f"Finalized: {original_name}")
 		
-		if count > 0 or cleared_checkboxes > 0:
-			self.report({'INFO'}, f"Cleared {count} preview object(s) and {cleared_checkboxes} checkbox(es)")
-		else:
-			self.report({'INFO'}, "No preview objects or checkboxes to clear")
 		return {'FINISHED'}
 
 class GITBLEND_OT_PreCheckout(bpy.types.Operator):

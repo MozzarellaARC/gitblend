@@ -41,7 +41,7 @@ def draw_gitblend_interface(layout, context):
 	col = row.column()
 	col.operator("gitblend.refresh", text="", icon='FILE_REFRESH')
 	col.operator("gitblend.checkout", text="", icon='IMPORT')
-	col.operator("gitblend.clear_preview", text="", icon='HIDE_ON')
+	col.operator("gitblend.single_object_checkout", text="", icon='OBJECT_DATA')
 	col.operator("gitblend.serde", text="", icon='QUESTION')
 	col.operator("gitblend.purge", text="", icon='TRASH')
 	
