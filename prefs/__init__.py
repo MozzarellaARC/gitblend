@@ -8,7 +8,7 @@ from .properties import (
 
 from .panel import (
 	GITBLEND_OT_PopupWindow,
-	GITBLEND_PT_Panel,
+	# GITBLEND_PT_Panel,
 	GITBLEND_UL_History_List,
 	draw_gitblend_menu
 )
@@ -17,7 +17,7 @@ cls = [
 	GITBLEND_CommitItem,
 	GITBLEND_Properties,
 	GITBLEND_OT_PopupWindow,
-	GITBLEND_PT_Panel,
+	# GITBLEND_PT_Panel,
 	GITBLEND_UL_History_List,
 ]
 

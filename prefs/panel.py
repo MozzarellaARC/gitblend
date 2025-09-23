@@ -82,15 +82,15 @@ def draw_gitblend_interface(layout, context):
 			row.label(text=f"Commits: {len(scene.commit_history)}", icon='SEQUENCE')
 	
 
-class GITBLEND_PT_Panel(bpy.types.Panel):
-	bl_label = "Git Blend"
-	bl_idname = "GITBLEND_PT_panel"
-	bl_space_type = 'VIEW_3D'
-	bl_region_type = 'UI'
-	bl_category = '.gitblend'
+# class GITBLEND_PT_Panel(bpy.types.Panel):
+# 	bl_label = "Git Blend"
+# 	bl_idname = "GITBLEND_PT_panel"
+# 	bl_space_type = 'VIEW_3D'
+# 	bl_region_type = 'UI'
+# 	bl_category = '.gitblend'
 
-	def draw(self, context):
-		draw_gitblend_interface(self.layout, context)
+# 	def draw(self, context):
+# 		draw_gitblend_interface(self.layout, context)
 
 class GITBLEND_OT_PopupWindow(bpy.types.Operator):
 	"""Open Git Blend in a popup window"""
