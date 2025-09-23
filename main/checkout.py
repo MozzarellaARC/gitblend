@@ -48,31 +48,35 @@ class GITBLEND_OT_PreCheckout(bpy.types.Operator):
 		scene = context.scene.gitblend_props
 		gitblend_dir = Path(bpy.data.filepath).parent / ".gitblend"
 		index = scene.commit_history[scene.i]
-		filepath = gitblend_dir / index.filename
-
-		# Check if file exists
-		if not filepath.exists():
-			self.report({'ERROR'}, f"Commit file not found: {filepath}")
+		
+		# Look for objects in the objects/{uid} directory instead of a single file
+		objects_dir = gitblend_dir / "objects" / index.uid
+		
+		# Check if objects directory exists
+		if not objects_dir.exists():
+			self.report({'ERROR'}, f"Commit objects not found: {objects_dir}")
 			return {'CANCELLED'}
 
 		try:
-			with bpy.data.libraries.load(str(filepath), link=False) as (data_from, data_to):
-				# Load based on message
-				data_to.objects = [name for name in data_from.objects if name == index.message]
-				
-			# Link the loaded objects to the current scene with _temp suffix
 			imported_count = 0
-			for obj in data_to.objects:
-				if obj is not None:
-					# Add _temp suffix to the object name
-					obj.name = f"{obj.name}_temp"
-					context.collection.objects.link(obj)
-					imported_count += 1
+			# Load all .blend files from the objects directory
+			for blend_file in objects_dir.glob("*.blend"):
+				with bpy.data.libraries.load(str(blend_file), link=False) as (data_from, data_to):
+					# Load all objects from this blend file
+					data_to.objects = data_from.objects[:]
+				
+				# Link the loaded objects to the current scene with _temp suffix
+				for obj in data_to.objects:
+					if obj is not None:
+						# Add _temp suffix to the object name
+						obj.name = f"{obj.name}_temp"
+						context.collection.objects.link(obj)
+						imported_count += 1
 					
 			if imported_count > 0:
-				self.report({'INFO'}, f"Preview: {imported_count} object(s) loaded as temporary from '{index.message}'")
+				self.report({'INFO'}, f"Preview: {imported_count} object(s) loaded as temporary from commit '{index.uid}'")
 			else:
-				self.report({'WARNING'}, f"No objects found matching '{index.message}' in commit")
+				self.report({'WARNING'}, f"No objects found in commit '{index.uid}'")
 				
 		except Exception as e:
 			self.report({'ERROR'}, f"Failed to preview commit: {str(e)}")
@@ -95,20 +99,32 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
 			scene = context.scene.gitblend_props
 			gitblend_dir = Path(bpy.data.filepath).parent / ".gitblend"
 			index = scene.commit_history[scene.i]
-			filepath = gitblend_dir / index.filename
+			
+			# Look for objects in the objects/{uid} directory
+			objects_dir = gitblend_dir / "objects" / index.uid
+			
+			if not objects_dir.exists():
+				self.report({'ERROR'}, f"Commit objects not found: {objects_dir}")
+				return {'CANCELLED'}
 
-			with bpy.data.libraries.load(str(filepath), link=False) as (data_from, data_to):
-				# Load based on message
-				data_to.objects = [name for name in data_from.objects if name == index.message]
-				
-			# Link the loaded objects to the current scene
-			imported_count = 0
-			for obj in data_to.objects:
-				if obj is not None:
-					context.collection.objects.link(obj)
-					imported_count += 1
+			try:
+				imported_count = 0
+				# Load all .blend files from the objects directory
+				for blend_file in objects_dir.glob("*.blend"):
+					with bpy.data.libraries.load(str(blend_file), link=False) as (data_from, data_to):
+						# Load all objects from this blend file
+						data_to.objects = data_from.objects[:]
 					
-			self.report({'INFO'}, f"Imported {imported_count} object(s)")
+					# Link the loaded objects to the current scene
+					for obj in data_to.objects:
+						if obj is not None:
+							context.collection.objects.link(obj)
+							imported_count += 1
+							
+				self.report({'INFO'}, f"Imported {imported_count} object(s)")
+			except Exception as e:
+				self.report({'ERROR'}, f"Failed to checkout commit: {str(e)}")
+				return {'CANCELLED'}
 		else:
 			# Finalize temp objects by removing _temp suffix
 			finalized_count = 0
