@@ -2,19 +2,19 @@ import bpy
 from pathlib import Path
 
 def cleanup_temp_objects():
-	"""Remove all objects with _temp suffix from the scene"""
-	temp_objects = [obj for obj in bpy.context.scene.objects if obj.name.endswith('_temp')]
+	"""Remove all objects with UID suffix from the scene"""
+	temp_objects = [obj for obj in bpy.context.scene.objects if '_' in obj.name and len(obj.name.split('_')[-1]) == 8 and all(c in '0123456789abcdef' for c in obj.name.split('_')[-1])]
 	for obj in temp_objects:
 		bpy.data.objects.remove(obj, do_unlink=True)
 	bpy.ops.outliner.orphans_purge(do_recursive=True)
 	return len(temp_objects)
 
 def has_temp_objects():
-	"""Check if there are any temp objects in the scene"""
-	return any(obj.name.endswith('_temp') for obj in bpy.context.scene.objects)
+	"""Check if there are any objects with UID suffix in the scene"""
+	return any('_' in obj.name and len(obj.name.split('_')[-1]) == 8 and all(c in '0123456789abcdef' for c in obj.name.split('_')[-1]) for obj in bpy.context.scene.objects)
 
 class GITBLEND_OT_Single_Object_Checkout(bpy.types.Operator):
-	"""Finalize the currently selected preview object (remove _temp suffix)"""
+	"""Finalize the currently selected preview object (remove UID suffix)"""
 	bl_idname = "gitblend.single_object_checkout"
 	bl_label = "Single Object Checkout"
 	bl_options = {'REGISTER', 'UNDO'}
@@ -27,13 +27,14 @@ class GITBLEND_OT_Single_Object_Checkout(bpy.types.Operator):
 			self.report({'WARNING'}, "No object selected")
 			return {'CANCELLED'}
 
-		# Check if the selected object is a preview object (has _temp suffix)
-		if not selected_obj.name.endswith('_temp'):
+		# Check if the selected object has a UID suffix (8-character hex at the end)
+		name_parts = selected_obj.name.split('_')
+		if len(name_parts) < 2 or len(name_parts[-1]) != 8 or not all(c in '0123456789abcdef' for c in name_parts[-1]):
 			self.report({'WARNING'}, f"'{selected_obj.name}' is not a preview object")
 			return {'CANCELLED'}
 
-		# Remove _temp suffix to finalize the object
-		original_name = selected_obj.name[:-5]  # Remove '_temp' (5 characters)
+		# Remove UID suffix to finalize the object
+		original_name = '_'.join(name_parts[:-1])  # Remove the last part (UID)
 		selected_obj.name = original_name
 		self.report({'INFO'}, f"Finalized: {original_name}")
 		
@@ -68,11 +69,11 @@ class GITBLEND_OT_PreCheckout(bpy.types.Operator):
 					# Load all objects from this blend file
 					data_to.objects = data_from.objects[:]
 				
-				# Link the loaded objects to the current scene with _temp suffix
+				# Link the loaded objects to the current scene with UID suffix
 				for obj in data_to.objects:
 					if obj is not None:
-						# Add _temp suffix to the object name
-						obj.name = f"{obj.name}_temp"
+						# Add UID suffix to the object name
+						obj.name = f"{obj.name}_{index.uid}"
 						context.collection.objects.link(obj)
 						imported_count += 1
 					
@@ -94,8 +95,8 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
 	bl_options = {'REGISTER', 'UNDO'}
 
 	def execute(self, context):
-		# Check if there are temp objects to finalize
-		temp_objects = [obj for obj in bpy.context.scene.objects if obj.name.endswith('_temp')]
+		# Check if there are objects with UID suffix to finalize
+		temp_objects = [obj for obj in bpy.context.scene.objects if '_' in obj.name and len(obj.name.split('_')[-1]) == 8 and all(c in '0123456789abcdef' for c in obj.name.split('_')[-1])]
 		
 		if not temp_objects:
 			# No temp objects, do regular checkout
@@ -129,12 +130,13 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
 				self.report({'ERROR'}, f"Failed to checkout commit: {str(e)}")
 				return {'CANCELLED'}
 		else:
-			# Finalize temp objects by removing _temp suffix
+			# Finalize objects by removing UID suffix
 			finalized_count = 0
 			for obj in temp_objects:
-				# Remove _temp suffix
-				if obj.name.endswith('_temp'):
-					obj.name = obj.name[:-5]  # Remove '_temp' (5 characters)
+				# Remove UID suffix
+				name_parts = obj.name.split('_')
+				if len(name_parts) >= 2 and len(name_parts[-1]) == 8 and all(c in '0123456789abcdef' for c in name_parts[-1]):
+					obj.name = '_'.join(name_parts[:-1])  # Remove the last part (UID)
 					finalized_count += 1
 					
 			self.report({'INFO'}, f"Finalized {finalized_count} object(s) from preview")
