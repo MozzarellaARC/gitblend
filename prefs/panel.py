@@ -2,7 +2,7 @@ import bpy
 
 class GITBLEND_UL_History_List(bpy.types.UIList):
 	"""UIList to display commit items"""
-	bl_idname = "GITBLEND_UL_commit_list"
+	bl_idname = "GITBLEND_UL_history_list"
 
 	def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
 		commit = item
@@ -22,7 +22,7 @@ def draw_gitblend_interface(layout, context):
 	box = layout.box()
 	box.label(text="Commit History", icon='IPO_BEZIER')
 	row = box.row()
-	row.template_list(listtype_name="GITBLEND_UL_commit_list",
+	row.template_list(listtype_name="GITBLEND_UL_history_list",
 					   list_id="commit_history",
 					   dataptr=scene, 
 					   propname="commit_history",
@@ -106,15 +106,34 @@ def draw_gitblend_menu(self, context):
 	layout = self.layout
 	layout.operator("gitblend.popup_window", text=".gitblend")
 	
+cls = [
+	GITBLEND_UL_History_List,
+	GITBLEND_PT_Panel,
+	GITBLEND_OT_PopupWindow,
+]
 
 def register_panel():
-	bpy.utils.register_class(GITBLEND_UL_History_List)
-	bpy.utils.register_class(GITBLEND_PT_Panel)
-	bpy.utils.register_class(GITBLEND_OT_PopupWindow)
-	bpy.types.VIEW3D_MT_editor_menus.append(draw_gitblend_menu)
+	for c in cls:
+		try:
+			bpy.utils.register_class(c)
+		except ValueError:
+			pass  # Already registered
+	
+	# Safely append menu function if not already added
+	try:
+		bpy.types.VIEW3D_MT_editor_menus.append(draw_gitblend_menu)
+	except:
+		pass  # Already added
 
 def unregister_panel():
-	bpy.types.VIEW3D_MT_editor_menus.remove(draw_gitblend_menu)
-	bpy.utils.unregister_class(GITBLEND_OT_PopupWindow)
-	bpy.utils.unregister_class(GITBLEND_PT_Panel)
-	bpy.utils.unregister_class(GITBLEND_UL_History_List)
+	# Safely remove menu function
+	try:
+		bpy.types.VIEW3D_MT_editor_menus.remove(draw_gitblend_menu)
+	except:
+		pass  # Not in list or already removed
+	
+	for c in reversed(cls):
+		try:
+			bpy.utils.unregister_class(c)
+		except ValueError:
+			pass  # Not registered
