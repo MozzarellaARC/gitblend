@@ -14,7 +14,7 @@ from .refresh import (
 )
 
 from .stage import (
-	stage_handler)
+	stage_obj_handler)
 
 cls = [
 	GITBLEND_OT_PreCheckout,
@@ -34,8 +34,8 @@ def register_operators():
 			print(f"Error registering operator {c.__name__}: {e}")
 	
 	# Stage data and register save handler
-	if stage_handler not in bpy.app.handlers.save_post:
-		bpy.app.handlers.save_post.append(stage_handler)
+	if stage_obj_handler not in bpy.app.handlers.save_post:
+		bpy.app.handlers.save_post.append(stage_obj_handler)
 
 def unregister_operators():
 	for c in reversed(cls):
@@ -48,8 +48,8 @@ def unregister_operators():
 			print(f"Error unregistering operator {c.__name__}: {e}")
 	
 	# Unregister save handler
-	if stage_handler in bpy.app.handlers.save_post:
-		bpy.app.handlers.save_post.remove(stage_handler)
+	if stage_obj_handler in bpy.app.handlers.save_post:
+		bpy.app.handlers.save_post.remove(stage_obj_handler)
 
 __all__ = (
 	"register_operators",
