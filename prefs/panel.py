@@ -105,35 +105,3 @@ class GITBLEND_OT_PopupWindow(bpy.types.Operator):
 def draw_gitblend_menu(self, context):
 	layout = self.layout
 	layout.operator("gitblend.popup_window", text=".gitblend")
-	
-cls = [
-	GITBLEND_UL_History_List,
-	GITBLEND_PT_Panel,
-	GITBLEND_OT_PopupWindow,
-]
-
-def register_panel():
-	for c in cls:
-		try:
-			bpy.utils.register_class(c)
-		except ValueError:
-			pass  # Already registered
-	
-	# Safely append menu function if not already added
-	try:
-		bpy.types.VIEW3D_MT_editor_menus.append(draw_gitblend_menu)
-	except:
-		pass  # Already added
-
-def unregister_panel():
-	# Safely remove menu function
-	try:
-		bpy.types.VIEW3D_MT_editor_menus.remove(draw_gitblend_menu)
-	except:
-		pass  # Not in list or already removed
-	
-	for c in reversed(cls):
-		try:
-			bpy.utils.unregister_class(c)
-		except ValueError:
-			pass  # Not registered
