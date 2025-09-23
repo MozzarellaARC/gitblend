@@ -25,7 +25,7 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             mkdir(gitblend_dir)
 
         # If .gitblend exists and there are commits, proceed to sync
-        if gitblend_dir.exists() and any(gitblend_dir.iterdir()):
+        if gitblend_dir.exists() and any(gitblend_dir.iterdir()) and not scene.commit_history.items():
             self.report({'WARNING'}, ".gitblend commit history exists proceed to synchronize.")
             refresh_commit_history(context)
             return {'CANCELLED'}
