@@ -40,7 +40,7 @@ def blend_file_hash(filepath):
         with open(temp_filepath, 'rb') as f:
             # Hash only the first 1000 bytes (header and stable data)
             # This is the most reliable section that showed no variation
-            stable_header = f.read(30000)
+            stable_header = f.read(1000)
             hash_to.update(stable_header)
             
             # Add file size as additional discriminator

@@ -14,13 +14,11 @@
 from . import prefs as prefs_module
 from . import main as main_module
 from . import utils as utils_module
-from .utils.event_listener import invoke_save_event_listener
 
 def register():
 	prefs_module.register_prefs()
 	main_module.register_operators()
 	utils_module.register_utils()
-	invoke_save_event_listener()
 
 def unregister():
 	utils_module.unregister_utils()
