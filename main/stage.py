@@ -2,13 +2,7 @@ import bpy
 from pathlib import Path
 
 def stage_obj_handler(self, context):
-
-    # Ensure .gitblend directory exists
     gitblend_dir = Path(bpy.data.filepath).parent / ".gitblend"
-    if not bpy.data.filepath:
-        self.report({'ERROR'}, ".gitblend not initialized")
-        return {'CANCELLED'}
-
     staging_dir = gitblend_dir / "staging"
     staging_dir.mkdir(exist_ok=True)
     
