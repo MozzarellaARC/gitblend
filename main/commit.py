@@ -30,28 +30,33 @@ class GITBLEND_OT_Commit(bpy.types.Operator):
             refresh_commit_history(context)
             return {'CANCELLED'}
 
-        selected = context.selected_objects
-        name = context.active_object.name
-
-        if not selected:
-            self.report({'ERROR'}, "No objects selected for commit")
+        # Check if staging directory exists and has files
+        staging_dir = gitblend_dir / "staging"
+        if not staging_dir.exists() or not any(staging_dir.iterdir()):
+            self.report({'WARNING'}, "No staged files found. Save the file to stage changes.")
             return {'CANCELLED'}
 
-        # Directory setup
-        gitblend_dir.mkdir(parents=True, exist_ok=True)
+        # Create objects directory if it doesn't exist
+        objects_dir = gitblend_dir / "objects"
+        objects_dir.mkdir(exist_ok=True)
 
-        # Export selected objects to a .blend file in the .gitblend directory
-        timestamp = time.strftime("%y-%m-%d")
-        uid = str(uuid.uuid4())[:8]
-        filename = f"{name}_{timestamp}_{uid}.blend"
+        # Generate unique UID for this commit
+        commit_uid = str(uuid.uuid4())[:8]  # Use first 8 characters of UUID
+        commit_objects_dir = objects_dir / commit_uid
+        commit_objects_dir.mkdir(exist_ok=True)
 
-        # Invoke libraries.write module to save selected objects
-        bpy.data.libraries.write(
-            filepath=str(gitblend_dir / filename),
-            datablocks=set(selected),
-            fake_user=True,
-            compress=True,
-        )
+        # Move all files from staging to objects/uid directory
+        moved_files = []
+        for file_path in staging_dir.iterdir():
+            if file_path.is_file():
+                dest_path = commit_objects_dir / file_path.name
+                file_path.rename(dest_path)
+                moved_files.append(file_path.name)
+
+        if moved_files:
+            self.report({'INFO'}, f"Committed {len(moved_files)} file(s) to objects/{commit_uid}")
+        else:
+            self.report({'WARNING'}, "No files to commit from staging directory.")
 
         # Refresh commit history to show the new commit
         refresh_commit_history(context)
