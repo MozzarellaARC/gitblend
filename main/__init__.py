@@ -14,9 +14,6 @@ from .refresh import (
 	GITBLEND_OT_Refresh,
 )
 
-from .stage import (
-	stage_obj_handler)
-
 cls = [
 	GITBLEND_OT_PreCheckout,
 	GITBLEND_OT_Checkout,
@@ -35,9 +32,6 @@ def register_operators():
 		except Exception as e:
 			print(f"Error registering operator {c.__name__}: {e}")
 	
-	# Stage data and register save handler
-	bpy.app.handlers.save_post.append(stage_obj_handler)
-
 def unregister_operators():
 	for c in reversed(cls):
 		try:

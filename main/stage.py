@@ -1,6 +1,8 @@
 import bpy
 from pathlib import Path
+from bpy.app.handlers import persistent
 
+@persistent
 def stage_obj_handler(self, context):
     # Ensure save
     if not bpy.data.filepath:
@@ -32,6 +34,7 @@ def stage_obj_handler(self, context):
             print(f"Removed orphaned file: {blend_file.name}")
 
     print("Save handler triggered - staging data...")
+    self.report({'INFO'}, "Staged current objects to .gitblend/staging")
 
 #TODO: Handler for node_groups
 

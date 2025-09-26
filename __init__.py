@@ -11,14 +11,18 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+import bpy
 from . import prefs as prefs_module
 from . import main as main_module
 from . import utils as utils_module
+from .main.stage import stage_obj_handler
 
 def register():
 	prefs_module.register_prefs()
 	main_module.register_operators()
 	utils_module.register_utils()
+	if stage_obj_handler not in bpy.app.handlers.save_post:
+		bpy.app.handlers.save_post.append(stage_obj_handler)
 
 def unregister():
 	utils_module.unregister_utils()
