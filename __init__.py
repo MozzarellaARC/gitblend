@@ -21,11 +21,22 @@ def register():
 	prefs_module.register_prefs()
 	main_module.register_operators()
 	utils_module.register_utils()
-	if stage_obj_handler not in bpy.app.handlers.save_post:
-		bpy.app.handlers.save_post.append(stage_obj_handler)
+	for handler in list(bpy.app.handlers.save_post):
+		if (
+			getattr(handler, "__name__", None) == stage_obj_handler.__name__
+			and getattr(handler, "__module__", None) == stage_obj_handler.__module__
+		):
+			bpy.app.handlers.save_post.remove(handler)
+	bpy.app.handlers.save_post.append(stage_obj_handler)
 
 def unregister():
 	utils_module.unregister_utils()
 	main_module.unregister_operators()
 	prefs_module.unregister_prefs()
+	for handler in list(bpy.app.handlers.save_post):
+		if (
+			getattr(handler, "__name__", None) == stage_obj_handler.__name__
+			and getattr(handler, "__module__", None) == stage_obj_handler.__module__
+		):
+			bpy.app.handlers.save_post.remove(handler)
 	
