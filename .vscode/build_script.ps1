@@ -77,7 +77,8 @@ try {
         "Thumbs.db",
         "test_*",
         "*.log",
-        "README.md"
+        "README.md",
+        ".venv"
     )
     
     # Get all files in the project root, excluding the patterns

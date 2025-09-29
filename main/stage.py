@@ -34,7 +34,9 @@ def stage_obj_handler(self, context):
             print(f"Removed orphaned file: {blend_file.name}")
 
     print("Save handler triggered - staging data...")
-    self.report({'INFO'}, "Staged current objects to .gitblend/staging")
+    # Only report if self is available (when called as operator)
+    if self is not None:
+        self.report({'INFO'}, "Staged current scene objects.")
 
 #TODO: Handler for node_groups
 
