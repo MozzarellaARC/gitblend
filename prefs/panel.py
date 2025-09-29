@@ -95,7 +95,7 @@ def draw_gitblend_interface(layout, context):
 class GITBLEND_OT_PopupWindow(bpy.types.Operator):
 	"""Open Git Blend in a popup window"""
 	bl_idname = "gitblend.popup_window"
-	bl_label = "Git Blend"
+	bl_label = "Git Blend Menu"
 	bl_options = {'REGISTER', 'UNDO'}
 	
 	def draw(self, context):
