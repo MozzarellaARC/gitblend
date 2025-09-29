@@ -16,8 +16,17 @@ def stage_obj_handler(self, context):
     staging_dir = gitblend_dir / "staging"
     staging_dir.mkdir(exist_ok=True)
     
+    def should_ignore(obj: bpy.types.Object) -> bool:
+        """Return True if the object belongs to a filtered collection."""
+        for collection in obj.users_collection:
+            name = collection.name or ""
+            if name == "ref" or name.startswith("."):
+                return True
+        return False
+
     # Export all objects in the current scene to the staging directory
-    for obj in bpy.context.scene.objects:
+    staged_objects = [obj for obj in bpy.context.scene.objects if not should_ignore(obj)]
+    for obj in staged_objects:
         obj_filename = f"{obj.name}.blend"
         bpy.data.libraries.write(
             filepath=str(staging_dir / obj_filename),
@@ -25,7 +34,7 @@ def stage_obj_handler(self, context):
         )
 
     # Get list of current object filenames that were exported
-    current_obj_files = {f"{obj.name}.blend" for obj in bpy.context.scene.objects}
+    current_obj_files = {f"{obj.name}.blend" for obj in staged_objects}
 
     # Remove blend files in staging directory that no longer correspond to existing objects
     for blend_file in staging_dir.glob("*.blend"):
