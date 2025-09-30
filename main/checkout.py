@@ -22,6 +22,32 @@ def _assign_to_checkout_collection(obj: bpy.types.Object, checkout_collection: b
 		if other != checkout_collection:
 			other.objects.unlink(obj)
 
+
+def _link_to_scene_root(obj: bpy.types.Object, scene: bpy.types.Scene) -> None:
+	root_collection = scene.collection
+	try:
+		root_collection.objects.link(obj)
+	except RuntimeError:
+		# Already linked
+		pass
+	for collection in tuple(obj.users_collection):
+		if collection.name == CHECKOUT_COLLECTION_NAME and collection != root_collection:
+			collection.objects.unlink(obj)
+
+
+def _cleanup_checkout_collection(scene: bpy.types.Scene) -> None:
+	if scene is None:
+		return
+	collection = bpy.data.collections.get(CHECKOUT_COLLECTION_NAME)
+	if collection is None:
+		return
+	if collection.objects or collection.children:
+		return
+	if CHECKOUT_COLLECTION_NAME in {child.name for child in scene.collection.children}:
+		scene.collection.children.unlink(collection)
+	if collection.users == 0:
+		bpy.data.collections.remove(collection)
+
 def _has_uid_suffix(name: str) -> bool:
 	parts = name.rsplit('_', 1)
 	if len(parts) != 2:
@@ -62,6 +88,7 @@ def cleanup_temp_objects():
 	for obj in temp_objects:
 		bpy.data.objects.remove(obj, do_unlink=True)
 	bpy.ops.outliner.orphans_purge(do_recursive=True)
+	_cleanup_checkout_collection(bpy.context.scene)
 	return len(temp_objects)
 
 def has_temp_objects():
@@ -90,8 +117,8 @@ class GITBLEND_OT_Single_Object_Checkout(bpy.types.Operator):
 
 		# Remove UID suffix to finalize the object
 		selected_obj.name = base_name
-		checkout_collection = _ensure_checkout_collection(context.scene)
-		_assign_to_checkout_collection(selected_obj, checkout_collection)
+		_link_to_scene_root(selected_obj, context.scene)
+		_cleanup_checkout_collection(context.scene)
 		self.report({'INFO'}, f"Finalized: {base_name}")
 		
 		return {'FINISHED'}
@@ -120,13 +147,11 @@ class GITBLEND_OT_PreCheckout(bpy.types.Operator):
 		try:
 			imported_count = 0
 			checkout_collection = _ensure_checkout_collection(context.scene)
-			# Load all .blend files from the objects directory
 			for blend_file in objects_dir.glob("*.blend"):
 				with bpy.data.libraries.load(str(blend_file), link=False) as (data_from, data_to):
 					# Load all objects from this blend file
 					object_names = list(data_from.objects)
 					data_to.objects = object_names[:]
-				
 				# Link the loaded objects to the current scene with UID suffix,
 				# preserving the original name prior to Blender's de-duplication.
 				for original_name, obj in zip(object_names, data_to.objects):
@@ -173,7 +198,6 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
 			try:
 				imported_count = 0
 				removed_count = 0
-				checkout_collection = _ensure_checkout_collection(context.scene)
 				# Load all .blend files from the objects directory
 				for blend_file in objects_dir.glob("*.blend"):
 					with bpy.data.libraries.load(str(blend_file), link=False) as (data_from, data_to):
@@ -187,12 +211,13 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
 							continue
 						removed_count += _remove_existing_object_variants(original_name)
 						obj.name = original_name
-						_assign_to_checkout_collection(obj, checkout_collection)
+						_link_to_scene_root(obj, context.scene)
 						imported_count += 1
 				
 				message = f"Imported {imported_count} object(s)"
 				if removed_count:
 					message += f" (replaced {removed_count} existing)"
+				_cleanup_checkout_collection(context.scene)
 				self.report({'INFO'}, message)
 			except Exception as e:
 				self.report({'ERROR'}, f"Failed to checkout commit: {str(e)}")
@@ -200,16 +225,15 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
 		else:
 			# Finalize objects by removing UID suffix
 			finalized_count = 0
-			checkout_collection = _ensure_checkout_collection(context.scene)
 			for obj in temp_objects:
 				# Remove UID suffix
 				base_name = _base_name_from_uid(obj.name)
 				if base_name:
 					_remove_existing_object_variants(base_name, preserve={obj})
 					obj.name = base_name
-					_assign_to_checkout_collection(obj, checkout_collection)
+					_link_to_scene_root(obj, context.scene)
 					finalized_count += 1
-					
+			_cleanup_checkout_collection(context.scene)
 			self.report({'INFO'}, f"Finalized {finalized_count} object(s) from preview")
 				
 		return {'FINISHED'}
