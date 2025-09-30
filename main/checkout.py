@@ -3,7 +3,24 @@ from pathlib import Path
 
 HEX_CHARS = set('0123456789abcdef')
 UID_LENGTH = 8
+CHECKOUT_COLLECTION_NAME = ".checkout"
 
+
+def _ensure_checkout_collection(scene: bpy.types.Scene) -> bpy.types.Collection:
+	collection = bpy.data.collections.get(CHECKOUT_COLLECTION_NAME)
+	if collection is None:
+		collection = bpy.data.collections.new(CHECKOUT_COLLECTION_NAME)
+	if CHECKOUT_COLLECTION_NAME not in {child.name for child in scene.collection.children}:
+		scene.collection.children.link(collection)
+	return collection
+
+
+def _assign_to_checkout_collection(obj: bpy.types.Object, checkout_collection: bpy.types.Collection) -> None:
+	if checkout_collection not in obj.users_collection:
+		checkout_collection.objects.link(obj)
+	for other in tuple(obj.users_collection):
+		if other != checkout_collection:
+			other.objects.unlink(obj)
 
 def _has_uid_suffix(name: str) -> bool:
 	parts = name.rsplit('_', 1)
@@ -73,6 +90,8 @@ class GITBLEND_OT_Single_Object_Checkout(bpy.types.Operator):
 
 		# Remove UID suffix to finalize the object
 		selected_obj.name = base_name
+		checkout_collection = _ensure_checkout_collection(context.scene)
+		_assign_to_checkout_collection(selected_obj, checkout_collection)
 		self.report({'INFO'}, f"Finalized: {base_name}")
 		
 		return {'FINISHED'}
@@ -100,6 +119,7 @@ class GITBLEND_OT_PreCheckout(bpy.types.Operator):
 
 		try:
 			imported_count = 0
+			checkout_collection = _ensure_checkout_collection(context.scene)
 			# Load all .blend files from the objects directory
 			for blend_file in objects_dir.glob("*.blend"):
 				with bpy.data.libraries.load(str(blend_file), link=False) as (data_from, data_to):
@@ -113,7 +133,7 @@ class GITBLEND_OT_PreCheckout(bpy.types.Operator):
 					if obj is not None:
 						# Add UID suffix to the object name
 						obj.name = f"{original_name}_{index.uid}"
-						context.collection.objects.link(obj)
+						_assign_to_checkout_collection(obj, checkout_collection)
 						imported_count += 1
 					
 			if imported_count > 0:
@@ -153,6 +173,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
 			try:
 				imported_count = 0
 				removed_count = 0
+				checkout_collection = _ensure_checkout_collection(context.scene)
 				# Load all .blend files from the objects directory
 				for blend_file in objects_dir.glob("*.blend"):
 					with bpy.data.libraries.load(str(blend_file), link=False) as (data_from, data_to):
@@ -166,7 +187,7 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
 							continue
 						removed_count += _remove_existing_object_variants(original_name)
 						obj.name = original_name
-						context.collection.objects.link(obj)
+						_assign_to_checkout_collection(obj, checkout_collection)
 						imported_count += 1
 				
 				message = f"Imported {imported_count} object(s)"
@@ -179,12 +200,14 @@ class GITBLEND_OT_Checkout(bpy.types.Operator):
 		else:
 			# Finalize objects by removing UID suffix
 			finalized_count = 0
+			checkout_collection = _ensure_checkout_collection(context.scene)
 			for obj in temp_objects:
 				# Remove UID suffix
 				base_name = _base_name_from_uid(obj.name)
 				if base_name:
 					_remove_existing_object_variants(base_name, preserve={obj})
 					obj.name = base_name
+					_assign_to_checkout_collection(obj, checkout_collection)
 					finalized_count += 1
 					
 			self.report({'INFO'}, f"Finalized {finalized_count} object(s) from preview")
